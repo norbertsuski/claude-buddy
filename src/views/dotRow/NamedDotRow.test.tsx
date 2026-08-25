@@ -100,6 +100,19 @@ describe('NamedDotRow', () => {
 
     expect(screen.queryByTestId('overflow')).not.toBeInTheDocument()
   })
+
+  it('gives every state its own dot class so shape can differ, not just hue', () => {
+    const states: SessionState[] = ['waiting', 'busy', 'idle', 'paused', 'dead']
+    const sessions = states.map((state, i) => session(`project${i}-11`, state))
+
+    const { container } = render(
+      <NamedDotRow sessions={sessions} hoveredSessionId={null} onHoverSession={vi.fn()} />,
+    )
+
+    for (const state of states) {
+      expect(container.querySelector(`.dot-${state}`)).not.toBeNull()
+    }
+  })
 })
 
 

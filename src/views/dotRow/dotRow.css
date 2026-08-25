@@ -133,11 +133,96 @@ body {
   transition: background 220ms var(--ease), box-shadow 220ms var(--ease);
 }
 
-.dot-waiting { background: var(--waiting); box-shadow: 0 0 0 4px rgba(245, 165, 36, 0.2); }
-.dot-busy    { background: var(--busy);    box-shadow: 0 0 0 4px rgba(63, 185, 80, 0.2); }
-.dot-idle    { background: var(--idle); }
-.dot-paused  { background: var(--paused); }
-.dot-dead    { background: var(--dead);    box-shadow: 0 0 0 4px rgba(224, 83, 61, 0.18); }
+/* State is carried by shape as well as hue. Colour alone is unreadable to a
+   red-green colourblind user, and these five dots are the widget's entire
+   vocabulary. The box stays 11px in every case, so pill metrics do not move. */
+.dot {
+  box-sizing: border-box;
+}
+
+/* Waiting: a triangle, the one shape that reads as "attend to me".
+   The triangle is drawn on ::before rather than by clipping the dot itself: a
+   clip-path on .dot-waiting would also clip its ::after pulse ring, which is
+   inset -5px and would vanish entirely. */
+.dot-waiting {
+  background: transparent;
+  box-shadow: none;
+}
+
+.dot-waiting::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--waiting);
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+}
+
+/* Busy: solid. */
+.dot-busy {
+  background: var(--busy);
+  box-shadow: 0 0 0 4px rgba(63, 185, 80, 0.2);
+}
+
+/* Idle: hollow. Present, doing nothing. */
+.dot-idle {
+  background: transparent;
+  border: 2px solid var(--idle);
+}
+
+/* Paused: the two-bar pause glyph. A dashed circle was the first attempt and
+   WebKit draws it as two lonely arc fragments at this size — unreadable, and
+   too close to idle's ring anyway. Percentages, not pixels, so the bars keep
+   their proportions when a background job scales the dot down. */
+.dot-paused {
+  background: transparent;
+  box-shadow: none;
+}
+
+.dot-paused::before,
+.dot-paused::after {
+  content: '';
+  position: absolute;
+  top: 4%;
+  bottom: 4%;
+  width: 31%;
+  background: var(--paused);
+  border-radius: 1px;
+}
+
+.dot-paused::before {
+  left: 8%;
+}
+
+.dot-paused::after {
+  right: 8%;
+}
+
+/* Dead: a cross drawn from two bars, since there is no border style for it. */
+.dot-dead {
+  background: transparent;
+  box-shadow: none;
+}
+
+.dot-dead::before,
+.dot-dead::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  margin-top: -1px;
+  background: var(--dead);
+  border-radius: 1px;
+}
+
+.dot-dead::before {
+  transform: rotate(45deg);
+}
+
+.dot-dead::after {
+  transform: rotate(-45deg);
+}
 
 /* A session waiting on you is the one thing worth drawing the eye.
    The ring is a pseudo-element animating transform and opacity rather than the
