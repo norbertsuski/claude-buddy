@@ -166,8 +166,7 @@ CLAWDE_BUDDY_REGISTRY_DIR=/path/to/sessions CLAWDE_BUDDY_PROJECTS_DIR=/path/to/p
 
 `.gitlab-ci.yml` builds and publishes on a tag: it runs the build, uploads the DMG to the Generic Packages registry and attaches it to a Release. A `.app` cannot be cross-compiled from Linux, so that job needs a macOS runner, and there are two ways to have one:
 
-- **GitLab's hosted macOS runners** — Premium or Ultimate only; there is no free tier. Keep `MACOS_RUNNER_TAG` as shipped.
-- **Your own Mac as a project runner** — free, and it already has the toolchain:
+- **Your own Mac as a project runner** — free, and it already has the toolchain. This is what `MACOS_RUNNER_TAG: macos` in the shipped config expects:
 
   ```bash
   brew install gitlab-runner
@@ -175,7 +174,9 @@ CLAWDE_BUDDY_REGISTRY_DIR=/path/to/sessions CLAWDE_BUDDY_PROJECTS_DIR=/path/to/p
   brew services start gitlab-runner
   ```
 
-  Then set `MACOS_RUNNER_TAG: macos` in `.gitlab-ci.yml`. A shell executor ignores `MACOS_IMAGE`.
+  Create the runner first under *Settings → CI/CD → Runners → New project runner* with the tag `macos`, then register with the token it gives you. A shell executor ignores `MACOS_IMAGE`, and the job puts Volta, Cargo and Homebrew on `PATH` itself, because a shell executor inherits almost none.
+
+- **GitLab's hosted macOS runners** — Premium or Ultimate only; there is no free tier. Set `MACOS_RUNNER_TAG` to `saas-macos-medium-m1` and keep `MACOS_IMAGE`.
 
 Without any runner, build locally and run `GITLAB_TOKEN=... scripts/publish-release.sh v0.1.0`, which performs the same upload and release creation over the API.
 

@@ -12,9 +12,10 @@
 stages: [build, release]
 
 variables:
-  # saas-macos-medium-m1 or saas-macos-large-m2pro for hosted runners; your own
-  # runner's tag otherwise.
-  MACOS_RUNNER_TAG: saas-macos-medium-m1
+  # This project builds on a self-hosted Mac tagged `macos`. For GitLab's
+  # hosted runners instead, use saas-macos-medium-m1 or saas-macos-large-m2pro
+  # (Premium or Ultimate only).
+  MACOS_RUNNER_TAG: macos
   # Hosted-runner VM image. Ignored by a shell executor.
   MACOS_IMAGE: macos-15-xcode-16
   PACKAGE_NAME: clawde-buddy
@@ -26,10 +27,14 @@ build:dmg:
   rules:
     - if: $CI_COMMIT_TAG
   before_script:
+    # A shell executor inherits almost no PATH, so the toolchains have to be
+    # named explicitly. Harmless on a hosted runner, where these do not exist.
+    - export PATH="$HOME/.volta/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
     # Hosted images ship Node and Xcode but not necessarily Rust; a self-hosted
     # Mac usually has both already, so only install what is missing.
     - command -v cargo >/dev/null || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
     - '[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env" || true'
+    - node --version && npm --version && cargo --version
     - npm ci
   script:
     - npm run tauri build
