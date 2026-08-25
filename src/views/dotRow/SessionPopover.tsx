@@ -6,6 +6,28 @@ import './dotRow.css'
 
 const EMPTY: TranscriptDetail = { branch: null, model: null, effort: null }
 
+/** How often the popover recomputes its ages. */
+const TICK_MS = 1000
+
+/**
+ * Wall-clock now, refreshed on an interval.
+ *
+ * The watcher deliberately does not re-emit for the passage of time — its
+ * change fingerprint ignores clock-derived fields so the row does not re-render
+ * twice a second. That means `elapsedMs` on a snapshot is the age at the moment
+ * state last changed, which for anything sitting still is wrong and stays
+ * wrong. The clock therefore lives here, where the value is displayed, and only
+ * the open popover re-renders.
+ */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), TICK_MS)
+    return () => clearInterval(timer)
+  }, [])
+  return now
+}
+
 function dash(value: string | null | undefined): string {
   return value && value.length > 0 ? value : '—'
 }
@@ -13,6 +35,7 @@ function dash(value: string | null | undefined): string {
 export function SessionPopover({ session }: { session: SessionSnapshot }) {
   const [detail, setDetail] = useState<TranscriptDetail>(EMPTY)
   const [error, setError] = useState<string | null>(null)
+  const now = useNow()
 
   // Transcript fields are fetched per hover rather than for every session on
   // every tick: reading them eagerly would tail a file per session twice a
@@ -37,7 +60,9 @@ export function SessionPopover({ session }: { session: SessionSnapshot }) {
     )
   }
 
-  const stateLine = `${session.detail ?? session.state} · ${formatElapsed(session.elapsedMs)}`
+  const elapsedMs = Math.max(0, now - session.statusTimeMs)
+  const uptimeMs = Math.max(0, now - session.startedAtMs)
+  const stateLine = `${session.detail ?? session.state} · ${formatElapsed(elapsedMs)}`
   const modelLine = detail.model
     ? `${detail.model}${detail.effort ? ` · ${detail.effort}` : ''}`
     : '—'
@@ -71,7 +96,7 @@ export function SessionPopover({ session }: { session: SessionSnapshot }) {
         <dd data-testid="popover-model">{modelLine}</dd>
         <dt>proc</dt>
         <dd data-testid="popover-proc">
-          {session.entrypoint} · pid {session.pid} · {formatElapsed(session.uptimeMs)}
+          {session.entrypoint} · pid {session.pid} · {formatElapsed(uptimeMs)}
         </dd>
       </dl>
       {error === null ? (

@@ -14,6 +14,10 @@ export interface SessionSnapshot {
   detail: string | null
   elapsedMs: number
   uptimeMs: number
+  /** Absolute epoch ms the current state began; the popover ticks from this. */
+  statusTimeMs: number
+  /** Absolute epoch ms the session started. */
+  startedAtMs: number
   /** A background job or subagent, not a session you answer. */
   background: boolean
 }

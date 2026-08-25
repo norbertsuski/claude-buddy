@@ -82,6 +82,8 @@ mod tests {
             },
             elapsed_ms: 0,
             uptime_ms: 0,
+            status_time_ms: 0,
+            started_at_ms: 0,
             background: false,
         }
     }

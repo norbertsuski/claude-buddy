@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionSnapshot } from '../../types'
@@ -7,6 +7,9 @@ const invoke = vi.fn()
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }))
 
 const { SessionPopover } = await import('./SessionPopover')
+
+/** Captured once so the fixture's absolute timestamps stay a fixed age apart. */
+const NOW = Date.now()
 
 const session: SessionSnapshot = {
   pid: 7952,
@@ -18,6 +21,8 @@ const session: SessionSnapshot = {
   detail: 'input needed',
   elapsedMs: 360_000,
   uptimeMs: 24_900_000,
+  statusTimeMs: NOW - 360_000,
+  startedAtMs: NOW - 24_900_000,
   background: false,
 }
 
@@ -106,6 +111,31 @@ describe('SessionPopover', () => {
     await waitFor(() => {
       expect(screen.getByTestId('popover-error')).toHaveTextContent('no host application')
     })
+  })
+
+
+  it('advances elapsed and uptime as time passes, without new props', () => {
+    // Regression: the watcher only re-emits when state changes, so a snapshot's
+    // elapsedMs is the age at the moment state last changed. A session blocked
+    // for twenty minutes reported the two seconds it took to notice.
+    vi.useFakeTimers()
+    const now = 1_700_000_000_000
+    vi.setSystemTime(now)
+
+    render(
+      <SessionPopover
+        session={{ ...session, statusTimeMs: now - 65_000, startedAtMs: now - 5 * 60_000 }}
+      />,
+    )
+    expect(screen.getByTestId('popover-state')).toHaveTextContent('input needed · 1m')
+
+    act(() => {
+      vi.advanceTimersByTime(60_000)
+    })
+
+    expect(screen.getByTestId('popover-state')).toHaveTextContent('input needed · 2m')
+    expect(screen.getByTestId('popover-proc')).toHaveTextContent('6m')
+    vi.useRealTimers()
   })
 
 })

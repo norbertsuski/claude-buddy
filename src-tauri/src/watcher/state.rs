@@ -81,6 +81,13 @@ pub struct SessionSnapshot {
     /// has not recorded a status time.
     pub elapsed_ms: i64,
     pub uptime_ms: i64,
+    /// Absolute epoch time the current state began. The frontend derives a
+    /// live elapsed value from this: `fingerprint` deliberately ignores
+    /// clock-derived fields, so `elapsed_ms` is only refreshed when state
+    /// changes and is stale for anything sitting still.
+    pub status_time_ms: i64,
+    /// Absolute epoch time the session started.
+    pub started_at_ms: i64,
     /// A background job or subagent, not a session the user answers.
     pub background: bool,
 }
@@ -165,6 +172,8 @@ pub fn snapshot(
                 },
                 elapsed_ms,
                 uptime_ms: age(now_ms, f.started_at),
+                status_time_ms: status_time,
+                started_at_ms: f.started_at,
                 background: is_background_job(f.kind.as_deref(), f.job_id.as_deref()),
             }
         })
@@ -608,6 +617,26 @@ mod tests {
         f.started_at = NOW - DEAD_RETENTION_MS - 1;
         f.status_updated_at = None;
         assert!(snapshot(&[f], &FakeLiveness::new(), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true).is_empty());
+    }
+
+    #[test]
+    fn snapshot_carries_absolute_timestamps_alongside_derived_ages() {
+        let mut f = file(1, "cli");
+        f.status_updated_at = Some(NOW - 6 * 60_000);
+
+        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+
+        assert_eq!(out[0].status_time_ms, NOW - 6 * 60_000);
+        assert_eq!(out[0].started_at_ms, NOW - 60_000);
+        assert_eq!(out[0].elapsed_ms, 6 * 60_000);
+    }
+
+    #[test]
+    fn status_time_falls_back_to_started_at_when_absent() {
+        let f = file(1, "cli");
+        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+        assert_eq!(out[0].status_time_ms, NOW - 60_000);
+        assert_eq!(out[0].started_at_ms, NOW - 60_000);
     }
 
     #[test]
