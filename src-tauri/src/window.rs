@@ -57,6 +57,7 @@ pub fn configure_panel(window: &WebviewWindow) -> Result<(), String> {
 pub fn build_tray_menu(app: &AppHandle) -> tauri::Result<()> {
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let mute = MenuItem::with_id(app, "mute", "Mute alerts 1h", true, None::<&str>)?;
+    let update = MenuItem::with_id(app, "update", "Install update", true, None::<&str>)?;
 
     let quit = MenuItem::with_id(app, "quit", "Quit clawde-buddy", true, None::<&str>)?;
 
@@ -65,6 +66,7 @@ pub fn build_tray_menu(app: &AppHandle) -> tauri::Result<()> {
         &[
             &settings,
             &mute,
+            &update,
             &PredefinedMenuItem::separator(app)?,
             &quit,
         ],
@@ -86,6 +88,7 @@ pub fn build_tray_menu(app: &AppHandle) -> tauri::Result<()> {
                 let _ = crate::config::save(&path, &settings);
             }
             "settings" => open_settings(app),
+            "update" => crate::update::install(app.clone()),
             _ => {}
         })
         .build(app)?;

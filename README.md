@@ -180,6 +180,45 @@ CLAWDE_BUDDY_REGISTRY_DIR=/path/to/sessions CLAWDE_BUDDY_PROJECTS_DIR=/path/to/p
 
 Without any runner, build locally and run `GITLAB_TOKEN=... scripts/publish-release.sh v0.1.0`, which performs the same upload and release creation over the API.
 
+### Signing updates
+
+The app checks for a newer release on launch and only tells you about it;
+*Install update* in the tray menu does the install. The updater refuses
+anything it cannot verify, so a release needs a minisign keypair. This is
+separate from Apple code signing — it secures the update channel, not
+Gatekeeper.
+
+```bash
+npm run tauri signer generate -- -w ~/.tauri/clawde-buddy.key
+```
+
+Put the printed public key in `src-tauri/tauri.conf.json` under
+`plugins.updater.pubkey`, which ships empty, and add the private key and its
+password to GitLab under *Settings → CI/CD → Variables*, both masked:
+
+- `TAURI_SIGNING_PRIVATE_KEY` — the contents of `~/.tauri/clawde-buddy.key`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — the password you chose
+
+`plugins.updater.endpoints` already points at this project's package registry,
+addressed by path rather than by numeric id, so it needs no editing.
+
+**No key is committed, so as shipped the updater is switched off**: with an
+empty `pubkey` the plugin is never registered, the launch check and the tray
+item both return silently, and the app stays on the version you installed.
+
+That keylessness is also why `bundle.createUpdaterArtifacts` is `false` here.
+`tauri build` refuses to bundle an update tarball for a public key it cannot
+also sign, so leaving it on would break `npm run tauri build` for anyone
+without the private key. The tag pipeline turns it on for itself when
+`TAURI_SIGNING_PRIVATE_KEY` is set, publishing `clawde-buddy.app.tar.gz`, its
+`.sig` and a `latest.json` manifest alongside the DMG; without the variables it
+skips all three and releases the DMG alone. To bundle a signed tarball by hand:
+
+```bash
+TAURI_SIGNING_PRIVATE_KEY=$(cat ~/.tauri/clawde-buddy.key) \
+  npm run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":true}}'
+```
+
 ## Design documents
 
 The spec and implementation plan this was built from are kept in the repo:

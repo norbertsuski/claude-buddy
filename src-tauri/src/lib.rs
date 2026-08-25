@@ -3,6 +3,7 @@ pub mod commands;
 pub mod cursor;
 pub mod config;
 pub mod notify;
+pub mod update;
 pub mod visibility;
 pub mod watcher;
 pub mod window;
@@ -38,6 +39,14 @@ pub fn run() {
             // LSUIElement for the bundled app; this covers `tauri dev`, which
             // runs the bare binary.
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+            // Only when a signing key is configured; see `update::is_configured`.
+            // The registration is allowed to fail rather than taking the app
+            // down with it — an app that will not start because it cannot
+            // check for its own update is worse than one that never checks.
+            if crate::update::is_configured(app.config().plugins.0.get("updater")) {
+                let _ = app.handle().plugin(tauri_plugin_updater::Builder::new().build());
+            }
 
             let widget = app
                 .get_webview_window("widget")
@@ -86,6 +95,8 @@ pub fn run() {
 
             // Keep the handle alive for the process lifetime.
             app.manage(watcher);
+
+            crate::update::check_on_launch(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())

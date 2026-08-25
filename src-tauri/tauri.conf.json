@@ -42,6 +42,15 @@
     ],
     "macOS": {
       "minimumSystemVersion": "13.0"
+    },
+    "createUpdaterArtifacts": false
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://gitlab.com/api/v4/projects/norbert.suski%2Fclawde-buddy/packages/generic/clawde-buddy/latest/latest.json"
+      ],
+      "pubkey": ""
     }
   }
 }
