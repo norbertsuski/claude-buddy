@@ -44,7 +44,7 @@ describe('App routing', () => {
   it('renders settings on the settings route and marks the body opaque', async () => {
     window.location.hash = '#settings'
     const config = {
-      viewMode: 'dotRow',
+      hideWhen: 'noSessions',
       pausedThresholdMs: 600_000,
       alertNeedsInput: true,
       alertDied: true,

@@ -9,7 +9,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(
 const { SettingsPanel } = await import('./SettingsPanel')
 
 const config: AppConfig = {
-  viewMode: 'dotRow',
+  hideWhen: 'noSessions',
   pausedThresholdMs: 600_000,
   alertNeedsInput: true,
   alertDied: true,
@@ -88,12 +88,24 @@ describe('SettingsPanel', () => {
     )
   })
 
-  it('offers every view mode', async () => {
+  it('has no view mode control', async () => {
     render(<SettingsPanel onClose={vi.fn()} />)
 
-    await waitFor(() => expect(screen.getByLabelText('View mode')).toBeInTheDocument())
-    expect(screen.getByRole('option', { name: 'Dot row' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Character buddy' })).toBeInTheDocument()
+    await screen.findByTestId('settings')
+    expect(screen.queryByLabelText('View mode')).toBeNull()
+  })
+
+  it('changes when the widget hides', async () => {
+    render(<SettingsPanel onClose={vi.fn()} />)
+
+    const select = await screen.findByLabelText('Hide the widget')
+    await userEvent.selectOptions(select, 'nothingActive')
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('set_config', {
+        config: expect.objectContaining({ hideWhen: 'nothingActive' }),
+      }),
+    )
   })
 
   it('surfaces a rejected save instead of silently dropping it', async () => {

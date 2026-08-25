@@ -49,7 +49,6 @@ export const UPDATE_EVENT = 'sessions://update'
 
 // Mirrors src-tauri/src/config.rs.
 export interface AppConfig {
-  viewMode: string
   pausedThresholdMs: number
   alertNeedsInput: boolean
   alertDied: boolean
@@ -58,17 +57,18 @@ export interface AppConfig {
   muteUntilMs: number
   launchAtLogin: boolean
   showBackgroundJobs: boolean
+  /** When the widget takes itself off screen; mirrors visibility::HIDE_MODES. */
+  hideWhen: string
   /** Display key to show the widget on, or null for the primary display. */
   preferredDisplay: string | null
   positions: Record<string, [number, number]>
 }
 
-/** `shipped: false` modes are listed but not selectable until their own plan lands. */
-export const VIEW_MODES = [
-  { id: 'dotRow', label: 'Dot row', shipped: true },
-  { id: 'cardStack', label: 'Card stack', shipped: false },
-  { id: 'characterBuddy', label: 'Character buddy', shipped: false },
-  { id: 'invisible', label: 'Invisible until needed', shipped: false },
+/** Mirrors visibility::HIDE_MODES in Rust. */
+export const HIDE_MODES = [
+  { id: 'never', label: 'Never' },
+  { id: 'noSessions', label: 'When there are no sessions' },
+  { id: 'nothingActive', label: 'When nothing is waiting or working' },
 ] as const
 
 /** One attached display, from the `list_displays` command. */

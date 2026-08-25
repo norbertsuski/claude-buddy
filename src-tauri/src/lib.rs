@@ -3,6 +3,7 @@ pub mod commands;
 pub mod cursor;
 pub mod config;
 pub mod notify;
+pub mod visibility;
 pub mod watcher;
 pub mod window;
 
@@ -67,6 +68,18 @@ pub fn run() {
                         .state::<crate::watcher::watch::SnapshotStore>()
                         .set(update.sessions.clone());
                     crate::notify::deliver(&handle, &update.alerts);
+
+                    let hide = crate::visibility::should_hide(
+                        &update.sessions,
+                        &crate::config::cached().hide_when,
+                    );
+                    let visibility_handle = handle.clone();
+                    // Panel calls must run on the main thread; the watcher is
+                    // its own thread.
+                    let _ = handle.run_on_main_thread(move || {
+                        crate::window::set_widget_visible(&visibility_handle, !hide);
+                    });
+
                     let _ = handle.emit(UPDATE_EVENT, &update);
                 },
             );

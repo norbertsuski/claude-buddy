@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { VIEW_MODES, type AppConfig, type DisplayInfo } from '../types'
+import { HIDE_MODES, type AppConfig, type DisplayInfo } from '../types'
 import './settings.css'
 
 export function SettingsPanel({ onClose }: { onClose: () => void }) {
@@ -36,14 +36,14 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="settings" data-testid="settings">
-      <label htmlFor="view-mode">View mode</label>
+      <label htmlFor="hide-when">Hide the widget</label>
       <select
-        id="view-mode"
-        value={config.viewMode}
-        onChange={(e) => update({ viewMode: e.target.value })}
+        id="hide-when"
+        value={config.hideWhen}
+        onChange={(e) => update({ hideWhen: e.target.value })}
       >
-        {VIEW_MODES.map((mode) => (
-          <option key={mode.id} value={mode.id} disabled={!mode.shipped}>
+        {HIDE_MODES.map((mode) => (
+          <option key={mode.id} value={mode.id}>
             {mode.label}
           </option>
         ))}

@@ -1,4 +1,4 @@
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 use tauri::{AppHandle, LogicalPosition, LogicalSize, WebviewWindow, WebviewWindowBuilder, WebviewUrl};
@@ -58,20 +58,6 @@ pub fn build_tray_menu(app: &AppHandle) -> tauri::Result<()> {
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let mute = MenuItem::with_id(app, "mute", "Mute alerts 1h", true, None::<&str>)?;
 
-    // Only the dot row renderer exists in v1. The other three are listed but
-    // disabled so the menu reflects the plan without offering a mode that would
-    // render nothing; the separate view-modes plan enables them.
-    let dot_row = MenuItem::with_id(app, "view:dotRow", "Dot row", true, None::<&str>)?;
-    let card_stack = MenuItem::with_id(app, "view:cardStack", "Card stack", false, None::<&str>)?;
-    let buddy = MenuItem::with_id(app, "view:characterBuddy", "Character buddy", false, None::<&str>)?;
-    let invisible = MenuItem::with_id(app, "view:invisible", "Invisible until needed", false, None::<&str>)?;
-    let views = Submenu::with_items(
-        app,
-        "View mode",
-        true,
-        &[&dot_row, &card_stack, &buddy, &invisible],
-    )?;
-
     let quit = MenuItem::with_id(app, "quit", "Quit clawde-buddy", true, None::<&str>)?;
 
     let menu = Menu::with_items(
@@ -79,8 +65,6 @@ pub fn build_tray_menu(app: &AppHandle) -> tauri::Result<()> {
         &[
             &settings,
             &mute,
-            &PredefinedMenuItem::separator(app)?,
-            &views,
             &PredefinedMenuItem::separator(app)?,
             &quit,
         ],
@@ -102,17 +86,33 @@ pub fn build_tray_menu(app: &AppHandle) -> tauri::Result<()> {
                 let _ = crate::config::save(&path, &settings);
             }
             "settings" => open_settings(app),
-            id if id.starts_with("view:") => {
-                let path = crate::config::config_path();
-                let mut settings = crate::config::load(&path);
-                settings.view_mode = id.trim_start_matches("view:").to_string();
-                let _ = crate::config::save(&path, &settings);
-            }
             _ => {}
         })
         .build(app)?;
 
     Ok(())
+}
+
+/// Put the widget on or off screen.
+///
+/// `order_out` rather than closing: the panel keeps its configuration, its
+/// level and its collection behaviour, so coming back is a single call rather
+/// than a rebuild. Re-showing restores the saved position, because a widget
+/// that reappears somewhere else reads as a bug.
+pub fn set_widget_visible(app: &AppHandle, visible: bool) {
+    let Ok(panel) = app.get_webview_panel("widget") else {
+        return;
+    };
+    if visible {
+        if !panel.is_visible() {
+            panel.show();
+            if let Some(widget) = app.get_webview_window("widget") {
+                restore_position(&widget);
+            }
+        }
+    } else if panel.is_visible() {
+        panel.order_out(None);
+    }
 }
 
 /// Open the settings window, or focus it if it is already open.
