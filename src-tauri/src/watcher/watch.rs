@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -103,20 +104,37 @@ pub fn spawn_watcher(
             let _ = w.watch(&dir, RecursiveMode::NonRecursive);
         }
 
+        // Session id to the timestamp of the first tick on which it read as
+        // dead. Rebuilt each tick from what is still dead, so it cannot grow.
+        let mut first_seen_dead: HashMap<String, i64> = HashMap::new();
+
         let mut previous: Option<Vec<SessionSnapshot>> = None;
 
         while !stop_thread.load(Ordering::Relaxed) {
             // Read settings per tick, from the cache, so changing the paused
             // threshold or the background-jobs toggle takes effect at once.
             let settings = crate::config::cached();
-            let sessions = snapshot(
+            let now = now_ms();
+            let result = snapshot(
                 &read_registry_dir(&dir),
                 liveness.as_ref(),
                 activity.as_ref(),
-                now_ms(),
+                now,
                 settings.paused_threshold_ms,
                 settings.show_background_jobs,
+                &first_seen_dead,
             );
+
+            first_seen_dead = result
+                .dead_now
+                .iter()
+                .map(|id| {
+                    let since = first_seen_dead.get(id).copied().unwrap_or(now);
+                    (id.clone(), since)
+                })
+                .collect();
+
+            let sessions = result.sessions;
 
             let changed = previous
                 .as_ref()
@@ -219,7 +237,9 @@ mod tests {
             now_ms(),
             PAUSED_THRESHOLD_MS,
             true,
-        );
+            &HashMap::new(),
+        )
+        .sessions;
         store.set(sessions.clone());
         assert_eq!(store.get(), sessions);
     }

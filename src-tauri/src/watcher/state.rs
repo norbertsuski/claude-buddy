@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::Serialize;
 
 use crate::watcher::activity::ActivityProbe;
@@ -109,6 +111,18 @@ fn display_name(file: &RegistryFile) -> String {
         .to_string()
 }
 
+/// One derivation pass.
+///
+/// `dead_now` lists every session observed dead this tick, *including* those
+/// the retention filter removed — the caller keys its first-seen-dead map off
+/// this, and dropping the entry for a session that is still dead would make it
+/// look newly dead again on the next tick.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SnapshotResult {
+    pub sessions: Vec<SessionSnapshot>,
+    pub dead_now: Vec<String>,
+}
+
 /// Derive every session's state. Pure: all time and all liveness are injected,
 /// so the whole state machine is testable without a filesystem or a clock.
 pub fn snapshot(
@@ -118,8 +132,9 @@ pub fn snapshot(
     now_ms: i64,
     paused_threshold_ms: i64,
     include_background: bool,
-) -> Vec<SessionSnapshot> {
-    let mut out: Vec<SessionSnapshot> = files
+    first_seen_dead: &HashMap<String, i64>,
+) -> SnapshotResult {
+    let derived: Vec<SessionSnapshot> = files
         .iter()
         .filter(|f| {
             f.entrypoint
@@ -177,8 +192,31 @@ pub fn snapshot(
                 background: is_background_job(f.kind.as_deref(), f.job_id.as_deref()),
             }
         })
-        // A crash is worth showing once, not forever.
-        .filter(|s| s.state != SessionState::Dead || s.elapsed_ms <= DEAD_RETENTION_MS)
+        .collect();
+
+    // Every session seen dead, recorded before retention can remove any of them.
+    let dead_now: Vec<String> = derived
+        .iter()
+        .filter(|s| s.state == SessionState::Dead)
+        .map(|s| s.session_id.clone())
+        .collect();
+
+    // A crash is worth showing once, not forever. Measured from when death was
+    // first observed: `statusUpdatedAt` is the age of the last status write,
+    // which for a session that had been quiet a while is already past the
+    // window, so it would be filtered out before it could ever be shown.
+    let mut out: Vec<SessionSnapshot> = derived
+        .into_iter()
+        .filter(|s| {
+            if s.state != SessionState::Dead {
+                return true;
+            }
+            let since = first_seen_dead
+                .get(&s.session_id)
+                .copied()
+                .unwrap_or(now_ms);
+            age(now_ms, since) <= DEAD_RETENTION_MS
+        })
         .collect();
 
     out.sort_by(|a, b| {
@@ -189,7 +227,10 @@ pub fn snapshot(
             .then(a.pid.cmp(&b.pid))
     });
 
-    group_jobs_with_parents(out)
+    SnapshotResult {
+        sessions: group_jobs_with_parents(out),
+        dead_now,
+    }
 }
 
 /// Reorder so each background job follows the session it belongs to.
@@ -261,7 +302,7 @@ mod tests {
         f.waiting_for = Some("input needed".into());
         f.status_updated_at = Some(NOW - 6 * 60_000);
 
-        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].state, SessionState::Waiting);
@@ -275,7 +316,7 @@ mod tests {
         f.status = Some("busy".into());
         f.status_updated_at = Some(NOW - 3 * 60_000);
 
-        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out[0].state, SessionState::Busy);
         assert_eq!(out[0].detail, None);
@@ -285,7 +326,7 @@ mod tests {
     fn absent_status_within_threshold_yields_idle() {
         let mut f = file(1, "cli");
         f.status_updated_at = Some(NOW - 60_000);
-        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true)[0].state, SessionState::Idle);
+        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Idle);
     }
 
     #[test]
@@ -293,7 +334,7 @@ mod tests {
         let mut f = file(1, "cli");
         f.status = Some("idle".into());
         f.status_updated_at = Some(NOW - 60_000);
-        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true)[0].state, SessionState::Idle);
+        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Idle);
     }
 
     #[test]
@@ -301,21 +342,21 @@ mod tests {
         let mut f = file(1, "cli");
         f.status = Some("running".into());
         f.status_updated_at = Some(NOW - 60_000);
-        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true)[0].state, SessionState::Idle);
+        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Idle);
     }
 
     #[test]
     fn idle_past_threshold_yields_paused() {
         let mut f = file(1, "cli");
         f.status_updated_at = Some(NOW - 11 * 60_000);
-        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true)[0].state, SessionState::Paused);
+        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Paused);
     }
 
     #[test]
     fn paused_boundary_is_inclusive() {
         let mut f = file(1, "cli");
         f.status_updated_at = Some(NOW - PAUSED_THRESHOLD_MS);
-        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true)[0].state, SessionState::Paused);
+        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Paused);
     }
 
     #[test]
@@ -323,7 +364,7 @@ mod tests {
         let mut f = file(1, "cli");
         f.status = Some("busy".into());
         f.status_updated_at = Some(NOW - 60 * 60_000);
-        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true)[0].state, SessionState::Busy);
+        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Busy);
     }
 
     #[test]
@@ -332,14 +373,14 @@ mod tests {
         f.status = Some("waiting".into());
         f.waiting_for = Some("input needed".into());
         f.status_updated_at = Some(NOW - 60 * 60_000);
-        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true)[0].state, SessionState::Waiting);
+        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Waiting);
     }
 
     #[test]
     fn dead_process_yields_dead_regardless_of_status() {
         let mut f = file(1, "cli");
         f.status = Some("busy".into());
-        let out = snapshot(&[f], &FakeLiveness::new(), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[f], &FakeLiveness::new(), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
         assert_eq!(out[0].state, SessionState::Dead);
     }
 
@@ -351,7 +392,7 @@ mod tests {
             .with_alive_any_start(2)
             .with_alive_any_start(3);
 
-        let out = snapshot(&files, &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&files, &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out.iter().map(|s| s.pid).collect::<Vec<_>>(), vec![1, 3]);
     }
@@ -378,7 +419,7 @@ mod tests {
             .with_alive_any_start(1)
             .with_alive_any_start(2)
             .with_alive_any_start(3);
-        let out = snapshot(&[owned, first, second], &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[owned, first, second], &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out.iter().map(|s| s.pid).collect::<Vec<_>>(), vec![1, 2, 3]);
         assert!(out[2].background);
@@ -390,7 +431,7 @@ mod tests {
         orphan.cwd = "/Users/n/Code/somewhere-else".into();
 
         let live = FakeLiveness::new().with_alive_any_start(1).with_alive_any_start(9);
-        let out = snapshot(&[orphan, file(1, "cli")], &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[orphan, file(1, "cli")], &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out.iter().map(|s| s.pid).collect::<Vec<_>>(), vec![1, 9]);
     }
@@ -407,7 +448,7 @@ mod tests {
             .with_alive_any_start(1)
             .with_alive_any_start(3)
             .with_alive_any_start(4);
-        let out = snapshot(&[a, b, parent], &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[a, b, parent], &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out.iter().map(|s| s.pid).collect::<Vec<_>>(), vec![1, 3, 4]);
     }
@@ -416,14 +457,14 @@ mod tests {
     fn background_jobs_are_dropped_when_the_setting_is_off() {
         let live = FakeLiveness::new().with_alive_any_start(1).with_alive_any_start(2);
 
-        let out = snapshot(&[job(1), file(2, "cli")], &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, false);
+        let out = snapshot(&[job(1), file(2, "cli")], &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, false, &HashMap::new()).sessions;
 
         assert_eq!(out.iter().map(|s| s.pid).collect::<Vec<_>>(), vec![2]);
     }
 
     #[test]
     fn a_session_is_never_marked_background() {
-        let out = snapshot(&[file(1, "cli")], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[file(1, "cli")], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
         assert!(!out[0].background);
     }
 
@@ -431,34 +472,34 @@ mod tests {
     fn a_background_entry_without_a_job_id_is_kept() {
         let mut bg = file(1, "cli");
         bg.kind = Some("bg".into());
-        assert_eq!(snapshot(&[bg], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true).len(), 1);
+        assert_eq!(snapshot(&[bg], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions.len(), 1);
     }
 
     #[test]
     fn sdk_kind_entries_are_filtered_out() {
         let mut f = file(1, "cli");
         f.kind = Some("sdk".into());
-        assert!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true).is_empty());
+        assert!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions.is_empty());
     }
 
     #[test]
     fn sessions_with_no_kind_are_filtered_out() {
         let mut f = file(1, "cli");
         f.kind = None;
-        assert!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true).is_empty());
+        assert!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions.is_empty());
     }
 
     #[test]
     fn sessions_with_no_entrypoint_are_filtered_out() {
         let mut f = file(1, "cli");
         f.entrypoint = None;
-        assert!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true).is_empty());
+        assert!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions.is_empty());
     }
 
     #[test]
     fn elapsed_falls_back_to_started_at_when_status_time_is_absent() {
         let f = file(1, "cli");
-        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
         assert_eq!(out[0].elapsed_ms, 60_000);
         assert_eq!(out[0].uptime_ms, 60_000);
     }
@@ -468,7 +509,7 @@ mod tests {
         // Clock skew must not render as a negative age.
         let mut f = file(1, "cli");
         f.status_updated_at = Some(NOW + 3 * 60_000);
-        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
         assert_eq!(out[0].elapsed_ms, 0);
         assert_eq!(out[0].state, SessionState::Idle);
     }
@@ -477,7 +518,7 @@ mod tests {
     fn missing_name_falls_back_to_the_cwd_basename() {
         let mut f = file(1, "cli");
         f.name = None;
-        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true)[0].name, "project-1");
+        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].name, "project-1");
     }
 
     #[test]
@@ -497,7 +538,7 @@ mod tests {
             .with_alive_any_start(30)
             .with_alive_any_start(40);
 
-        let out = snapshot(&[dead, paused, idle, busy, waiting], &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[dead, paused, idle, busy, waiting], &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out.iter().map(|s| s.pid).collect::<Vec<_>>(), vec![10, 20, 30, 40, 50]);
     }
@@ -513,7 +554,7 @@ mod tests {
         newer.status_updated_at = Some(NOW - 30_000);
 
         let live = FakeLiveness::new().with_alive_any_start(10).with_alive_any_start(20);
-        let out = snapshot(&[newer, older], &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[newer, older], &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out.iter().map(|s| s.pid).collect::<Vec<_>>(), vec![10, 20]);
     }
@@ -528,7 +569,7 @@ mod tests {
         f.proc_start = Some("Tue Aug 25 03:53:49 2026".into());
         f.status = Some("busy".into());
 
-        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out.len(), 1, "session must not be dropped as dead");
         assert_eq!(out[0].state, SessionState::Busy);
@@ -541,7 +582,7 @@ mod tests {
         let f = file(1, "claude-desktop");
         let probe = FakeActivity::new().with("session-1", NOW - 2_000);
 
-        let out = snapshot(&[f], &alive(1), &probe, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[f], &alive(1), &probe, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out[0].state, SessionState::Busy);
         assert_eq!(out[0].elapsed_ms, 2_000);
@@ -552,7 +593,7 @@ mod tests {
         let f = file(1, "claude-desktop");
         let probe = FakeActivity::new().with("session-1", NOW - 5 * 60_000);
 
-        let out = snapshot(&[f], &alive(1), &probe, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[f], &alive(1), &probe, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out[0].state, SessionState::Idle);
     }
@@ -563,7 +604,7 @@ mod tests {
         let probe = FakeActivity::new().with("session-1", NOW - 20 * 60_000);
 
         assert_eq!(
-            snapshot(&[f], &alive(1), &probe, NOW, PAUSED_THRESHOLD_MS, true)[0].state,
+            snapshot(&[f], &alive(1), &probe, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state,
             SessionState::Paused
         );
     }
@@ -572,7 +613,7 @@ mod tests {
     fn a_statusless_session_with_no_transcript_falls_back_to_session_age() {
         let f = file(1, "claude-desktop");
 
-        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out[0].state, SessionState::Idle);
         assert_eq!(out[0].elapsed_ms, 60_000);
@@ -588,35 +629,90 @@ mod tests {
         f.status_updated_at = Some(NOW - 4 * 60_000);
         let probe = FakeActivity::new().with("session-1", NOW - 1_000);
 
-        let out = snapshot(&[f], &alive(1), &probe, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[f], &alive(1), &probe, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out[0].state, SessionState::Waiting);
         assert_eq!(out[0].elapsed_ms, 4 * 60_000);
     }
 
     #[test]
+    fn a_long_idle_session_that_dies_is_shown_and_not_swallowed() {
+        // Regression: retention was measured from statusUpdatedAt, so a session
+        // quiet for longer than the retention window was filtered out on the
+        // very tick it was first seen dead — no red dot, and no died alert,
+        // because diff_alerts only sees what survives this filter.
+        let mut f = file(1, "cli");
+        f.status_updated_at = Some(NOW - 12 * 60_000);
+
+        let out = snapshot(
+            &[f], &FakeLiveness::new(), &NoActivity, NOW,
+            PAUSED_THRESHOLD_MS, true, &HashMap::new(),
+        );
+
+        assert_eq!(out.sessions.len(), 1);
+        assert_eq!(out.sessions[0].state, SessionState::Dead);
+        assert_eq!(out.dead_now, vec!["session-1".to_string()]);
+    }
+
+    #[test]
+    fn a_session_dead_longer_than_the_retention_window_drops_off() {
+        let mut f = file(1, "cli");
+        f.status_updated_at = Some(NOW - 60_000);
+        let seen = HashMap::from([("session-1".to_string(), NOW - DEAD_RETENTION_MS - 1)]);
+
+        let out = snapshot(
+            &[f], &FakeLiveness::new(), &NoActivity, NOW,
+            PAUSED_THRESHOLD_MS, true, &seen,
+        );
+
+        assert!(out.sessions.is_empty());
+    }
+
+    #[test]
+    fn a_session_dropped_by_retention_is_still_reported_as_dead_this_tick() {
+        // dead_now must list every session observed dead, including those the
+        // retention filter removed. Reporting only the survivors would drop the
+        // map entry, making the same session look newly dead on the next tick
+        // and resurrecting it forever.
+        let mut f = file(1, "cli");
+        f.status_updated_at = Some(NOW - 60_000);
+        let seen = HashMap::from([("session-1".to_string(), NOW - DEAD_RETENTION_MS - 1)]);
+
+        let out = snapshot(
+            &[f], &FakeLiveness::new(), &NoActivity, NOW,
+            PAUSED_THRESHOLD_MS, true, &seen,
+        );
+
+        assert_eq!(out.dead_now, vec!["session-1".to_string()]);
+    }
+
+    #[test]
+    fn a_live_session_is_not_reported_dead() {
+        let out = snapshot(
+            &[file(1, "cli")], &alive(1), &NoActivity, NOW,
+            PAUSED_THRESHOLD_MS, true, &HashMap::new(),
+        );
+        assert!(out.dead_now.is_empty());
+    }
+
+    #[test]
     fn a_recently_dead_session_is_retained() {
         let mut f = file(1, "cli");
         f.status_updated_at = Some(NOW - 60_000);
-        let out = snapshot(&[f], &FakeLiveness::new(), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
-        assert_eq!(out[0].state, SessionState::Dead);
+        let seen = HashMap::from([("session-1".to_string(), NOW - 60_000)]);
+        let out = snapshot(&[f], &FakeLiveness::new(), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &seen);
+        assert_eq!(out.sessions[0].state, SessionState::Dead);
     }
 
     #[test]
     fn a_long_dead_session_drops_off_the_list() {
         // Claude Code prunes stale registry files itself; clawde-buddy never
         // unlinks them, so it stops showing them instead.
-        let mut f = file(1, "cli");
-        f.status_updated_at = Some(NOW - DEAD_RETENTION_MS - 1);
-        assert!(snapshot(&[f], &FakeLiveness::new(), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true).is_empty());
-    }
-
-    #[test]
-    fn dead_retention_uses_started_at_when_no_status_time_exists() {
-        let mut f = file(1, "cli");
-        f.started_at = NOW - DEAD_RETENTION_MS - 1;
-        f.status_updated_at = None;
-        assert!(snapshot(&[f], &FakeLiveness::new(), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true).is_empty());
+        let f = file(1, "cli");
+        let seen = HashMap::from([("session-1".to_string(), NOW - DEAD_RETENTION_MS - 1)]);
+        assert!(snapshot(&[f], &FakeLiveness::new(), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &seen)
+            .sessions
+            .is_empty());
     }
 
     #[test]
@@ -624,7 +720,7 @@ mod tests {
         let mut f = file(1, "cli");
         f.status_updated_at = Some(NOW - 6 * 60_000);
 
-        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out[0].status_time_ms, NOW - 6 * 60_000);
         assert_eq!(out[0].started_at_ms, NOW - 60_000);
@@ -634,14 +730,14 @@ mod tests {
     #[test]
     fn status_time_falls_back_to_started_at_when_absent() {
         let f = file(1, "cli");
-        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
         assert_eq!(out[0].status_time_ms, NOW - 60_000);
         assert_eq!(out[0].started_at_ms, NOW - 60_000);
     }
 
     #[test]
     fn empty_input_yields_empty_output() {
-        assert!(snapshot(&[], &FakeLiveness::new(), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true).is_empty());
+        assert!(snapshot(&[], &FakeLiveness::new(), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions.is_empty());
     }
 
     #[test]
@@ -649,7 +745,7 @@ mod tests {
         let mut f = file(1, "cli");
         f.status = Some("waiting".into());
         f.waiting_for = Some("input needed".into());
-        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true);
+        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         let json = serde_json::to_value(&out[0]).unwrap();
         assert_eq!(json["state"], "waiting");
