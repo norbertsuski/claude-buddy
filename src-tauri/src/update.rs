@@ -1,11 +1,6 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use serde_json::Value;
 use tauri::AppHandle;
 use tauri_plugin_updater::UpdaterExt;
-
-/// Whether an update was found, exposed so the tray item can appear.
-pub static AVAILABLE: AtomicBool = AtomicBool::new(false);
 
 /// Whether a signing key is configured, and so whether the updater can run.
 ///
@@ -26,13 +21,12 @@ pub fn is_configured(updater_config: Option<&Value>) -> bool {
 ///
 /// Deliberately not automatic: replacing a running menu-bar app under the user
 /// without asking is the kind of surprise this widget exists to avoid. The
-/// check only sets a flag and notifies; installing is a menu item.
+/// check only notifies; installing is a menu item.
 pub fn check_on_launch(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let Ok(updater) = app.updater() else { return };
         match updater.check().await {
             Ok(Some(update)) => {
-                AVAILABLE.store(true, Ordering::Relaxed);
                 let version = update.version.clone();
                 // Sending blocks until the notification centre answers, so it
                 // gets a thread rather than a slot in the async runtime.
