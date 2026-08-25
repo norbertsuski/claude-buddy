@@ -122,8 +122,11 @@ pub fn read_tail(path: &Path, max_bytes: u64) -> std::io::Result<Vec<u8>> {
 /// Returns an all-`None` detail rather than an error when the transcript is
 /// missing or unreadable: the popover must still open and show its
 /// registry-sourced fields.
+///
+/// `async` deliberately: non-async commands run on the main thread, and this
+/// opens a file and may scan every project directory. It fires on every hover.
 #[tauri::command]
-pub fn session_detail(cwd: String, session_id: String) -> TranscriptDetail {
+pub async fn session_detail(cwd: String, session_id: String) -> TranscriptDetail {
     find_transcript(&projects_dir(), &cwd, &session_id)
         .and_then(|path| read_tail(&path, TAIL_BYTES).ok())
         .map(|bytes| detail_from_tail(&bytes))

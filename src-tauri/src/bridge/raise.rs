@@ -51,8 +51,12 @@ pub fn raise(
 
 /// Bring the window running a session to the front. Returns the bundle
 /// identifier that was activated, for display in the popover.
+///
+/// `async` deliberately: Tauri runs non-async commands on the main thread, and
+/// this one spawns `ps` and then `open` and waits on both. On the main thread
+/// that stalls the event loop mid-animation.
 #[tauri::command]
-pub fn raise_session(pid: i32) -> Result<String, String> {
+pub async fn raise_session(pid: i32) -> Result<String, String> {
     raise(
         &PsProcTree::snapshot(),
         &OpenActivator,
