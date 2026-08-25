@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Grants the widget and settings windows the core event API for session snapshots and cursor positions, window control for closing settings, and notification delivery.",
+  "description": "Grants the widget and settings windows the core event API for session snapshots and cursor positions, and window control for closing settings.",
   "windows": [
     "widget",
     "settings"
@@ -10,7 +10,6 @@
     "core:default",
     "core:event:default",
     "core:window:default",
-    "core:window:allow-close",
-    "notification:default"
+    "core:window:allow-close"
   ]
 }

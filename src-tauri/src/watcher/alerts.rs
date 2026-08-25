@@ -15,6 +15,8 @@ pub enum AlertKind {
 #[serde(rename_all = "camelCase")]
 pub struct Alert {
     pub session_id: String,
+    /// The session's process, so a clicked notification knows what to raise.
+    pub pid: i32,
     pub name: String,
     pub kind: AlertKind,
     pub detail: Option<String>,
@@ -55,6 +57,7 @@ pub fn diff_alerts(prev: Option<&[SessionSnapshot]>, next: &[SessionSnapshot]) -
             }
             Some(Alert {
                 session_id: s.session_id.clone(),
+                pid: s.pid,
                 name: s.name.clone(),
                 kind,
                 detail: s.detail.clone(),
@@ -193,6 +196,13 @@ mod tests {
         assert_eq!(alerts.len(), 2);
         assert!(alerts.iter().any(|a| a.session_id == "a" && a.kind == AlertKind::NeedsInput));
         assert!(alerts.iter().any(|a| a.session_id == "b" && a.kind == AlertKind::Died));
+    }
+
+    #[test]
+    fn an_alert_carries_the_pid_so_it_can_be_raised() {
+        let prev = vec![snap("a", SessionState::Busy)];
+        let next = vec![snap("a", SessionState::Waiting)];
+        assert_eq!(diff_alerts(Some(&prev), &next)[0].pid, 1);
     }
 
     #[test]
