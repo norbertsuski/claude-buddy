@@ -1,57 +1,77 @@
-# Building and publishing the macOS DMG.
+# Build and publish the macOS DMG when a tag is pushed.
 #
-# This needs a macOS runner. GitLab.com's hosted macOS runners are a paid
-# feature, so if the project has none, run `npm run dmg` locally and attach the
-# file to a release with scripts/publish-release.sh instead — the job below is
-# the same three commands.
+# Building a .app needs macOS — there is no cross-compiling it from Linux, since
+# it needs the macOS SDK and the bundler. So this pipeline needs a macOS runner,
+# and there are two ways to have one:
+#
+#   1. GitLab's hosted macOS runners. Premium or Ultimate only; there is no free
+#      tier. Leave MACOS_RUNNER_TAG as it is.
+#   2. Your own Mac, registered as a project runner with the shell executor.
+#      Free, and it already has the toolchain. Set MACOS_RUNNER_TAG to the tag
+#      you gave it and clear MACOS_IMAGE (a shell executor ignores it).
 stages: [build, release]
 
 variables:
-  # Bump this to cut a release; the tag pipeline picks it up.
-  DMG_PACKAGE: clawde-buddy
+  # saas-macos-medium-m1 or saas-macos-large-m2pro for hosted runners; your own
+  # runner's tag otherwise.
+  MACOS_RUNNER_TAG: saas-macos-medium-m1
+  # Hosted-runner VM image. Ignored by a shell executor.
+  MACOS_IMAGE: macos-15-xcode-16
+  PACKAGE_NAME: clawde-buddy
 
 build:dmg:
   stage: build
-  tags: [saas-macos-medium-m1]
-  image: macos-14-xcode-15
+  tags: [$MACOS_RUNNER_TAG]
+  image: $MACOS_IMAGE
   rules:
     - if: $CI_COMMIT_TAG
   before_script:
-    - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    - source "$HOME/.cargo/env"
+    # Hosted images ship Node and Xcode but not necessarily Rust; a self-hosted
+    # Mac usually has both already, so only install what is missing.
+    - command -v cargo >/dev/null || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    - '[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env" || true'
     - npm ci
   script:
     - npm run tauri build
-    - npm run dmg
+    - DMG=$(npm run --silent dmg)
+    - echo "built $DMG"
     # Generic Packages gives the release a stable, linkable download URL.
     - |
-      DMG=$(ls dist-dmg/*.dmg)
       curl --fail --silent --show-error \
         --header "JOB-TOKEN: $CI_JOB_TOKEN" \
         --upload-file "$DMG" \
-        "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/$DMG_PACKAGE/$CI_COMMIT_TAG/$(basename "$DMG")"
-      echo "$(basename "$DMG")" > dmg-name.txt
+        "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/$PACKAGE_NAME/$CI_COMMIT_TAG/$(basename "$DMG")"
+    # Pass the filename to the release job. A dotenv report is the only way —
+    # the `release:` keyword is not shell-evaluated, so $(basename …) there
+    # would be published literally.
+    - echo "DMG_NAME=$(basename "$DMG")" > build.env
   artifacts:
-    paths: [dist-dmg/, dmg-name.txt]
-    expire_in: 1 week
+    paths: [dist-dmg/]
+    reports:
+      dotenv: build.env
+    expire_in: 1 month
 
 release:dmg:
   stage: release
   image: registry.gitlab.com/gitlab-org/release-cli:latest
-  needs: [build:dmg]
+  needs:
+    - job: build:dmg
+      artifacts: true
   rules:
     - if: $CI_COMMIT_TAG
   script:
-    - echo "attaching $(cat dmg-name.txt) to the release"
+    - echo "attaching $DMG_NAME to release $CI_COMMIT_TAG"
   release:
     tag_name: $CI_COMMIT_TAG
+    name: $CI_COMMIT_TAG
     description: |
       macOS build of clawde-buddy $CI_COMMIT_TAG.
 
-      The app is unsigned: after downloading, right-click it in Finder and
-      choose Open, then confirm. See the README for why.
+      The app is unsigned. After downloading, right-click it in Finder and
+      choose Open, then confirm — a downloaded copy carries the quarantine
+      flag, so double-clicking will refuse.
     assets:
       links:
-        - name: clawde-buddy.dmg (Apple Silicon)
-          url: $CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/$DMG_PACKAGE/$CI_COMMIT_TAG/$(cat dmg-name.txt)
+        - name: $DMG_NAME
+          url: $CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/$PACKAGE_NAME/$CI_COMMIT_TAG/$DMG_NAME
           link_type: package

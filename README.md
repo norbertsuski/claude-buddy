@@ -164,10 +164,20 @@ CLAWDE_BUDDY_REGISTRY_DIR=/path/to/sessions CLAWDE_BUDDY_PROJECTS_DIR=/path/to/p
 
 `npm run dmg` builds the installer image with `hdiutil`, deliberately not through Tauri's `dmg` bundler — that one drives Finder over AppleScript to arrange the window and times out without Automation permission, locally and in CI alike. The result installs identically, just without a custom background.
 
-Publishing it on GitLab:
+`.gitlab-ci.yml` builds and publishes on a tag: it runs the build, uploads the DMG to the Generic Packages registry and attaches it to a Release. A `.app` cannot be cross-compiled from Linux, so that job needs a macOS runner, and there are two ways to have one:
 
-- **With a macOS runner** — `.gitlab-ci.yml` builds on a tag, uploads the DMG to the Generic Packages registry and attaches it to a Release. GitLab.com's hosted macOS runners are a paid feature.
-- **Without one** — build locally and run `GITLAB_TOKEN=... scripts/publish-release.sh v0.1.0`, which performs the same upload and release creation over the API.
+- **GitLab's hosted macOS runners** — Premium or Ultimate only; there is no free tier. Keep `MACOS_RUNNER_TAG` as shipped.
+- **Your own Mac as a project runner** — free, and it already has the toolchain:
+
+  ```bash
+  brew install gitlab-runner
+  gitlab-runner register --url https://gitlab.com --executor shell --tag-list macos
+  brew services start gitlab-runner
+  ```
+
+  Then set `MACOS_RUNNER_TAG: macos` in `.gitlab-ci.yml`. A shell executor ignores `MACOS_IMAGE`.
+
+Without any runner, build locally and run `GITLAB_TOKEN=... scripts/publish-release.sh v0.1.0`, which performs the same upload and release creation over the API.
 
 ## Design documents
 
