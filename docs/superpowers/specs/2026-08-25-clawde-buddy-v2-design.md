@@ -84,8 +84,14 @@ and `open` and waits on both; `session_detail` opens a file and may scan every
 project directory; `set_config` writes to disk; `list_displays` queries the
 window server.
 
-All four become `async fn`. `get_sessions` (a mutex read) and `resize_widget`
-(on the animation path, where a thread hop would add latency) stay synchronous.
+`raise_session` and `session_detail` become `async fn`. Both do only process
+and file work, and both sit on the hover and click path.
+
+`set_config` and `list_displays` stay synchronous. Both touch AppKit — monitor
+enumeration and window repositioning — and neither is on the animation path, so
+moving them off the main thread would trade a real risk for no gain.
+`get_sessions` (a mutex read) and `resize_widget` (on the animation path, where
+a thread hop would add latency) stay synchronous for the original reasons.
 
 ### 4. Notifications are delivered directly, and clicking one raises the session
 
@@ -104,15 +110,21 @@ already present as a transitive dependency, which returns a real
 `NotificationResult<NotificationResponse>` and reports
 `NotificationResponse::Click`.
 
-Each delivered alert carries `MainButton::SingleAction("Open")` and is sent from
-a waiter thread that blocks on the response and calls `bridge::raise::raise` for
-that session's pid on `Click` or `ActionButton`. Delivery failure emits
-`FLASH_EVENT` as before, and now actually can.
+Each delivered alert sets `wait_for_click(true)` and is sent from a waiter
+thread that blocks on the response and calls `bridge::raise::raise` for that
+session's pid on `NotificationResponse::Click`. `wait_for_click` rather than a
+`MainButton`: both return `Click`, but the button variant adds a visible control
+to the notification, and the whole point is that the notification body itself is
+the target. Delivery failure emits `FLASH_EVENT` as before, and now actually
+can.
+
+`Alert` gains a `pid` field so the waiter knows what to raise.
 
 **Thread budget.** A notification the user never touches parks its waiter until
 macOS resolves it, which may be never. Outstanding waiters are capped at 8; past
-that, alerts are delivered without a main button, which is non-blocking. Eight
-unanswered alerts means the user is not reading them anyway.
+that, alerts are delivered with `wait_for_click(false)`, which does not block and
+therefore cannot be clicked through to a session. Eight unanswered alerts means
+the user is not reading them anyway.
 
 **Bundle identity.** `mac_notification_sys::set_application` must be called once
 before the first send, with the real bundle identifier when bundled and
