@@ -1,0 +1,354 @@
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::sync::Arc;
+use std::time::Duration;
+
+use notify::{RecursiveMode, Watcher};
+use serde::Serialize;
+
+use crate::watcher::activity::ActivityProbe;
+use crate::watcher::alerts::{diff_alerts, Alert};
+use crate::watcher::liveness::PidLiveness;
+use crate::watcher::registry::read_registry_dir;
+use crate::watcher::state::{snapshot, SessionSnapshot, SessionState};
+
+/// Reconcile interval. Catches process death and paused-threshold crossings,
+/// neither of which changes a file and so neither of which FSEvents reports.
+pub const TICK: Duration = Duration::from_secs(2);
+
+/// Tauri event carrying every update to the frontend.
+pub const UPDATE_EVENT: &str = "sessions://update";
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Update {
+    pub sessions: Vec<SessionSnapshot>,
+    pub alerts: Vec<Alert>,
+}
+
+pub fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Identity of a snapshot for change detection: everything the UI renders
+/// except the clock-derived fields. Without this, elapsed time alone would make
+/// every tick look like a change and the UI would re-render twice a second.
+fn fingerprint(sessions: &[SessionSnapshot]) -> Vec<(String, SessionState, Option<String>)> {
+    sessions
+        .iter()
+        .map(|s| (s.session_id.clone(), s.state, s.detail.clone()))
+        .collect()
+}
+
+/// The most recent snapshot, readable by the frontend on demand.
+///
+/// The watcher emits its first snapshot within milliseconds of startup, long
+/// before the webview has loaded and subscribed, and the change filter then
+/// suppresses every later emission while state stays the same. Without a
+/// fetchable copy the UI would sit empty indefinitely.
+#[derive(Default)]
+pub struct SnapshotStore(std::sync::Mutex<Vec<SessionSnapshot>>);
+
+impl SnapshotStore {
+    pub fn set(&self, sessions: Vec<SessionSnapshot>) {
+        *self.0.lock().expect("snapshot store poisoned") = sessions;
+    }
+
+    pub fn get(&self) -> Vec<SessionSnapshot> {
+        self.0.lock().expect("snapshot store poisoned").clone()
+    }
+}
+
+pub struct WatcherHandle {
+    stop: Arc<AtomicBool>,
+    join: Option<std::thread::JoinHandle<()>>,
+}
+
+impl WatcherHandle {
+    pub fn stop(mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
+}
+
+/// Watch the registry directory and call `on_update` whenever session state
+/// changes. Emits once immediately so the UI has data before the first tick.
+///
+/// This function only ever reads `dir`.
+pub fn spawn_watcher(
+    dir: PathBuf,
+    liveness: Arc<dyn PidLiveness + Send + Sync>,
+    activity: Arc<dyn ActivityProbe + Send + Sync>,
+    on_update: impl Fn(Update) + Send + 'static,
+) -> WatcherHandle {
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_thread = stop.clone();
+
+    let join = std::thread::spawn(move || {
+        let (tx, rx) = mpsc::channel::<()>();
+
+        // A missing directory is normal (Claude Code never run). Watching fails,
+        // the tick still runs, and the UI shows an empty state.
+        let mut fs_watcher = notify::recommended_watcher(move |_res| {
+            let _ = tx.send(());
+        })
+        .ok();
+        if let Some(w) = fs_watcher.as_mut() {
+            let _ = w.watch(&dir, RecursiveMode::NonRecursive);
+        }
+
+        let mut previous: Option<Vec<SessionSnapshot>> = None;
+
+        while !stop_thread.load(Ordering::Relaxed) {
+            // Read settings per tick, from the cache, so changing the paused
+            // threshold or the background-jobs toggle takes effect at once.
+            let settings = crate::config::cached();
+            let sessions = snapshot(
+                &read_registry_dir(&dir),
+                liveness.as_ref(),
+                activity.as_ref(),
+                now_ms(),
+                settings.paused_threshold_ms,
+                settings.show_background_jobs,
+            );
+
+            let changed = previous
+                .as_ref()
+                .map(|prev| fingerprint(prev) != fingerprint(&sessions))
+                .unwrap_or(true);
+
+            if changed {
+                let alerts = diff_alerts(previous.as_deref(), &sessions);
+                on_update(Update { sessions: sessions.clone(), alerts });
+                previous = Some(sessions);
+            }
+
+            // Wake on either an FSEvents notification or the reconcile tick,
+            // whichever comes first.
+            let _ = rx.recv_timeout(TICK);
+        }
+    });
+
+    WatcherHandle { stop, join: Some(join) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+    use std::sync::Arc;
+
+    use crate::watcher::activity::NoActivity;
+    use crate::watcher::liveness::FakeLiveness;
+    use crate::watcher::state::{SessionState, PAUSED_THRESHOLD_MS};
+
+    /// Long enough to cover one reconcile tick plus FSEvents latency.
+    const WAIT: Duration = Duration::from_secs(6);
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir()
+                .join(format!("cb-watch-{}-{tag}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+
+        fn write_session(&self, pid: i32, status: Option<&str>) {
+            let status_json = match status {
+                Some(s) => format!(r#""status": "{s}", "waitingFor": "input needed","#),
+                None => String::new(),
+            };
+            let body = format!(
+                r#"{{
+                  "pid": {pid},
+                  "sessionId": "session-{pid}",
+                  "cwd": "/Users/n/Code/proj",
+                  "startedAt": {},
+                  "entrypoint": "cli",
+                  "kind": "interactive",
+                  "name": "proj-{pid}",
+                  {status_json}
+                  "statusUpdatedAt": {}
+                }}"#,
+                now_ms(),
+                now_ms()
+            );
+            std::fs::write(self.0.join(format!("{pid}.json")), body).unwrap();
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn recv_matching(
+        rx: &mpsc::Receiver<Update>,
+        pred: impl Fn(&Update) -> bool,
+    ) -> Update {
+        let deadline = std::time::Instant::now() + WAIT;
+        while std::time::Instant::now() < deadline {
+            if let Ok(update) = rx.recv_timeout(Duration::from_millis(500)) {
+                if pred(&update) {
+                    return update;
+                }
+            }
+        }
+        panic!("no matching update within {WAIT:?}");
+    }
+
+    #[test]
+    fn the_snapshot_store_starts_empty_and_holds_what_it_is_given() {
+        let store = SnapshotStore::default();
+        assert!(store.get().is_empty());
+
+        let sessions = snapshot(
+            &[],
+            &FakeLiveness::new(),
+            &NoActivity,
+            now_ms(),
+            PAUSED_THRESHOLD_MS,
+            true,
+        );
+        store.set(sessions.clone());
+        assert_eq!(store.get(), sessions);
+    }
+
+    #[test]
+    fn emits_an_initial_snapshot_for_existing_sessions() {
+        let dir = TempDir::new("initial");
+        dir.write_session(4242, None);
+
+        let (tx, rx) = mpsc::channel();
+        let liveness = Arc::new(FakeLiveness::new().with_alive_any_start(4242));
+        let handle = spawn_watcher(dir.0.clone(), liveness, Arc::new(NoActivity), move |u| {
+            let _ = tx.send(u);
+        });
+
+        let update = recv_matching(&rx, |u| u.sessions.len() == 1);
+        assert_eq!(update.sessions[0].pid, 4242);
+        // First snapshot is the baseline, so it alerts about nothing.
+        assert!(update.alerts.is_empty());
+
+        handle.stop();
+    }
+
+    #[test]
+    fn a_new_registry_file_produces_a_larger_snapshot() {
+        let dir = TempDir::new("appear");
+        dir.write_session(4242, None);
+
+        let (tx, rx) = mpsc::channel();
+        let liveness = Arc::new(
+            FakeLiveness::new()
+                .with_alive_any_start(4242)
+                .with_alive_any_start(4343),
+        );
+        let handle = spawn_watcher(dir.0.clone(), liveness, Arc::new(NoActivity), move |u| {
+            let _ = tx.send(u);
+        });
+
+        recv_matching(&rx, |u| u.sessions.len() == 1);
+        dir.write_session(4343, None);
+
+        let update = recv_matching(&rx, |u| u.sessions.len() == 2);
+        assert!(update.sessions.iter().any(|s| s.pid == 4343));
+
+        handle.stop();
+    }
+
+    #[test]
+    fn a_session_turning_waiting_produces_an_alert() {
+        let dir = TempDir::new("waiting");
+        dir.write_session(4242, Some("busy"));
+
+        let (tx, rx) = mpsc::channel();
+        let liveness = Arc::new(FakeLiveness::new().with_alive_any_start(4242));
+        let handle = spawn_watcher(dir.0.clone(), liveness, Arc::new(NoActivity), move |u| {
+            let _ = tx.send(u);
+        });
+
+        recv_matching(&rx, |u| {
+            u.sessions.iter().any(|s| s.state == SessionState::Busy)
+        });
+        dir.write_session(4242, Some("waiting"));
+
+        let update = recv_matching(&rx, |u| !u.alerts.is_empty());
+        assert_eq!(update.alerts[0].session_id, "session-4242");
+
+        handle.stop();
+    }
+
+    #[test]
+    fn a_removed_registry_file_drops_the_session_without_alerting() {
+        let dir = TempDir::new("removed");
+        dir.write_session(4242, Some("busy"));
+
+        let (tx, rx) = mpsc::channel();
+        let liveness = Arc::new(FakeLiveness::new().with_alive_any_start(4242));
+        let handle = spawn_watcher(dir.0.clone(), liveness, Arc::new(NoActivity), move |u| {
+            let _ = tx.send(u);
+        });
+
+        recv_matching(&rx, |u| u.sessions.len() == 1);
+        std::fs::remove_file(dir.0.join("4242.json")).unwrap();
+
+        let update = recv_matching(&rx, |u| u.sessions.is_empty());
+        assert!(update.alerts.is_empty());
+
+        handle.stop();
+    }
+
+    #[test]
+    fn a_missing_directory_is_not_an_error() {
+        let missing = std::env::temp_dir().join("cb-watch-does-not-exist");
+        let _ = std::fs::remove_dir_all(&missing);
+
+        let (tx, rx) = mpsc::channel();
+        let handle = spawn_watcher(
+            missing,
+            Arc::new(FakeLiveness::new()),
+            Arc::new(NoActivity),
+            move |u| {
+                let _ = tx.send(u);
+            },
+        );
+
+        let update = recv_matching(&rx, |u| u.sessions.is_empty());
+        assert!(update.alerts.is_empty());
+
+        handle.stop();
+    }
+
+    #[test]
+    fn identical_state_does_not_re_emit() {
+        let dir = TempDir::new("dedupe");
+        dir.write_session(4242, Some("busy"));
+
+        let (tx, rx) = mpsc::channel();
+        let liveness = Arc::new(FakeLiveness::new().with_alive_any_start(4242));
+        let handle = spawn_watcher(dir.0.clone(), liveness, Arc::new(NoActivity), move |u| {
+            let _ = tx.send(u);
+        });
+
+        recv_matching(&rx, |u| u.sessions.len() == 1);
+        // Two reconcile ticks pass with nothing changing.
+        std::thread::sleep(TICK * 2 + Duration::from_millis(500));
+
+        // Elapsed time advances every tick, so re-emission would be constant
+        // churn if the loop compared whole snapshots instead of states.
+        assert!(rx.try_recv().is_err(), "unchanged state must not re-emit");
+
+        handle.stop();
+    }
+}

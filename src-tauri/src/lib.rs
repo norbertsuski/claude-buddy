@@ -1,0 +1,78 @@
+pub mod bridge;
+pub mod commands;
+pub mod cursor;
+pub mod config;
+pub mod notify;
+pub mod watcher;
+pub mod window;
+
+use std::sync::Arc;
+
+use tauri::{Emitter, Manager};
+
+use crate::watcher::liveness::SysLiveness;
+use crate::watcher::registry::registry_dir;
+use crate::watcher::watch::{spawn_watcher, UPDATE_EVENT};
+
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_nspanel::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .invoke_handler(tauri::generate_handler![
+            window::clamp_to_screen,
+            window::resize_widget,
+            window::list_displays,
+            cursor::set_hover_rect,
+            bridge::transcript::session_detail,
+            bridge::raise::raise_session,
+            commands::get_sessions,
+            commands::get_config,
+            commands::set_config
+        ])
+        .setup(|app| {
+            // No Dock icon, no app-switcher entry. Info.plist carries
+            // LSUIElement for the bundled app; this covers `tauri dev`, which
+            // runs the bare binary.
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+            let widget = app
+                .get_webview_window("widget")
+                .expect("widget window missing from tauri.conf.json");
+            window::configure_panel(&widget)
+                .map_err(|e| tauri::Error::Anyhow(anyhow::anyhow!(e)))?;
+            window::restore_position(&widget);
+            window::build_tray_menu(app.handle())?;
+
+            // A non-activating panel gets no mousemove in its webview, so the
+            // cursor is sampled here and pushed to the page instead.
+            crate::cursor::spawn_cursor_watcher(widget.clone());
+
+            app.manage(crate::watcher::watch::SnapshotStore::default());
+            let handle = app.handle().clone();
+
+            let watcher = spawn_watcher(
+                registry_dir(),
+                Arc::new(SysLiveness),
+                Arc::new(crate::watcher::activity::TranscriptActivity::new(
+                    crate::bridge::transcript::projects_dir(),
+                )),
+                move |update| {
+                    handle
+                        .state::<crate::watcher::watch::SnapshotStore>()
+                        .set(update.sessions.clone());
+                    crate::notify::deliver(&handle, &update.alerts);
+                    let _ = handle.emit(UPDATE_EVENT, &update);
+                },
+            );
+
+            // Keep the handle alive for the process lifetime.
+            app.manage(watcher);
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("error while running clawde-buddy");
+}

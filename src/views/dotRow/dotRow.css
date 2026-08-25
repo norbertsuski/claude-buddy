@@ -1,0 +1,383 @@
+/* Sizes are the design's base values scaled by 1.25. Scaling the tokens rather
+   than using CSS `zoom` keeps getBoundingClientRect in the same space as the
+   declared pixels, so the window-sizing code needs no conversion — and `zoom`
+   turned out to have no effect in this WebKit anyway. */
+:root {
+  --bg: rgba(24, 28, 38, 0.95);
+  --bg-lit: rgba(33, 38, 51, 0.97);
+  --border: rgba(255, 255, 255, 0.12);
+  --border-lit: rgba(255, 255, 255, 0.2);
+  --text: #e8ecf5;
+  --muted: #98a1b5;
+  --waiting: #f5a524;
+  --busy: #3fb950;
+  --idle: #5b6479;
+  --paused: #3d4454;
+  --dead: #e0533d;
+
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Near-symmetric, so per-frame movement stays even. The sharper --ease is
+     front-loaded, which over a 400px morph lurches then crawls. */
+  --ease-morph: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Duration of the pill's box morph. useWidgetSize.SHRINK_DELAY_MS must not be
+     shorter, or the window clips the pill while it contracts. */
+  --morph: 300ms;
+  --gap-popover: 10px;
+
+  /* Room for the shadow on every side. The window is sized to the content plus
+     twice this, and every shadow below must stay inside it: anything wider is
+     clipped square at the window edge and reads as a grey box, not a shadow.
+     Keep max(offset-y + blur) <= this value. */
+  --shadow-pad: 30px;
+
+  --lift: 0 8px 20px rgba(0, 0, 0, 0.45), 0 1px 4px rgba(0, 0, 0, 0.35);
+  --lift-high: 0 10px 20px rgba(0, 0, 0, 0.55), 0 1px 5px rgba(0, 0, 0, 0.4);
+  --inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+  font: 500 15px/1 -apple-system, 'SF Pro Text', system-ui, sans-serif;
+  color: var(--text);
+  -webkit-user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Symmetric breathing room so the drop shadow has somewhere to fall. */
+body {
+  padding: var(--shadow-pad);
+}
+
+/* Content is centred in the window, and the window itself is centred on screen,
+   so the pill's position on screen never changes as it grows or shrinks.
+   inline-flex, not flex: a block-level flex container stretches to the window
+   and the measured width stops tracking the content. */
+.dot-row {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.pill {
+  position: relative;
+  box-sizing: content-box;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: var(--lift), var(--inner-highlight);
+  /* Clip the variants to the pill so the incoming content is revealed as the
+     box grows. Without this the text fades in at full width while the pill is
+     still narrow, and spills outside it. */
+  overflow: hidden;
+  will-change: width, height;
+  transition:
+    width var(--morph) var(--ease-morph),
+    height var(--morph) var(--ease-morph),
+    background 180ms var(--ease),
+    border-color 180ms var(--ease);
+}
+
+/* Both variants stay mounted: it lets them crossfade, and it means the target
+   size of the state being morphed *into* can be measured at any time instead of
+   being discovered after the fact.
+
+   Centred horizontally so the pill reveals its content outwards from the middle
+   as it widens, rather than unrolling from the left edge. */
+.variant-slot {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: max-content;
+  transition:
+    opacity 170ms var(--ease),
+    transform 240ms var(--ease);
+}
+
+.variant-slot[data-show='false'] {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-4px) scale(0.97);
+  pointer-events: none;
+  /* Leave quickly so the two never look superimposed. */
+  transition-duration: 120ms, 160ms;
+}
+
+.variant-slot[data-show='true'] {
+  opacity: 1;
+  transform: translateX(-50%);
+  /* Arrive just behind the box so the reveal leads and the text follows. */
+  transition-delay: 90ms;
+}
+
+.variant {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  white-space: nowrap;
+}
+
+.variant-expanded {
+  gap: 10px;
+}
+
+.dot {
+  position: relative;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex: none;
+  transition: background 220ms var(--ease), box-shadow 220ms var(--ease);
+}
+
+.dot-waiting { background: var(--waiting); box-shadow: 0 0 0 4px rgba(245, 165, 36, 0.2); }
+.dot-busy    { background: var(--busy);    box-shadow: 0 0 0 4px rgba(63, 185, 80, 0.2); }
+.dot-idle    { background: var(--idle); }
+.dot-paused  { background: var(--paused); }
+.dot-dead    { background: var(--dead);    box-shadow: 0 0 0 4px rgba(224, 83, 61, 0.18); }
+
+/* A session waiting on you is the one thing worth drawing the eye.
+   The ring is a pseudo-element animating transform and opacity rather than the
+   dot's box-shadow: shadow keyframes repaint the whole pill every frame, which
+   showed up as general choppiness whenever a session was waiting. */
+.dot-waiting::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 2px solid rgba(245, 165, 36, 0.5);
+  animation: waiting-ring 2.4s var(--ease) infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes waiting-ring {
+  from {
+    transform: scale(0.8);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+}
+
+.chip-waiting {
+  color: var(--waiting);
+  background: rgba(245, 165, 36, 0.14);
+  border: 1px solid rgba(245, 165, 36, 0.32);
+}
+
+.chip-busy {
+  color: var(--busy);
+  background: rgba(63, 185, 80, 0.14);
+  border: 1px solid rgba(63, 185, 80, 0.32);
+}
+
+.chip-dead {
+  color: var(--dead);
+  background: rgba(224, 83, 61, 0.14);
+  border: 1px solid rgba(224, 83, 61, 0.32);
+}
+
+/* The chip's own padding insets its text ~21px from the pill edge. Bare text
+   needs the same inset or the right-hand side reads as tighter than the left. */
+.summary {
+  color: var(--muted);
+  font-size: 14px;
+  padding: 0 11px;
+}
+
+.entry-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: transparent;
+  transition: background 160ms var(--ease);
+}
+
+.entry[data-hovered='true'] {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.entry[data-state='waiting'][data-hovered='true'] {
+  background: rgba(245, 165, 36, 0.13);
+}
+
+/* Background jobs are demoted: present, but plainly subordinate to the
+   sessions they belong to. */
+.entry[data-background='true'] {
+  opacity: 0.55;
+}
+
+.entry[data-background='true'] .dot {
+  width: 8px;
+  height: 8px;
+  box-shadow: none;
+}
+
+.entry[data-background='true'] .entry-name {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.summary-jobs {
+  opacity: 0.7;
+  font-size: 12.5px;
+}
+
+.entry-name {
+  font-size: 14px;
+  color: var(--muted);
+  transition: color 160ms var(--ease);
+}
+
+.entry[data-state='waiting'] .entry-name {
+  color: var(--waiting);
+  font-weight: 600;
+}
+
+.entry[data-state='dead'] .entry-name {
+  color: var(--dead);
+}
+
+.child-arrow {
+  color: var(--muted);
+  opacity: 0.45;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.hairline {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* The flex item is this wrapper, not the popover inside it, so the alignment
+   and the anchor offset belong here. With them on the popover the row centred
+   the wrapper and the offset then pushed it further right. */
+.popover-anchor {
+  align-self: flex-start;
+}
+
+.popover {
+  margin-top: var(--gap-popover);
+  width: 335px;
+  padding-bottom: 3px;
+  background: rgba(19, 23, 31, 0.97);
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  box-shadow: var(--lift-high), var(--inner-highlight);
+  overflow: hidden;
+  animation: popover-in 160ms var(--ease) both;
+}
+
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-7px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.popover-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 15px 10px;
+}
+
+.popover-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+}
+
+.popover-fields {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 6px 10px;
+  margin: 0;
+  padding: 3px 15px 12px;
+}
+
+.popover-fields dt {
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #69738a;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.popover-fields dd {
+  margin: 0;
+  font: 13px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #b6bfd0;
+  overflow-wrap: anywhere;
+}
+
+.popover-fields dd.hot {
+  color: var(--waiting);
+  font-weight: 600;
+}
+
+.popover-foot {
+  padding: 9px 15px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  font: 12px ui-monospace, Menlo, monospace;
+  color: #69738a;
+}
+
+.popover-foot-error {
+  color: var(--dead);
+}
+
+@keyframes flash-attention {
+  0%,
+  100% {
+    box-shadow: var(--lift), var(--inner-highlight);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(245, 165, 36, 0.75), var(--lift);
+  }
+}
+
+.dot-row[data-flashing='true'] .pill {
+  animation: flash-attention 1.1s var(--ease) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .popover,
+  .dot-waiting::after {
+    animation: none;
+  }
+
+  .pill,
+  .variant-slot {
+    transition: none;
+  }
+}

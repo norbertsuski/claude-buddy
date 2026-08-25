@@ -1,93 +1,177 @@
 # clawde-buddy
 
+A floating always-on-top macOS widget that shows what every local Claude Code session is doing, and tells you when one is waiting on you.
 
+![Hovering the widget: the pill expands into a named row, and a popover follows the session under the cursor](docs/media/hover.gif)
 
-## Getting started
+*All screenshots on this page use mocked session data.*
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Why
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+Run more than one Claude Code session and you lose track of them. A session that finishes, or blocks on a question or a permission prompt, does so silently in a window you are not looking at — and sits there until you happen to check. A menu-bar dot is no help: it is only visible when the menu bar is, and it collapses every session into one glyph.
 
-## Add your files
+clawde-buddy reads the session registry Claude Code already maintains and puts it somewhere you cannot miss.
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## What you see
+
+At rest, a small pill with counts. The amber chip is absent entirely when nothing needs you.
+
+![The collapsed pill reading "1 needs you", "1 working", "2 idle", "1 job"](docs/media/collapsed.png)
+
+Hover it and the pill morphs into a named row, one dot per session.
+
+![The expanded row showing five entries in different states](docs/media/expanded.png)
+
+Hover a name and a popover opens centred beneath it, with the working directory, git branch, model, effort, pid and uptime. Click it to bring that session's editor to the front.
+
+![A popover under the hovered session showing cwd, branch, model and pid](docs/media/popover.png)
+
+| Colour | State |
+|---|---|
+| amber | waiting on you — carries the reason, e.g. `input needed` |
+| green | working |
+| grey | idle |
+| dim grey | paused — quiet past the threshold, 10 minutes by default |
+| red | died — the process is gone |
+
+### Sessions, subagents and jobs
+
+Background jobs and subagents appear **demoted** — dimmer and smaller — directly after the session that owns them, behind an arrow rather than a divider:
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/norbert.suski/clawde-buddy.git
-git branch -M main
-git push -uf origin main
+● api-service  →  ● migrate-schemas  |  ● web-app  |  ● design-system
 ```
 
-## Integrate with your tools
+They are matched to their parent by working directory, which is the only link the registry offers. They never count toward the session chips; they are summarised separately as `N jobs`. Turn them off entirely in Settings.
 
-* [Set up project integrations](https://gitlab.com/norbert.suski/clawde-buddy/-/settings/integrations)
+`sdk` entries — library callers such as plugin machinery — never appear, since you cannot answer them.
 
-## Collaborate with your team
+## Requirements
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+- macOS 13 or later
+- Xcode Command Line Tools — `xcode-select --install`
+- Node 20 or later
+- Rust, via [rustup](https://rustup.rs)
 
-## Test and Deploy
+## Install
 
-Use the built-in continuous integration in GitLab.
+Build it and copy it into Applications:
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+```bash
+npm install
+npm run tauri build
+cp -R src-tauri/target/release/bundle/macos/clawde-buddy.app /Applications/
+```
 
-***
+The build is unsigned, so Gatekeeper blocks the first launch: right-click the app in Finder, choose **Open**, and confirm. Once only. Opening it from the terminal will not get past that prompt.
 
-# Editing this README
+For a distributable image instead, `npm run dmg` writes `dist-dmg/clawde-buddy_<version>_<arch>.dmg`.
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+### Development
 
-## Suggestions for a good README
+```bash
+npm run tauri dev
+```
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+The frontend hot-reloads; Rust changes trigger a rebuild.
 
-## Name
-Choose a self-explaining name for your project.
+## Using it
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+There is **no Dock icon and no Cmd-Tab entry** — it is a menu-bar app. The tray icon is the only way in and the only way out:
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+- **Settings…** — opens a normal window: view mode, which display to use, paused threshold, per-alert toggles, sound, background jobs, launch at login
+- **Mute alerts 1h**
+- **View mode** — only the dot row is implemented so far
+- **Quit**
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+It starts at the top centre of the primary display. Pick a different screen under Settings → *Show on display*, or drag the pill anywhere; positions are remembered per display, so docking and undocking a monitor puts it back where you left it rather than off-screen.
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+The widget floats above fullscreen apps and follows you across Spaces, and clicking it never takes focus from your editor.
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+### Alerts
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+macOS asks for notification permission on the first alert. Decline it and the pill flashes amber until you look at it instead — the signal is not lost.
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+**Alerts fire on transitions, not states.** A session that is already waiting when the widget starts stays silent, because the first reading is a baseline. Without that, every launch would open with a burst of alerts about things you already knew.
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+Only two transitions interrupt you: a session starting to wait for input, and a session dying. Finishing a turn and going idle is a colour change, nothing more.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+### Settings file
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+`~/Library/Application Support/com.clawde.buddy/config.json` — plain JSON, hand-editable, every key optional:
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+```json
+{
+  "viewMode": "dotRow",
+  "pausedThresholdMs": 600000,
+  "alertNeedsInput": true,
+  "alertDied": true,
+  "sound": false,
+  "muteUntilMs": 0,
+  "launchAtLogin": false,
+  "showBackgroundJobs": true,
+  "preferredDisplay": null,
+  "positions": {}
+}
+```
 
-## License
-For open source projects, say how it is licensed.
+A corrupt or half-written file falls back to defaults rather than refusing to start.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+## How it works
+
+Three layers with enforced boundaries: a Rust watcher that owns the data, a Rust bridge for the two things a webview cannot do, and a React frontend that renders precomputed snapshots and derives nothing.
+
+The data source is `~/.claude/sessions/<pid>.json`, the registry Claude Code maintains, plus the session transcript for fields the registry does not carry. clawde-buddy is **strictly read-only** against `~/.claude` — it never writes, moves or deletes anything there.
+
+A few details that are less obvious than they look:
+
+- **Liveness is `kill(pid, 0)` plus a process-start comparison**, because pid numbers get recycled. The comparison is one-sided: only a process *newer* than its registry entry indicates reuse. Claude Code adopts pre-forked spares, so an entry's `startedAt` can be hours after its process began.
+- **Process start comes from elapsed time** (`ps -o etime=`), not from the registry's `procStart` string. That string is written in a different timezone than `ps -o lstart=` prints — two hours apart on a CEST machine — so comparing them marks every live session dead.
+- **Only `cli` sessions report a status.** A `claude-desktop` entry has no `status` field at all, so for those the transcript's modification time stands in: touched within 30 seconds reads as working, and quiet time ages into idle and then paused.
+- **FSEvents plus a 2-second reconcile tick.** FSEvents cannot report that a process died without its file changing, and it coalesces under load.
+- **All mouse input is handled in Rust.** The widget is a non-activating `NSPanel`, which never becomes the key window, and WKWebView installs its mouse tracking as `activeInKeyWindow` — so the page receives no `mousemove`, no `:hover` and no `click`. Neither `-webkit-app-region` (Chromium-only) nor Tauri's `data-tauri-drag-region` works here. Instead the cursor and button state are sampled every 60ms and pushed to the page as window-local coordinates, which it hit-tests itself. Hover, the popover, click-to-raise and dragging all run through that.
+- **The window never resizes while you interact with it.** It is sized to the widest state and reserves room for a popover, because resizing a transparent panel shows one unpainted frame — which, landing on the start of an animation, was the single largest source of visible stutter. The surrounding transparent margin is click-through so it cannot swallow a click meant for the app behind it.
+
+Jumping to a session walks the process tree to the first executable inside a `.app`, reads its `CFBundleIdentifier`, and runs `open -b`. That needs neither Accessibility nor Automation permission, which is why a fresh install raises windows without prompting for anything.
+
+## Limitations
+
+- **App-level raise only.** Clicking a session brings its editor to the front, not the specific tab. VS Code-family editors expose no tab-targeting API.
+- **One view mode.** The dot row. Card stack, character buddy and invisible-until-needed are specified and disabled.
+- **Unsigned.** Gatekeeper prompts once per install. Distributing without that prompt needs an Apple Developer ID to sign and notarize.
+- **A `claude-desktop` session inside a long tool call writes nothing** to its transcript, so it can read as idle until the result lands. It will not reach paused, which needs ten minutes of quiet.
+- **Multi-display placement follows the primary display** by default; pick another in Settings if that is not the one you watch.
+
+## Tests
+
+```bash
+npm test
+```
+
+```bash
+cd src-tauri && cargo test -- --test-threads=1
+```
+
+167 Rust tests and 91 frontend tests. The Rust suite is weighted toward `watcher::state`, where every session state and transition is derived — that function is pure, with the clock, pid liveness and transcript activity all injected, so the whole state machine is tested without touching a filesystem. The watcher-loop tests use real files and real time, hence `--test-threads=1`.
+
+Two environment variables point the widget at fixtures instead of live data, which is how the screenshots on this page were made:
+
+```bash
+CLAWDE_BUDDY_REGISTRY_DIR=/path/to/sessions CLAWDE_BUDDY_PROJECTS_DIR=/path/to/projects src-tauri/target/release/bundle/macos/clawde-buddy.app/Contents/MacOS/clawde-buddy
+```
+
+## Releasing
+
+`npm run dmg` builds the installer image with `hdiutil`, deliberately not through Tauri's `dmg` bundler — that one drives Finder over AppleScript to arrange the window and times out without Automation permission, locally and in CI alike. The result installs identically, just without a custom background.
+
+Publishing it on GitLab:
+
+- **With a macOS runner** — `.gitlab-ci.yml` builds on a tag, uploads the DMG to the Generic Packages registry and attaches it to a Release. GitLab.com's hosted macOS runners are a paid feature.
+- **Without one** — build locally and run `GITLAB_TOKEN=... scripts/publish-release.sh v0.1.0`, which performs the same upload and release creation over the API.
+
+## Design documents
+
+The spec and implementation plan this was built from are kept in the repo:
+
+- [Design spec](docs/superpowers/specs/2026-08-25-clawde-buddy-design.md)
+- [Implementation plan](docs/superpowers/plans/2026-08-25-clawde-buddy-v1.md)

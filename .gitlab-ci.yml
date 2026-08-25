@@ -1,0 +1,57 @@
+# Building and publishing the macOS DMG.
+#
+# This needs a macOS runner. GitLab.com's hosted macOS runners are a paid
+# feature, so if the project has none, run `npm run dmg` locally and attach the
+# file to a release with scripts/publish-release.sh instead — the job below is
+# the same three commands.
+stages: [build, release]
+
+variables:
+  # Bump this to cut a release; the tag pipeline picks it up.
+  DMG_PACKAGE: clawde-buddy
+
+build:dmg:
+  stage: build
+  tags: [saas-macos-medium-m1]
+  image: macos-14-xcode-15
+  rules:
+    - if: $CI_COMMIT_TAG
+  before_script:
+    - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    - source "$HOME/.cargo/env"
+    - npm ci
+  script:
+    - npm run tauri build
+    - npm run dmg
+    # Generic Packages gives the release a stable, linkable download URL.
+    - |
+      DMG=$(ls dist-dmg/*.dmg)
+      curl --fail --silent --show-error \
+        --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+        --upload-file "$DMG" \
+        "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/$DMG_PACKAGE/$CI_COMMIT_TAG/$(basename "$DMG")"
+      echo "$(basename "$DMG")" > dmg-name.txt
+  artifacts:
+    paths: [dist-dmg/, dmg-name.txt]
+    expire_in: 1 week
+
+release:dmg:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs: [build:dmg]
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    - echo "attaching $(cat dmg-name.txt) to the release"
+  release:
+    tag_name: $CI_COMMIT_TAG
+    description: |
+      macOS build of clawde-buddy $CI_COMMIT_TAG.
+
+      The app is unsigned: after downloading, right-click it in Finder and
+      choose Open, then confirm. See the README for why.
+    assets:
+      links:
+        - name: clawde-buddy.dmg (Apple Silicon)
+          url: $CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/$DMG_PACKAGE/$CI_COMMIT_TAG/$(cat dmg-name.txt)
+          link_type: package
