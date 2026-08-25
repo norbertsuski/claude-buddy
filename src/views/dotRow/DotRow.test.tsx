@@ -29,6 +29,8 @@ const sessions: SessionSnapshot[] = [
     detail: 'input needed',
     elapsedMs: 360_000,
     uptimeMs: 3_600_000,
+    statusTimeMs: 0,
+    startedAtMs: 0,
     background: false,
   },
 ]

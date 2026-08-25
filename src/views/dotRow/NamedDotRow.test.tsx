@@ -15,6 +15,8 @@ function session(name: string, state: SessionState): SessionSnapshot {
     detail: state === 'waiting' ? 'input needed' : null,
     elapsedMs: 60_000,
     uptimeMs: 60_000,
+    statusTimeMs: 0,
+    startedAtMs: 0,
     background: false,
   }
 }
