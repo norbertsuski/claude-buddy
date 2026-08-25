@@ -11,6 +11,7 @@ use serde::Serialize;
 use crate::watcher::activity::ActivityProbe;
 use crate::watcher::alerts::{diff_alerts, Alert};
 use crate::watcher::liveness::PidLiveness;
+use crate::watcher::question::QuestionProbe;
 use crate::watcher::registry::read_registry_dir;
 use crate::watcher::state::{snapshot, SessionSnapshot, SessionState};
 
@@ -86,6 +87,7 @@ pub fn spawn_watcher(
     dir: PathBuf,
     liveness: Arc<dyn PidLiveness + Send + Sync>,
     activity: Arc<dyn ActivityProbe + Send + Sync>,
+    question: Arc<dyn QuestionProbe + Send + Sync>,
     on_update: impl Fn(Update) + Send + 'static,
 ) -> WatcherHandle {
     let stop = Arc::new(AtomicBool::new(false));
@@ -142,7 +144,8 @@ pub fn spawn_watcher(
                 .unwrap_or(true);
 
             if changed {
-                let alerts = diff_alerts(previous.as_deref(), &sessions);
+                let mut alerts = diff_alerts(previous.as_deref(), &sessions);
+                crate::watcher::question::enrich_alerts(&mut alerts, &sessions, question.as_ref());
                 on_update(Update { sessions: sessions.clone(), alerts });
                 previous = Some(sessions);
             }
@@ -164,6 +167,7 @@ mod tests {
 
     use crate::watcher::activity::NoActivity;
     use crate::watcher::liveness::FakeLiveness;
+    use crate::watcher::question::{FakeQuestion, NoQuestion};
     use crate::watcher::state::{SessionState, PAUSED_THRESHOLD_MS};
 
     /// Long enough to cover one reconcile tick plus FSEvents latency.
@@ -251,9 +255,15 @@ mod tests {
 
         let (tx, rx) = mpsc::channel();
         let liveness = Arc::new(FakeLiveness::new().with_alive_any_start(4242));
-        let handle = spawn_watcher(dir.0.clone(), liveness, Arc::new(NoActivity), move |u| {
-            let _ = tx.send(u);
-        });
+        let handle = spawn_watcher(
+            dir.0.clone(),
+            liveness,
+            Arc::new(NoActivity),
+            Arc::new(NoQuestion),
+            move |u| {
+                let _ = tx.send(u);
+            },
+        );
 
         let update = recv_matching(&rx, |u| u.sessions.len() == 1);
         assert_eq!(update.sessions[0].pid, 4242);
@@ -274,9 +284,15 @@ mod tests {
                 .with_alive_any_start(4242)
                 .with_alive_any_start(4343),
         );
-        let handle = spawn_watcher(dir.0.clone(), liveness, Arc::new(NoActivity), move |u| {
-            let _ = tx.send(u);
-        });
+        let handle = spawn_watcher(
+            dir.0.clone(),
+            liveness,
+            Arc::new(NoActivity),
+            Arc::new(NoQuestion),
+            move |u| {
+                let _ = tx.send(u);
+            },
+        );
 
         recv_matching(&rx, |u| u.sessions.len() == 1);
         dir.write_session(4343, None);
@@ -294,9 +310,15 @@ mod tests {
 
         let (tx, rx) = mpsc::channel();
         let liveness = Arc::new(FakeLiveness::new().with_alive_any_start(4242));
-        let handle = spawn_watcher(dir.0.clone(), liveness, Arc::new(NoActivity), move |u| {
-            let _ = tx.send(u);
-        });
+        let handle = spawn_watcher(
+            dir.0.clone(),
+            liveness,
+            Arc::new(NoActivity),
+            Arc::new(NoQuestion),
+            move |u| {
+                let _ = tx.send(u);
+            },
+        );
 
         recv_matching(&rx, |u| {
             u.sessions.iter().any(|s| s.state == SessionState::Busy)
@@ -310,15 +332,54 @@ mod tests {
     }
 
     #[test]
+    fn a_needs_input_alert_carries_the_transcript_question() {
+        let dir = TempDir::new("question");
+        // Start busy so the first snapshot is a baseline, then flip to waiting.
+        dir.write_session(4242, Some("busy"));
+
+        let (tx, rx) = mpsc::channel();
+        let liveness = Arc::new(FakeLiveness::new().with_alive_any_start(4242));
+        let handle = spawn_watcher(
+            dir.0.clone(),
+            liveness,
+            Arc::new(NoActivity),
+            Arc::new(FakeQuestion::new().with("session-4242", "Shall I delete the branch?")),
+            move |u| {
+                let _ = tx.send(u);
+            },
+        );
+
+        recv_matching(&rx, |u| {
+            u.sessions.iter().any(|s| s.state == SessionState::Busy)
+        });
+        dir.write_session(4242, Some("waiting"));
+
+        let update = recv_matching(&rx, |u| !u.alerts.is_empty());
+        handle.stop();
+
+        assert_eq!(update.alerts.len(), 1);
+        assert_eq!(
+            update.alerts[0].detail.as_deref(),
+            Some("Shall I delete the branch?")
+        );
+    }
+
+    #[test]
     fn a_removed_registry_file_drops_the_session_without_alerting() {
         let dir = TempDir::new("removed");
         dir.write_session(4242, Some("busy"));
 
         let (tx, rx) = mpsc::channel();
         let liveness = Arc::new(FakeLiveness::new().with_alive_any_start(4242));
-        let handle = spawn_watcher(dir.0.clone(), liveness, Arc::new(NoActivity), move |u| {
-            let _ = tx.send(u);
-        });
+        let handle = spawn_watcher(
+            dir.0.clone(),
+            liveness,
+            Arc::new(NoActivity),
+            Arc::new(NoQuestion),
+            move |u| {
+                let _ = tx.send(u);
+            },
+        );
 
         recv_matching(&rx, |u| u.sessions.len() == 1);
         std::fs::remove_file(dir.0.join("4242.json")).unwrap();
@@ -339,6 +400,7 @@ mod tests {
             missing,
             Arc::new(FakeLiveness::new()),
             Arc::new(NoActivity),
+            Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);
             },
@@ -357,9 +419,15 @@ mod tests {
 
         let (tx, rx) = mpsc::channel();
         let liveness = Arc::new(FakeLiveness::new().with_alive_any_start(4242));
-        let handle = spawn_watcher(dir.0.clone(), liveness, Arc::new(NoActivity), move |u| {
-            let _ = tx.send(u);
-        });
+        let handle = spawn_watcher(
+            dir.0.clone(),
+            liveness,
+            Arc::new(NoActivity),
+            Arc::new(NoQuestion),
+            move |u| {
+                let _ = tx.send(u);
+            },
+        );
 
         recv_matching(&rx, |u| u.sessions.len() == 1);
         // Two reconcile ticks pass with nothing changing.

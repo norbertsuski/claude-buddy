@@ -59,6 +59,9 @@ pub fn run() {
                 Arc::new(crate::watcher::activity::TranscriptActivity::new(
                     crate::bridge::transcript::projects_dir(),
                 )),
+                Arc::new(crate::watcher::question::TranscriptQuestion::new(
+                    crate::bridge::transcript::projects_dir(),
+                )),
                 move |update| {
                     handle
                         .state::<crate::watcher::watch::SnapshotStore>()
