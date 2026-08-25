@@ -48,6 +48,7 @@ describe('App routing', () => {
       pausedThresholdMs: 600_000,
       alertNeedsInput: true,
       alertDied: true,
+      alertFinished: false,
       sound: false,
       muteUntilMs: 0,
       launchAtLogin: false,

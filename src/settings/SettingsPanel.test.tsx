@@ -13,6 +13,7 @@ const config: AppConfig = {
   pausedThresholdMs: 600_000,
   alertNeedsInput: true,
   alertDied: true,
+  alertFinished: false,
   sound: false,
   muteUntilMs: 0,
   launchAtLogin: false,
@@ -54,6 +55,21 @@ describe('SettingsPanel', () => {
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith('set_config', {
         config: expect.objectContaining({ sound: true }),
+      }),
+    )
+  })
+
+  it('toggles the finished alert', async () => {
+    render(<SettingsPanel onClose={vi.fn()} />)
+
+    const box = await screen.findByLabelText('Alert when a session finishes its turn')
+    expect(box).not.toBeChecked()
+
+    await userEvent.click(box)
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('set_config', {
+        config: expect.objectContaining({ alertFinished: true }),
       }),
     )
   })

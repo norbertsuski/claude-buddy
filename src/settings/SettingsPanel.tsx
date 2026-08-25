@@ -94,6 +94,15 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       <label>
         <input
           type="checkbox"
+          checked={config.alertFinished}
+          onChange={(e) => update({ alertFinished: e.target.checked })}
+        />
+        Alert when a session finishes its turn
+      </label>
+
+      <label>
+        <input
+          type="checkbox"
           checked={config.sound}
           onChange={(e) => update({ sound: e.target.checked })}
         />

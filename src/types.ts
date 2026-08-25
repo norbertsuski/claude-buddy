@@ -22,7 +22,7 @@ export interface SessionSnapshot {
   background: boolean
 }
 
-export type AlertKind = 'needsInput' | 'died'
+export type AlertKind = 'needsInput' | 'died' | 'finished'
 
 export interface Alert {
   sessionId: string
@@ -53,6 +53,7 @@ export interface AppConfig {
   pausedThresholdMs: number
   alertNeedsInput: boolean
   alertDied: boolean
+  alertFinished: boolean
   sound: boolean
   muteUntilMs: number
   launchAtLogin: boolean

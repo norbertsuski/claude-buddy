@@ -37,6 +37,7 @@ pub fn should_deliver(alert: &Alert, config: &Config, now_ms: i64) -> bool {
     match alert.kind {
         AlertKind::NeedsInput => config.alert_needs_input,
         AlertKind::Died => config.alert_died,
+        AlertKind::Finished => config.alert_finished,
     }
 }
 
@@ -52,6 +53,10 @@ pub fn alert_text(alert: &Alert) -> (String, String) {
         AlertKind::Died => (
             format!("{} died", alert.name),
             "the session's process is gone".to_string(),
+        ),
+        AlertKind::Finished => (
+            format!("{} finished", alert.name),
+            "the session is idle again".to_string(),
         ),
     }
 }
@@ -149,7 +154,7 @@ mod tests {
             kind,
             detail: match kind {
                 AlertKind::NeedsInput => Some("input needed".into()),
-                AlertKind::Died => None,
+                AlertKind::Died | AlertKind::Finished => None,
             },
         }
     }
@@ -230,5 +235,31 @@ mod tests {
         let (title, body) = alert_text(&alert(AlertKind::Died));
         assert_eq!(title, "api-service-55 died");
         assert_eq!(body, "the session's process is gone");
+    }
+
+    #[test]
+    fn finished_is_off_by_default() {
+        let mut a = alert(AlertKind::NeedsInput);
+        a.kind = AlertKind::Finished;
+        assert!(!should_deliver(&a, &Config::default(), 0));
+    }
+
+    #[test]
+    fn enabling_finished_delivers_it() {
+        let mut config = Config::default();
+        config.alert_finished = true;
+        let mut a = alert(AlertKind::NeedsInput);
+        a.kind = AlertKind::Finished;
+        assert!(should_deliver(&a, &config, 0));
+    }
+
+    #[test]
+    fn finished_text_says_the_turn_is_done() {
+        let mut a = alert(AlertKind::NeedsInput);
+        a.kind = AlertKind::Finished;
+        a.detail = None;
+        let (title, body) = alert_text(&a);
+        assert_eq!(title, "api-service-55 finished");
+        assert_eq!(body, "the session is idle again");
     }
 }

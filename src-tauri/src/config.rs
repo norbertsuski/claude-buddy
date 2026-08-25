@@ -15,6 +15,9 @@ pub struct Config {
     pub paused_threshold_ms: i64,
     pub alert_needs_input: bool,
     pub alert_died: bool,
+    /// Whether finishing a turn interrupts you. Off by default: a finished turn
+    /// is the common case, and alerting on it is the noisy choice.
+    pub alert_finished: bool,
     pub sound: bool,
     /// Epoch millis until which alerts stay suppressed. Backs "Mute alerts 1h".
     pub mute_until_ms: i64,
@@ -38,6 +41,7 @@ impl Default for Config {
             paused_threshold_ms: PAUSED_THRESHOLD_MS,
             alert_needs_input: true,
             alert_died: true,
+            alert_finished: false,
             sound: false,
             mute_until_ms: 0,
             launch_at_login: false,
@@ -139,6 +143,7 @@ mod tests {
         assert_eq!(c.paused_threshold_ms, crate::watcher::state::PAUSED_THRESHOLD_MS);
         assert!(c.alert_needs_input);
         assert!(c.alert_died);
+        assert!(!c.alert_finished);
         assert!(!c.sound);
         assert_eq!(c.mute_until_ms, 0);
         assert!(!c.launch_at_login);
