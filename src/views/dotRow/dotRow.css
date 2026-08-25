@@ -340,6 +340,14 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* One line only: the popover's width is fixed and reserved in the window size,
+   so a wrapping activity string would change the height the row was sized for. */
+.popover-activity {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .popover-fields dd.hot {
   color: var(--waiting);
   font-weight: 600;

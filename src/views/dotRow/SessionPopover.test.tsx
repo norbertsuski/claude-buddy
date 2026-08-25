@@ -33,6 +33,7 @@ describe('SessionPopover', () => {
       branch: 'feat/rate-limiting',
       model: 'claude-opus-5',
       effort: 'xhigh',
+      activity: 'Bash',
     })
   })
 
@@ -75,7 +76,7 @@ describe('SessionPopover', () => {
   })
 
   it('renders an em dash for transcript fields that are absent', async () => {
-    invoke.mockResolvedValue({ branch: null, model: null, effort: null })
+    invoke.mockResolvedValue({ branch: null, model: null, effort: null, activity: null })
     render(<SessionPopover session={session} />)
 
     await waitFor(() => expect(screen.getByTestId('popover-branch')).toHaveTextContent('—'))
@@ -102,7 +103,7 @@ describe('SessionPopover', () => {
     invoke.mockImplementation((cmd: string) =>
       cmd === 'raise_session'
         ? Promise.reject(new Error('no host application found for pid 7952'))
-        : Promise.resolve({ branch: null, model: null, effort: null }),
+        : Promise.resolve({ branch: null, model: null, effort: null, activity: null }),
     )
     render(<SessionPopover session={session} />)
 
@@ -113,6 +114,23 @@ describe('SessionPopover', () => {
     })
   })
 
+
+  it('shows the transcript activity line', async () => {
+    invoke.mockResolvedValue({
+      branch: 'main',
+      model: 'claude-opus-5',
+      effort: 'high',
+      activity: 'Bash',
+    })
+    render(<SessionPopover session={session} />)
+    expect(await screen.findByTestId('popover-activity')).toHaveTextContent('Bash')
+  })
+
+  it('dashes the activity line when the transcript has nothing', async () => {
+    invoke.mockResolvedValue({ branch: null, model: null, effort: null, activity: null })
+    render(<SessionPopover session={session} />)
+    expect(await screen.findByTestId('popover-activity')).toHaveTextContent('—')
+  })
 
   it('advances elapsed and uptime as time passes, without new props', () => {
     // Regression: the watcher only re-emits when state changes, so a snapshot's

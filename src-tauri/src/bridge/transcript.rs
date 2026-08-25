@@ -7,12 +7,16 @@ use serde::Serialize;
 /// clawde-buddy wants are always in the last few records.
 pub const TAIL_BYTES: u64 = 65_536;
 
+/// Longest activity string the popover will show on one line.
+pub const ACTIVITY_MAX_CHARS: usize = 64;
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptDetail {
     pub branch: Option<String>,
     pub model: Option<String>,
     pub effort: Option<String>,
+    pub activity: Option<String>,
 }
 
 impl TranscriptDetail {
@@ -61,7 +65,97 @@ pub fn detail_from_tail(bytes: &[u8]) -> TranscriptDetail {
         }
     }
 
+    detail.activity = latest_activity(bytes);
     detail
+}
+
+/// Shorten to fit, on a character boundary, with an ellipsis.
+fn clip(text: &str) -> String {
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.chars().count() <= ACTIVITY_MAX_CHARS {
+        return text;
+    }
+    let head: String = text.chars().take(ACTIVITY_MAX_CHARS).collect();
+    format!("{head}\u{2026}")
+}
+
+/// The content blocks of an assistant record, if this is one.
+fn assistant_content(record: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+    record
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_array())
+}
+
+/// What the session is doing, newest first: the most recent tool use by name,
+/// or failing that the most recent thing the assistant said.
+///
+/// Records are scanned in reverse for the same reason `detail_from_tail` scans
+/// in reverse — the tail begins mid-record, and the newest information is at
+/// the end.
+pub fn latest_activity(bytes: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(bytes);
+    let mut fallback: Option<String> = None;
+
+    for line in text.lines().rev() {
+        let Ok(record) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let Some(content) = assistant_content(&record) else {
+            continue;
+        };
+
+        for block in content.iter().rev() {
+            match block.get("type").and_then(|t| t.as_str()) {
+                Some("tool_use") => {
+                    if let Some(name) = block.get("name").and_then(|n| n.as_str()) {
+                        return Some(clip(name));
+                    }
+                }
+                Some("text") => {
+                    if fallback.is_none() {
+                        if let Some(said) = block.get("text").and_then(|t| t.as_str()) {
+                            if !said.trim().is_empty() {
+                                fallback = Some(clip(said));
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fallback
+}
+
+/// The most recent thing the assistant actually said, ignoring tool uses.
+///
+/// This is what a waiting session is asking. `latest_activity` prefers the tool
+/// name because "Bash" describes what is happening; a pending question is the
+/// opposite case, where the prose is the whole point.
+pub fn latest_assistant_text(bytes: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(bytes);
+
+    for line in text.lines().rev() {
+        let Ok(record) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let Some(content) = assistant_content(&record) else {
+            continue;
+        };
+        for block in content.iter().rev() {
+            if block.get("type").and_then(|t| t.as_str()) == Some("text") {
+                if let Some(said) = block.get("text").and_then(|t| t.as_str()) {
+                    if !said.trim().is_empty() {
+                        return Some(clip(said));
+                    }
+                }
+            }
+        }
+    }
+
+    None
 }
 
 /// Claude Code names project directories after the cwd with separators flattened
@@ -148,6 +242,69 @@ mod tests {
         r#"{"type":"attachment","attachment":{"type":"total_tokens_reminder"}}"#,
         "\n"
     );
+
+    const TOOL_TAIL: &str = concat!(
+        r#"{"type":"assistant","message":{"model":"claude-opus-5","content":[{"type":"text","text":"Let me check the config."}]}}"#,
+        "\n",
+        r#"{"type":"assistant","message":{"model":"claude-opus-5","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}"#,
+        "\n",
+    );
+
+    #[test]
+    fn latest_activity_reports_the_newest_tool_use() {
+        assert_eq!(latest_activity(TOOL_TAIL.as_bytes()).as_deref(), Some("Bash"));
+    }
+
+    #[test]
+    fn latest_activity_falls_back_to_assistant_text() {
+        let tail = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Shall I delete the branch?"}]}}"#;
+        assert_eq!(
+            latest_activity(tail.as_bytes()).as_deref(),
+            Some("Shall I delete the branch?")
+        );
+    }
+
+    #[test]
+    fn latest_activity_truncates_a_long_line() {
+        let long = "x".repeat(400);
+        let tail = format!(
+            r#"{{"type":"assistant","message":{{"content":[{{"type":"text","text":"{long}"}}]}}}}"#
+        );
+        let out = latest_activity(tail.as_bytes()).unwrap();
+        // Counted in chars, not bytes: the ellipsis is three bytes, and the
+        // clip is a char-boundary operation.
+        let chars = out.chars().count();
+        assert!(chars <= ACTIVITY_MAX_CHARS + 1, "got {chars} chars");
+        assert!(out.ends_with('\u{2026}'));
+    }
+
+    #[test]
+    fn latest_activity_skips_a_truncated_leading_line() {
+        let tail = format!("{}\n{}", r#"{"type":"assis"#, TOOL_TAIL.trim_end());
+        assert_eq!(latest_activity(tail.as_bytes()).as_deref(), Some("Bash"));
+    }
+
+    #[test]
+    fn latest_activity_reports_nothing_for_a_transcript_with_neither() {
+        let tail = r#"{"type":"user","message":{"role":"user"}}"#;
+        assert_eq!(latest_activity(tail.as_bytes()), None);
+    }
+
+    #[test]
+    fn latest_assistant_text_ignores_tool_uses() {
+        assert_eq!(
+            latest_assistant_text(TOOL_TAIL.as_bytes()).as_deref(),
+            Some("Let me check the config.")
+        );
+    }
+
+    #[test]
+    fn detail_from_tail_includes_activity() {
+        assert_eq!(
+            detail_from_tail(TOOL_TAIL.as_bytes()).activity.as_deref(),
+            Some("Bash")
+        );
+    }
 
     #[test]
     fn extracts_branch_model_and_effort_from_the_newest_records_that_have_them() {

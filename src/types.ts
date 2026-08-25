@@ -41,6 +41,8 @@ export interface TranscriptDetail {
   branch: string | null
   model: string | null
   effort: string | null
+  /** What the session is doing: the newest tool use, or what it last said. */
+  activity: string | null
 }
 
 export const UPDATE_EVENT = 'sessions://update'

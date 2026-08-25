@@ -4,7 +4,7 @@ import { formatElapsed } from '../../format'
 import type { SessionSnapshot, TranscriptDetail } from '../../types'
 import './dotRow.css'
 
-const EMPTY: TranscriptDetail = { branch: null, model: null, effort: null }
+const EMPTY: TranscriptDetail = { branch: null, model: null, effort: null, activity: null }
 
 /** How often the popover recomputes its ages. */
 const TICK_MS = 1000
@@ -87,6 +87,10 @@ export function SessionPopover({ session }: { session: SessionSnapshot }) {
         <dt>state</dt>
         <dd className={session.state === 'waiting' ? 'hot' : undefined} data-testid="popover-state">
           {stateLine}
+        </dd>
+        <dt>doing</dt>
+        <dd className="popover-activity" data-testid="popover-activity">
+          {dash(detail.activity)}
         </dd>
         <dt>cwd</dt>
         <dd data-testid="popover-cwd">{session.cwd}</dd>
