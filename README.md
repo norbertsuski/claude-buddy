@@ -48,6 +48,18 @@ They are matched to their parent by working directory, which is the only link th
 
 `sdk` entries — library callers such as plugin machinery — never appear, since you cannot answer them.
 
+## Notch mode
+
+On a MacBook with a notch, the widget can live *in* the menu bar instead of floating below it. Settings → **Sit in the menu bar beside the notch**. The control is disabled on any other Mac.
+
+At rest it is a black band the height of the menu bar, hugging the notch: session counts on the left of it, the five-hour limit's progress bar on the right. The notch is part of the band rather than a hole in it, so the three read as one shape.
+
+Hover anywhere on the black and that same element grows — down and out to a third of the display's width — into a list of every session with its status and elapsed time, and the detail of the row under the cursor opens beneath it. There is no popover in this mode; the slab is wide enough to say everything the popover said. Leave it and it collapses back into the menu bar.
+
+The open width is a third of the display, bounded to 260–560pt. It does reach across the menu bar extras while open, which is deliberate: the resting band hugs its content and stays clear of them, so nothing sits over your clock unless the cursor is on the widget.
+
+Notch placement takes the display choice out of your hands — the notch decides — so *Show on display* is disabled while it is on, and the widget cannot be dragged. Turn it off and the pill goes back where it was.
+
 ## Requirements
 
 - macOS 13 or later
@@ -81,7 +93,7 @@ The frontend hot-reloads; Rust changes trigger a rebuild.
 
 There is **no Dock icon and no Cmd-Tab entry** — it is a menu-bar app. The tray icon is the only way in and the only way out:
 
-- **Settings…** — opens a normal window: when to hide the widget, which display to use, paused threshold, the three alert toggles, sound, background jobs, launch at login
+- **Settings…** — opens a normal window: when to hide the widget, which display to use, whether to sit in the notch, paused threshold, the three alert toggles, sound, background jobs, launch at login
 - **Mute alerts 1h**
 - **Install update** — installs a newer release if one is available and the updater is configured; otherwise it does nothing
 - **Quit clawde-buddy**
@@ -113,6 +125,7 @@ Clicking any notification raises that session's window, the same as clicking its
 ```json
 {
   "viewMode": "dotRow",
+  "placement": "free",
   "pausedThresholdMs": 600000,
   "alertNeedsInput": true,
   "alertDied": true,
@@ -127,7 +140,7 @@ Clicking any notification raises that session's window, the same as clicking its
 }
 ```
 
-`hideWhen` is one of `never`, `noSessions` or `nothingActive`; anything else falls back to showing the widget. `viewMode` is vestigial — the view modes are gone, and the field is still parsed only so an existing config file keeps loading.
+`hideWhen` is one of `never`, `noSessions` or `nothingActive`; anything else falls back to showing the widget. `placement` is `free` or `notch`; anything else reads as `free`, deliberately, since a hand-edited typo must not strand the widget in a placement it cannot be dragged out of. `viewMode` is vestigial — the view modes are gone, and the field is still parsed only so an existing config file keeps loading.
 
 A corrupt or half-written file falls back to defaults rather than refusing to start.
 
@@ -146,6 +159,8 @@ A few details that are less obvious than they look:
 - **All mouse input is handled in Rust.** The widget is a non-activating `NSPanel`, which never becomes the key window, and WKWebView installs its mouse tracking as `activeInKeyWindow` — so the page receives no `mousemove`, no `:hover` and no `click`. Neither `-webkit-app-region` (Chromium-only) nor Tauri's `data-tauri-drag-region` works here. Instead the cursor and button state are sampled every 60ms and pushed to the page as window-local coordinates, which it hit-tests itself. Hover, the popover, click-to-raise and dragging all run through that.
 - **The window never resizes while you interact with it.** It is sized to the widest state and reserves room for a popover, because resizing a transparent panel shows one unpainted frame — which, landing on the start of an animation, was the single largest source of visible stutter. The surrounding transparent margin is click-through so it cannot swallow a click meant for the app behind it.
 
+- **The notch's geometry comes from AppKit, once per change.** `safeAreaInsets.top` identifies a notched built-in display and `auxiliaryTopLeftArea` gives the usable flank; both are main-thread only, so the probe is cached and re-run by a 2-second watcher rather than answered live from a command. Closing the lid takes the notched display away entirely, and the widget has to stop drawing against a screen that is gone.
+
 Jumping to a session walks the process tree to the first executable inside a `.app`, reads its `CFBundleIdentifier`, and runs `open -b`. That needs neither Accessibility nor Automation permission, which is why a fresh install raises windows without prompting for anything.
 
 ## Limitations
@@ -154,6 +169,7 @@ Jumping to a session walks the process tree to the first executable inside a `.a
 - **Unsigned.** The DMG carries an ad-hoc signature, which is what keeps Gatekeeper from calling the app *damaged*, but it is not a notarised one — so Gatekeeper still prompts once per install, and getting rid of that prompt needs an Apple Developer ID to sign and notarize. Update *delivery* is a separate matter and does work: configure a minisign key and the app updates itself in place from the tray menu — see [Signing updates](#signing-updates). With no key, as shipped, it never checks and never updates.
 - **A `claude-desktop` session inside a long tool call writes nothing** to its transcript, so it can read as idle until the result lands. It will not reach paused, which needs ten minutes of quiet.
 - **Multi-display placement follows the primary display** by default; pick another in Settings if that is not the one you watch.
+- **Notch mode assumes the menu bar is where the menu bar is.** A fullscreen app, or *automatically hide and show the menu bar*, leaves the slab at the top edge over the app's own content. It also needs the notched built-in display: close the lid and the widget has nothing to sit in.
 
 ## Tests
 
@@ -165,7 +181,7 @@ npm test
 cd src-tauri && cargo test -- --test-threads=1
 ```
 
-203 Rust tests and 97 frontend tests. The Rust suite is weighted toward `watcher::state`, where every session state and transition is derived — that function is pure, with the clock, pid liveness and transcript activity all injected, so the whole state machine is tested without touching a filesystem. The watcher-loop tests use real files and real time, hence `--test-threads=1`.
+257 Rust tests and 192 frontend tests. The Rust suite is weighted toward `watcher::state`, where every session state and transition is derived — that function is pure, with the clock, pid liveness and transcript activity all injected, so the whole state machine is tested without touching a filesystem. The watcher-loop tests use real files and real time, hence `--test-threads=1`.
 
 Two environment variables point the widget at fixtures instead of live data, which is how the screenshots on this page were made:
 
