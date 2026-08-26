@@ -33,6 +33,11 @@ pub struct Config {
     /// duration tuned for the widest morph. On by default; off restores the
     /// fixed timing for anyone who prefers it.
     pub smooth_status_changes: bool,
+    /// Whether the five-hour limit meter appears at the end of the collapsed
+    /// row. On by default, but worth being able to turn off: the figure behind
+    /// it is a cache Claude Code refreshes only when it fetches usage, so the
+    /// meter is absent whenever that cache describes a window that has passed.
+    pub show_usage: bool,
     /// When the widget takes itself off screen: `never`, `noSessions` or
     /// `nothingActive`. The tray icon always remains, so a hidden widget is
     /// never unreachable.
@@ -58,6 +63,7 @@ impl Default for Config {
             launch_at_login: false,
             show_background_jobs: true,
             smooth_status_changes: true,
+            show_usage: true,
             hide_when: "noSessions".into(),
             preferred_display: None,
             positions: HashMap::new(),
@@ -162,6 +168,7 @@ mod tests {
         assert!(!c.launch_at_login);
         assert!(c.show_background_jobs);
         assert!(c.smooth_status_changes);
+        assert!(c.show_usage);
         assert_eq!(c.hide_when, "noSessions");
         assert_eq!(c.preferred_display, None);
         assert!(c.positions.is_empty());

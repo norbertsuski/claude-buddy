@@ -8,6 +8,20 @@ export function formatElapsed(ms: number): string {
   return `${hours}h${totalMinutes % 60}m`
 }
 
+/**
+ * Time left until the five-hour window resets.
+ *
+ * Floored to whole minutes and never showing seconds, so the meter can tick on
+ * a slow interval: a countdown that ticked every second would re-render the
+ * pill sixty times a minute for a glyph nobody is watching that closely.
+ */
+export function formatCountdown(ms: number): string {
+  const minutes = Math.floor(Math.max(0, ms) / 60_000)
+  if (minutes < 1) return '<1m'
+  if (minutes < 60) return `${minutes}m`
+  return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}m`
+}
+
 import type { SessionSnapshot, SessionState } from './types'
 
 /**

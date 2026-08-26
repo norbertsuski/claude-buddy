@@ -58,7 +58,7 @@ describe('useSessions', () => {
     const { result } = renderHook(() => useSessions())
     await act(async () => {})
 
-    emit({ sessions: [session('a', 'waiting')], alerts: [] })
+    emit({ sessions: [session('a', 'waiting')], alerts: [], usage: null })
 
     expect(result.current.sessions).toHaveLength(1)
     expect(result.current.sessions[0].sessionId).toBe('a')
@@ -69,8 +69,8 @@ describe('useSessions', () => {
     const { result } = renderHook(() => useSessions())
     await act(async () => {})
 
-    emit({ sessions: [session('a', 'busy'), session('b', 'busy')], alerts: [] })
-    emit({ sessions: [session('b', 'waiting')], alerts: [] })
+    emit({ sessions: [session('a', 'busy'), session('b', 'busy')], alerts: [], usage: null })
+    emit({ sessions: [session('b', 'waiting')], alerts: [], usage: null })
 
     expect(result.current.sessions.map((s) => s.sessionId)).toEqual(['b'])
     expect(result.current.sessions[0].state).toBe('waiting')
@@ -80,7 +80,7 @@ describe('useSessions', () => {
     const { result } = renderHook(() => useSessions())
     await act(async () => {})
 
-    emit({ sessions: [], alerts: [] })
+    emit({ sessions: [], alerts: [], usage: null })
 
     expect(result.current.sessions).toEqual([])
     expect(result.current.ready).toBe(true)
@@ -119,7 +119,7 @@ describe('useSessions initial fetch', () => {
     const { result } = renderHook(() => useSessions())
     await act(async () => {})
 
-    emit({ sessions: [session('fresh', 'waiting')], alerts: [] })
+    emit({ sessions: [session('fresh', 'waiting')], alerts: [], usage: null })
     await act(async () => { release([session('stale', 'busy')]) })
 
     expect(result.current.sessions.map((s) => s.sessionId)).toEqual(['fresh'])
@@ -132,7 +132,7 @@ describe('useSessions initial fetch', () => {
     await act(async () => {})
 
     expect(result.current.sessions).toEqual([])
-    emit({ sessions: [session('a', 'busy')], alerts: [] })
+    emit({ sessions: [session('a', 'busy')], alerts: [], usage: null })
     expect(result.current.sessions).toHaveLength(1)
   })
 })

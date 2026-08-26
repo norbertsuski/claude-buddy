@@ -31,7 +31,7 @@ export const HOVER_GRACE_MS = 180
 /** Gap between the pill and the popover, matching `--gap-popover`. */
 const POPOVER_GAP = 10
 
-export function DotRow({ sessions, smoothTransitions = true }: SessionViewProps) {
+export function DotRow({ sessions, smoothTransitions = true, usage = null }: SessionViewProps) {
   const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null)
   const [anchorOffset, setAnchorOffset] = useState(0)
   const [flashing, setFlashing] = useState(false)
@@ -259,7 +259,7 @@ export function DotRow({ sessions, smoothTransitions = true }: SessionViewProps)
         }
       >
         <div className="variant-slot" ref={collapsedSlot} data-show={showNamed ? 'false' : 'true'}>
-          <CollapsedPill sessions={sessions} />
+          <CollapsedPill sessions={sessions} usage={usage} />
         </div>
         <div className="variant-slot" ref={expandedSlot} data-show={showNamed ? 'true' : 'false'}>
           <NamedDotRow

@@ -1,4 +1,4 @@
-import type { SessionSnapshot } from '../types'
+import type { SessionSnapshot, Usage } from '../types'
 
 /** Every view mode takes exactly this. Adding a mode touches no other layer. */
 export interface SessionViewProps {
@@ -8,4 +8,9 @@ export interface SessionViewProps {
    * one duration every change used to share. Off restores the fixed morph.
    */
   smoothTransitions?: boolean
+  /**
+   * Five-hour limit usage, or `null` when there is nothing worth showing —
+   * which includes the user having turned the meter off.
+   */
+  usage?: Usage | null
 }

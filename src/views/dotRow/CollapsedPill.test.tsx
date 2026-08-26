@@ -151,3 +151,29 @@ describe('CollapsedPill chip identity', () => {
     expect(screen.getByTestId('working')).toBe(before)
   })
 })
+
+describe('CollapsedPill usage meter', () => {
+  const usage = { percent: 42, resetsAtMs: Date.now() + 3_600_000, severity: 'normal' as const }
+
+  it('shows the meter at the end of the row, after the quiet summary', () => {
+    render(<CollapsedPill sessions={[session('a', 'busy'), session('b', 'idle')]} usage={usage} />)
+
+    const variant = screen.getByTestId('collapsed-pill')
+    const children = Array.from(variant.children)
+    expect(children[children.length - 1]).toBe(screen.getByTestId('usage'))
+  })
+
+  it('shows nothing when there is no figure worth trusting', () => {
+    // Which is also how the setting being off arrives here: the two cases are
+    // deliberately indistinguishable to the row.
+    render(<CollapsedPill sessions={[session('a', 'busy')]} usage={null} />)
+
+    expect(screen.queryByTestId('usage')).not.toBeInTheDocument()
+  })
+
+  it('shows nothing when no usage is passed at all', () => {
+    render(<CollapsedPill sessions={[session('a', 'busy')]} />)
+
+    expect(screen.queryByTestId('usage')).not.toBeInTheDocument()
+  })
+})

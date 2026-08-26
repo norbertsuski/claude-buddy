@@ -328,6 +328,60 @@ body {
   padding-left: 0;
 }
 
+/* The five-hour limit, at the end of the row.
+   Every dimension here is fixed. The pill animates its box to fit its contents,
+   so anything that changed width as the percentage or the countdown ticked over
+   would re-run that whole animation several times an hour for a change nobody
+   asked to see — which is the same fault the morph itself was just fixed for. */
+.usage {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding-left: 11px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.usage-track {
+  position: relative;
+  width: 34px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.13);
+  overflow: hidden;
+}
+
+.usage-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--muted);
+  transition: width 260ms var(--ease), background 260ms var(--ease);
+}
+
+.usage[data-severity='warn'] .usage-fill {
+  background: var(--waiting);
+}
+
+.usage[data-severity='critical'] .usage-fill {
+  background: var(--dead);
+}
+
+/* Reserved rather than fitted: `59m` and `2h41m` are different widths, and the
+   box must not move as the countdown crosses between them. Measured at 42.6px
+   for the widest label a five-hour window can produce (`4h59m`); 42px left it a
+   fraction short and the pill still twitched by a pixel on the crossing. */
+.usage-left {
+  min-width: 44px;
+  text-align: right;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage[data-severity='critical'] .usage-left {
+  color: var(--dead);
+}
+
 .entry-group {
   display: inline-flex;
   align-items: center;

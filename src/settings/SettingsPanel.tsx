@@ -130,6 +130,15 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       <label>
         <input
           type="checkbox"
+          checked={config.showUsage}
+          onChange={(e) => update({ showUsage: e.target.checked })}
+        />
+        Show the 5h limit at the end of the row
+      </label>
+
+      <label>
+        <input
+          type="checkbox"
           checked={config.launchAtLogin}
           onChange={(e) => update({ launchAtLogin: e.target.checked })}
         />

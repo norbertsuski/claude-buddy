@@ -28,9 +28,17 @@ export function App() {
 }
 
 function WidgetView() {
-  const { sessions } = useSessions()
+  const { sessions, usage } = useSessions()
   const config = useConfig()
   // Defaulting to on while settings load keeps the widget from drawing its
   // first frames with one timing and the rest with another.
-  return <DotRow sessions={sessions} smoothTransitions={config?.smoothStatusChanges ?? true} />
+  return (
+    <DotRow
+      sessions={sessions}
+      smoothTransitions={config?.smoothStatusChanges ?? true}
+      // Gated here rather than inside the row: "turned off" and "nothing worth
+      // showing" render identically, so the row needs only the one case.
+      usage={config?.showUsage === false ? null : usage}
+    />
+  )
 }

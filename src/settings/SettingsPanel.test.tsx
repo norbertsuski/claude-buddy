@@ -19,6 +19,7 @@ const config: AppConfig = {
   launchAtLogin: false,
   showBackgroundJobs: true,
   smoothStatusChanges: true,
+  showUsage: true,
   preferredDisplay: null,
   positions: {},
 }
@@ -71,6 +72,21 @@ describe('SettingsPanel', () => {
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith('set_config', {
         config: expect.objectContaining({ smoothStatusChanges: false }),
+      }),
+    )
+  })
+
+  it('turns the 5h meter off', async () => {
+    render(<SettingsPanel onClose={vi.fn()} />)
+
+    const box = await screen.findByLabelText('Show the 5h limit at the end of the row')
+    expect(box).toBeChecked()
+
+    await userEvent.click(box)
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('set_config', {
+        config: expect.objectContaining({ showUsage: false }),
       }),
     )
   })

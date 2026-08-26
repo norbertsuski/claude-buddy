@@ -28,7 +28,17 @@ pub const UPDATE_EVENT: &str = "sessions://update";
 pub struct Update {
     pub sessions: Vec<SessionSnapshot>,
     pub alerts: Vec<Alert>,
+    /// Five-hour limit usage, or `None` when there is nothing trustworthy to
+    /// show. Absent far more often than present: see `crate::usage`.
+    pub usage: Option<crate::usage::Usage>,
 }
+
+/// How often the usage cache is re-read.
+///
+/// Deliberately slower than `TICK`: it is a whole file parsed for one field,
+/// the field behind it is refreshed rarely, and the countdown the widget draws
+/// from it runs off an absolute timestamp rather than needing to be re-sent.
+pub const USAGE_POLL: Duration = Duration::from_secs(15);
 
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -113,6 +123,10 @@ pub fn spawn_watcher(
         let mut first_seen_dead: HashMap<String, i64> = HashMap::new();
 
         let mut previous: Option<Vec<SessionSnapshot>> = None;
+        let mut previous_usage: Option<crate::usage::Usage> = None;
+        let mut usage: Option<crate::usage::Usage> = None;
+        // Zero, not `now`, so the first tick reads rather than waiting a poll.
+        let mut usage_read_at: i64 = 0;
 
         while !stop_thread.load(Ordering::Relaxed) {
             // Read settings per tick, from the cache, so changing the paused
@@ -141,16 +155,29 @@ pub fn spawn_watcher(
 
             let sessions = result.sessions;
 
+            if now - usage_read_at >= USAGE_POLL.as_millis() as i64 {
+                usage_read_at = now;
+                usage = crate::usage::read(now);
+            }
+            // Lapsing is checked every tick even between reads: the window can
+            // run out mid-interval, and holding a spent figure on screen for up
+            // to another poll is the one thing this must not do.
+            if usage.is_some_and(|u| u.resets_at_ms <= now) {
+                usage = None;
+            }
+
             let changed = previous
                 .as_ref()
                 .map(|prev| fingerprint(prev) != fingerprint(&sessions))
-                .unwrap_or(true);
+                .unwrap_or(true)
+                || previous_usage != usage;
 
             if changed {
                 let mut alerts = diff_alerts(previous.as_deref(), &sessions);
                 crate::watcher::question::enrich_alerts(&mut alerts, &sessions, question.as_ref());
-                on_update(Update { sessions: sessions.clone(), alerts });
+                on_update(Update { sessions: sessions.clone(), alerts, usage });
                 previous = Some(sessions);
+                previous_usage = usage;
             }
 
             // Wake on either an FSEvents notification or the reconcile tick,

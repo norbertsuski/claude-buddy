@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatElapsed } from './format'
+import { formatCountdown, formatElapsed } from './format'
 
 describe('formatElapsed', () => {
   it('renders whole minutes under an hour', () => {
@@ -73,5 +73,29 @@ describe('countByState', () => {
   it('returns all zeroes for no sessions', () => {
     const counts = countByState([])
     expect(Object.values(counts).every((n) => n === 0)).toBe(true)
+  })
+})
+
+describe('formatCountdown', () => {
+  it('reads in hours and minutes for most of a five-hour window', () => {
+    expect(formatCountdown(2 * 3_600_000 + 41 * 60_000)).toBe('2h41m')
+  })
+
+  it('pads the minutes so the width does not change as they tick down', () => {
+    // The meter sits at the end of the row; a glyph appearing or vanishing
+    // there would change the pill's width and re-run the whole morph.
+    expect(formatCountdown(3 * 3_600_000 + 7 * 60_000)).toBe('3h07m')
+    expect(formatCountdown(3 * 3_600_000)).toBe('3h00m')
+  })
+
+  it('drops the hours once there are none', () => {
+    expect(formatCountdown(59 * 60_000)).toBe('59m')
+    expect(formatCountdown(60_000)).toBe('1m')
+  })
+
+  it('never counts seconds, and never counts below zero', () => {
+    expect(formatCountdown(59_000)).toBe('<1m')
+    expect(formatCountdown(0)).toBe('<1m')
+    expect(formatCountdown(-5_000)).toBe('<1m')
   })
 })

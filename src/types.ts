@@ -31,9 +31,28 @@ export interface Alert {
   detail: string | null
 }
 
+/** Mirrors usage::Severity. */
+export type UsageSeverity = 'normal' | 'warn' | 'critical'
+
+/**
+ * How much of the rolling five-hour limit is spent; mirrors usage::Usage.
+ *
+ * Absent far more often than present. It comes from a cache Claude Code only
+ * refreshes when it actually fetches usage, and anything describing a window
+ * that has already reset is dropped rather than shown as if it were current.
+ */
+export interface Usage {
+  /** Whole percent of the window spent, 0–100. */
+  percent: number
+  /** Absolute epoch ms the window resets; the meter counts down from this. */
+  resetsAtMs: number
+  severity: UsageSeverity
+}
+
 export interface Update {
   sessions: SessionSnapshot[]
   alerts: Alert[]
+  usage: Usage | null
 }
 
 /** Fields that live only in the session transcript, fetched lazily on hover. */
@@ -62,6 +81,8 @@ export interface AppConfig {
   showBackgroundJobs: boolean
   /** Time animations to the distance they cover, and fade chips in and out. */
   smoothStatusChanges: boolean
+  /** Show the five-hour limit meter at the end of the collapsed row. */
+  showUsage: boolean
   /** When the widget takes itself off screen; mirrors visibility::HIDE_MODES. */
   hideWhen: string
   /** Display key to show the widget on, or null for the primary display. */

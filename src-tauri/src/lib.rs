@@ -5,6 +5,7 @@ pub mod config;
 pub mod notch;
 pub mod notify;
 pub mod update;
+pub mod usage;
 pub mod visibility;
 pub mod watcher;
 pub mod window;
@@ -27,6 +28,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             window::clamp_to_screen,
             window::resize_widget,
+            commands::get_usage,
             window::list_displays,
             cursor::set_hover_rect,
             cursor::set_hover_rects,

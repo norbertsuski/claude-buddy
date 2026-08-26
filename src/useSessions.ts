@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { UPDATE_EVENT, type SessionSnapshot, type Update } from './types'
+import { UPDATE_EVENT, type SessionSnapshot, type Update, type Usage } from './types'
 
 /**
  * Subscribe to watcher updates.
@@ -15,8 +15,9 @@ import { UPDATE_EVENT, type SessionSnapshot, type Update } from './types'
  * loaded, and it only re-emits when state actually changes — so a subscription
  * alone can leave the widget empty indefinitely while sessions are running.
  */
-export function useSessions(): { sessions: SessionSnapshot[]; ready: boolean } {
+export function useSessions(): { sessions: SessionSnapshot[]; usage: Usage | null; ready: boolean } {
   const [sessions, setSessions] = useState<SessionSnapshot[]>([])
+  const [usage, setUsage] = useState<Usage | null>(null)
   const [ready, setReady] = useState(false)
   // A late-resolving initial fetch must not clobber a newer pushed update.
   const gotEvent = useRef(false)
@@ -28,6 +29,7 @@ export function useSessions(): { sessions: SessionSnapshot[]; ready: boolean } {
     listen<Update>(UPDATE_EVENT, (event) => {
       gotEvent.current = true
       setSessions(event.payload.sessions)
+      setUsage(event.payload.usage)
       setReady(true)
     }).then((unlisten) => {
       if (disposed) unlisten()
@@ -44,11 +46,24 @@ export function useSessions(): { sessions: SessionSnapshot[]; ready: boolean } {
         // The widget still works off the event stream if this fails.
       })
 
+    // Fetched separately for the same reason the sessions are: the watcher only
+    // re-emits on a change, so loading during a quiet stretch would leave the
+    // meter missing until something else moved.
+    invoke<Usage | null>('get_usage')
+      .then((current) => {
+        if (disposed || gotEvent.current) return
+        setUsage(current ?? null)
+      })
+      .catch(() => {
+        // No meter, which is the same as every other case where the figure
+        // cannot be trusted.
+      })
+
     return () => {
       disposed = true
       stop?.()
     }
   }, [])
 
-  return { sessions, ready }
+  return { sessions, usage, ready }
 }

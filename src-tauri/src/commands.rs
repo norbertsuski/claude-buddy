@@ -33,6 +33,17 @@ pub fn get_sessions(
     store.get()
 }
 
+/// Five-hour limit usage, for the frontend to fetch on mount.
+///
+/// The watcher pushes this with every update, but only re-emits when something
+/// changes — so a widget that loaded during a quiet stretch would have no
+/// meter until the next change, exactly as it would have no sessions without
+/// `get_sessions`.
+#[tauri::command]
+pub fn get_usage() -> Option<crate::usage::Usage> {
+    crate::usage::read(crate::watcher::watch::now_ms())
+}
+
 #[tauri::command]
 pub fn get_config() -> Config {
     config::load(&config::config_path())

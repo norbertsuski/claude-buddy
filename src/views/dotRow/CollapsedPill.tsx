@@ -1,4 +1,5 @@
 import { countByState, ownSessions } from '../../format'
+import { UsageMeter } from './UsageMeter'
 import type { SessionViewProps } from '../SessionView'
 import './dotRow.css'
 
@@ -7,7 +8,7 @@ import './dotRow.css'
  * single persistent element in DotRow so it can animate between states rather
  * than being swapped out.
  */
-export function CollapsedPill({ sessions }: SessionViewProps) {
+export function CollapsedPill({ sessions, usage = null }: SessionViewProps) {
   // Background jobs never inflate the volume counts — they belong to a session
   // rather than being one — but urgency is not a volume question. A job blocked
   // on input already fires a notification and already keeps the widget on
@@ -57,6 +58,7 @@ export function CollapsedPill({ sessions }: SessionViewProps) {
           {jobs} {jobs === 1 ? 'job' : 'jobs'}
         </span>
       )}
+      {usage !== null && <UsageMeter usage={usage} />}
     </div>
   )
 }
