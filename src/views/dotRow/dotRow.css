@@ -121,7 +121,10 @@ body {
 }
 
 .variant-expanded {
-  gap: 10px;
+  /* Wider than the collapsed gap because each entry's own padding shrank to
+     keep its glyphs an even distance from the pill edge; without this the
+     names crowd each other. */
+  gap: 15px;
 }
 
 .dot {
@@ -286,6 +289,18 @@ body {
   padding: 0 11px;
 }
 
+/* ...but not against the pill itself. There the summary's inset doubles up
+   with the variant's, so bare trailing text sat 22px from the edge while a
+   chip's painted edge sat at 11px, and the row read as lopsided. The eye
+   aligns to painted edges, so the chip is the thing to match. */
+.variant > .summary:last-child {
+  padding-right: 0;
+}
+
+.variant > .summary:first-child {
+  padding-left: 0;
+}
+
 .entry-group {
   display: inline-flex;
   align-items: center;
@@ -296,7 +311,12 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  padding: 4px 10px;
+  /* Square, so a dot at the row's left edge and a name at its right sit the
+     same distance in as the topmost and bottommost glyphs do. With 4px/10px
+     the glyphs were 21px from the sides but 15px from top and bottom, and the
+     row read as horizontally padded. The hover background is unaffected: it
+     paints from the entry's box, which the variant already insets evenly. */
+  padding: 5px;
   border-radius: 999px;
   background: transparent;
   transition: background 160ms var(--ease);
