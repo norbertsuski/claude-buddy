@@ -205,6 +205,54 @@ pub fn cached() -> Option<NotchGeometry> {
     *geometry().lock().expect("notch geometry poisoned")
 }
 
+/// How often the display configuration is re-read.
+///
+/// Nothing in the app observes displays appearing or disappearing, and notch
+/// mode cannot do without it: closing the lid takes the notched display away,
+/// and the window would be parked on a screen that no longer exists with drag
+/// suppressed and no way to recover it.
+///
+/// A poll rather than `NSApplicationDidChangeScreenParametersNotification`,
+/// which is the mechanism this wants: observing it needs a retained Objective-C
+/// block, and the payoff over one `NSScreen` read every two seconds is latency
+/// nobody can perceive on an event that happens when a lid opens. The cursor is
+/// sampled on the same reasoning, sixty times as often.
+pub const GEOMETRY_POLL: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Re-probed geometry, pushed to the frontend so it can redraw or stop drawing.
+pub const NOTCH_EVENT: &str = "notch://layout";
+
+/// Watch for the display configuration changing, and announce it when it does.
+///
+/// Emits only on change, so an unchanging setup costs one `NSScreen` read per
+/// tick and nothing downstream.
+pub fn spawn_geometry_watcher(app: tauri::AppHandle) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let stop = std::sync::Arc::new(AtomicBool::new(false));
+    let stop_thread = stop.clone();
+
+    std::thread::spawn(move || {
+        while !stop_thread.load(Ordering::Relaxed) {
+            std::thread::sleep(GEOMETRY_POLL);
+
+            let app = app.clone();
+            // NSScreen is main-thread only, and AppKit geometry accessors fail
+            // silently elsewhere rather than erroring.
+            let _ = app.clone().run_on_main_thread(move || {
+                let before = cached();
+                let after = refresh();
+                if before != after {
+                    use tauri::Emitter;
+                    let _ = app.emit(NOTCH_EVENT, notch_layout());
+                }
+            });
+        }
+    });
+
+    stop
+}
+
 /// Chip placement for the frontend, or `None` where there is no notch.
 #[tauri::command]
 pub fn notch_layout() -> Option<NotchLayout> {

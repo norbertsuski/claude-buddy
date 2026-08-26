@@ -56,6 +56,13 @@ pub fn run() {
                 .expect("widget window missing from tauri.conf.json");
             window::configure_panel(&widget)
                 .map_err(|e| tauri::Error::Anyhow(anyhow::anyhow!(e)))?;
+
+            // Before the first placement: notch mode derives where the window
+            // goes from this, and a command cannot probe for it because NSScreen
+            // needs the main thread and a command is not promised one.
+            crate::notch::refresh();
+            crate::notch::spawn_geometry_watcher(app.handle().clone());
+
             window::restore_position(&widget);
             window::build_tray_menu(app.handle())?;
 

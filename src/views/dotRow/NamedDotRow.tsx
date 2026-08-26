@@ -1,5 +1,5 @@
-import { shortName } from '../../format'
 import type { SessionSnapshot } from '../../types'
+import { SessionEntry } from './SessionEntry'
 import './dotRow.css'
 
 /**
@@ -31,36 +31,21 @@ export function NamedDotRow({
   return (
     <div className="variant variant-expanded" data-testid="named-dot-row">
       {visible.map((session, index) => (
-        <span key={session.sessionId} className="entry-group">
-          {index > 0 &&
-            (session.background ? (
-              // A job belongs to the session before it, so it reads as a
-              // continuation rather than a peer.
-              <span className="child-arrow" aria-hidden="true">
-                →
-              </span>
-            ) : (
-              <span className="hairline" />
-            ))}
-          <span
-            className="entry"
-            data-testid={`session-${session.sessionId}`}
-            data-session-id={session.sessionId}
-            data-state={session.state}
-            data-background={session.background ? 'true' : 'false'}
-            data-hovered={hoveredSessionId === session.sessionId ? 'true' : 'false'}
-            onMouseEnter={(e) => {
-              onHoverSession(session.sessionId)
-              const entry = e.currentTarget.getBoundingClientRect()
-              const row = e.currentTarget.closest('.pill')?.getBoundingClientRect()
-              onHoverOffset?.(row ? entry.left - row.left : 0)
-            }}
-            onMouseLeave={() => onHoverSession(null)}
-          >
-            <span className={`dot dot-${session.state}`} />
-            <span className="entry-name">{shortName(session.name)}</span>
-          </span>
-        </span>
+        <SessionEntry
+          key={session.sessionId}
+          session={session}
+          separated={index > 0}
+          hovered={hoveredSessionId === session.sessionId}
+          onHover={(sessionId, element) => {
+            onHoverSession(sessionId)
+            // Only an enter carries an element, and only an enter has an offset
+            // worth reporting.
+            if (element === null) return
+            const entry = element.getBoundingClientRect()
+            const row = element.closest('.pill')?.getBoundingClientRect()
+            onHoverOffset?.(row ? entry.left - row.left : 0)
+          }}
+        />
       ))}
       {hidden > 0 && (
         <span className="summary" data-testid="overflow">
