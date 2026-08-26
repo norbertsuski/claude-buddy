@@ -180,10 +180,18 @@ Where the frontmost app's menus end is unobservable without Accessibility
 permissions, and changes on every app switch — so occlusion cannot be avoided by
 measuring, only by picking a width and checking it.
 
-`SLAB_WIDTH` is 340. Centred on a 179pt notch on a 1470pt panel that spans
-roughly 565 to 905. Xcode's menu titles end well before 565 and the menu bar
-extras begin well after 905, so at this width it covers nothing — and because it
-is fixed, that is checkable rather than hoped for.
+The open width is `display_width / 4.3`, bounded to 260–400pt — 342 on a 1470pt
+panel, spanning 564 to 906. Measured on that panel, the leftmost menu bar extra
+starts at logical 910, so it clears them. A third of the display was tried first
+and spans 490 to 980, sitting 70pt underneath them.
+
+A share rather than a constant so it travels between displays, bounded because
+the extras are right-aligned and roughly a fixed width, so they eat
+proportionally more of a narrow display than a wide one.
+
+**The resting band is not fixed** — it hugs its content, which keeps it clear of
+the extras without needing to know where they are. Only the open width is
+constant, so the slab is the same size however much there is to say.
 
 **Why not read menu extents.** An `AXUIElement` query on every app switch buys
 exact clamping in exchange for an Accessibility permission prompt on first run

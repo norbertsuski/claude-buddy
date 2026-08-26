@@ -81,12 +81,23 @@ interface Props {
   usage: Usage | null
   open: boolean
   barHeight: number
+  /** The notch's width, for placing the right-hand resting half beyond it. */
+  notchWidth: number
   row: RowTarget | null
   /** The resting content: counts on the left of the notch, the limit on the right. */
   restLeft: ReactNode
   restRight: ReactNode
-  /** Width of the notch, held open between the two resting halves. */
-  notchWidth: number
+  /**
+   * Where the notch's left edge falls inside the band.
+   *
+   * Anchors the resting halves against the notch rather than the band's own
+   * edges, so they stay where the eye already is. The left half is placed with
+   * `calc(100% - x)` rather than a computed `left`, deliberately: the band's
+   * resting width is measured *from* these halves, and positioning them from it
+   * as well made the two circular — the band collapsed to the notch's width and
+   * clipped the halves it was supposed to be measuring.
+   */
+  notchLeftInBand: number
   restLeftRef?: React.Ref<HTMLDivElement>
   restRightRef?: React.Ref<HTMLDivElement>
   /**
@@ -112,10 +123,11 @@ export function NotchPanel({
   usage,
   open,
   barHeight,
+  notchWidth,
   row,
   restLeft,
   restRight,
-  notchWidth,
+  notchLeftInBand,
   restLeftRef,
   restRightRef,
   onMeasure,
@@ -152,11 +164,20 @@ export function NotchPanel({
   return (
     <>
       <div className="slab-rest" data-show={open ? 'false' : 'true'} style={{ height: barHeight }}>
-        <div className="slab-rest-half" ref={restLeftRef} data-testid="rest-left">
+        <div
+          className="slab-rest-half"
+          ref={restLeftRef}
+          data-testid="rest-left"
+          style={{ right: `calc(100% - ${notchLeftInBand}px)`, height: barHeight }}
+        >
           {restLeft}
         </div>
-        <span className="slab-rest-notch" style={{ width: notchWidth }} aria-hidden="true" />
-        <div className="slab-rest-half" ref={restRightRef} data-testid="rest-right">
+        <div
+          className="slab-rest-half"
+          ref={restRightRef}
+          data-testid="rest-right"
+          style={{ left: notchLeftInBand + notchWidth, height: barHeight }}
+        >
           {restRight}
         </div>
       </div>

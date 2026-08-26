@@ -47,12 +47,15 @@ body.notch-mode {
   top: 0;
   left: 0;
   right: 0;
-  display: flex;
-  align-items: center;
   transition: opacity 140ms var(--ease);
 }
 
+/* Anchored against the notch's edges rather than the band's, so the content
+   stays where the eye already is instead of spreading to the corners of a band
+   wider than it needs. */
 .slab-rest-half {
+  position: absolute;
+  top: 0;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -62,34 +65,28 @@ body.notch-mode {
   white-space: nowrap;
 }
 
-/* Holds the notch's width open, so the two halves land either side of it. */
-.slab-rest-notch {
-  flex: none;
-}
-
 .slab-list {
+  padding-bottom: 10px;
   transition: opacity var(--morph) var(--ease);
 }
 
-/* Fading rather than sliding: the texts swap in place while the box grows. */
+/* Fading rather than sliding: the texts swap in place while the box grows.
+   The hidden one is still laid out and measured — the band's open height comes
+   from the list even while it is invisible. */
 .slab-rest[data-show='false'],
 .slab-list[data-show='false'] {
   opacity: 0;
   pointer-events: none;
 }
 
-.slab-list[data-show='false'] {
-  /* Still measured while hidden — the band's open height comes from it. */
-  transition: opacity 120ms var(--ease);
-}
-
 .notch-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  /* Rows are cheap vertically here — there is 400pt reserved below the bar —
-     and the list is easier to aim at with room between the entries. */
-  padding: 6px 12px;
+  /* Rows are cheap vertically — there is 400pt reserved below the bar — and a
+     list you point at with a 60ms-sampled cursor wants room between the
+     targets. */
+  padding: 9px 14px;
   font-size: 12px;
   color: var(--text);
   white-space: nowrap;
@@ -126,13 +123,10 @@ body.notch-mode {
 
 .notch-more,
 .notch-foot {
+  margin-top: 6px;
+  padding-top: 11px;
   color: var(--muted);
   font-size: 11px;
-}
-
-.notch-foot {
-  margin-top: 5px;
-  padding-top: 8px;
   border-top: 1px solid rgba(255, 255, 255, 0.14);
 }
 
@@ -184,10 +178,11 @@ body.notch-mode {
    hovered row, never for every row: tailing a transcript per session twice a
    second for data nobody is reading is what the popover avoided too. */
 .notch-detail {
-  padding: 0 12px 7px 30px;
+  padding: 2px 14px 10px 34px;
 }
 
 .notch-detail-line {
+  line-height: 1.55;
   font-size: 11px;
   color: var(--muted);
   overflow: hidden;

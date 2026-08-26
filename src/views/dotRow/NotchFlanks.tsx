@@ -62,15 +62,32 @@ export function NotchFlanks({ sessions, usage }: Props) {
     return () => document.body.classList.remove('notch-mode')
   }, [])
 
-  // The resting band hugs its content, so its width has to be measured. It
-  // cannot animate from `auto` to a fixed width, and the two halves are not the
-  // same size as each other.
-  useLayoutEffect(() => {
-    setRestWidths({
-      left: restLeftRef.current?.offsetWidth ?? 0,
-      right: restRightRef.current?.offsetWidth ?? 0,
-    })
-  }, [sessions, usage])
+  // The resting band hugs its content, so its width has to be measured: it
+  // cannot animate from `auto`, and the two halves are not the same size as each
+  // other. Only the open width is fixed.
+  //
+  // Watched rather than measured against a dependency list. The counts render
+  // empty until the first snapshot arrives and the meter until the first usage
+  // read, so a measurement taken when a dependency changed caught them at zero —
+  // and a zero-width band clipped the halves out of sight, which is where the
+  // measurement came from.
+  useEffect(() => {
+    const halves = [restLeftRef.current, restRightRef.current]
+    const read = () =>
+      setRestWidths({
+        left: restLeftRef.current?.offsetWidth ?? 0,
+        right: restRightRef.current?.offsetWidth ?? 0,
+      })
+    read()
+    if (typeof ResizeObserver !== 'function') return
+    const observer = new ResizeObserver(read)
+    for (const half of halves) if (half !== null) observer.observe(half)
+    return () => observer.disconnect()
+    // Keyed on the layout, not empty: this component renders nothing until the
+    // layout arrives from Rust, so an effect that ran once on mount ran before
+    // the halves existed — it read zero and had nothing to observe, and a
+    // zero-width band then clipped away the very content it was measuring.
+  }, [layout])
 
   // Which row the cursor is on. Hit-testing forces a synchronous layout, so it
   // only runs while the slab is actually open.
@@ -120,7 +137,10 @@ export function NotchFlanks({ sessions, usage }: Props) {
   }, [sessions])
 
   const notchWidth = layout === null ? 0 : layout.notchRight - layout.notchLeft
-  const restWidth = restWidths.left + notchWidth + restWidths.right
+  // Open is one fixed width, derived from the display rather than from how much
+  // there is to say, so the slab is the same size every time. At rest the band
+  // hugs its content and stays out of the menu bar's way — widening it there
+  // would put black under the menu bar extras permanently.
   const band =
     layout === null
       ? null
@@ -135,7 +155,7 @@ export function NotchFlanks({ sessions, usage }: Props) {
           }
         : {
             left: layout.notchLeft - restWidths.left,
-            width: restWidth,
+            width: restWidths.left + notchWidth + restWidths.right,
             height: layout.barHeight,
           }
 
@@ -175,8 +195,9 @@ export function NotchFlanks({ sessions, usage }: Props) {
           usage={usage}
           open={open}
           barHeight={layout.barHeight}
-          row={row}
           notchWidth={notchWidth}
+          row={row}
+          notchLeftInBand={open ? (band.width - notchWidth) / 2 : restWidths.left}
           restLeft={<StateCounts sessions={sessions} />}
           restRight={usage === null ? null : <UsageMeter usage={usage} show="percent" />}
           restLeftRef={restLeftRef}

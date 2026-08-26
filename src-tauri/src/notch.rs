@@ -13,15 +13,31 @@ use objc2_app_kit::NSScreen;
 
 use crate::cursor::Rect;
 
-/// Width of the slab: the single black block the widget becomes while open.
+/// The slab's width as a share of the display, and the bounds on it.
 ///
-/// The band in the menu bar and the list below it are the same width, so there
-/// is no join to treat — no flare, no concave fillets where a wide panel meets
-/// a narrow slot. Wide enough for a full session name and its status inline,
-/// and narrow enough to clear the app's menu titles on one side and the menu bar
-/// extras on the other: 340 centred on the notch spans roughly 562 to 907 on a
-/// 1470pt panel, and nothing lives there.
-pub const SLAB_WIDTH: f64 = 340.0;
+/// One width at rest and open both, so only the height ever animates. The band
+/// in the menu bar and the list below it are therefore the same width too, and
+/// there is no join to treat — no flare, no concave fillets where a wide panel
+/// meets a narrow slot.
+///
+/// A share rather than a constant so it travels between displays. The divisor is
+/// the widest that clears the menu bar extras on the panel this was measured on:
+/// on 1470pt it gives 342, spanning 564 to 906, and the leftmost extra starts at
+/// 910. A third of the display — the first thing tried — spans 490 to 980 and
+/// sits 70pt underneath them, permanently, because this width applies at rest.
+///
+/// Where the extras actually begin is not observable: they are right-aligned and
+/// roughly a fixed width, so they eat proportionally more of a narrow display
+/// than a wide one. `SLAB_MAX` bounds the share on a large display, and
+/// `SLAB_MIN` keeps a row legible on a small one.
+pub const SLAB_DIVISOR: f64 = 4.3;
+pub const SLAB_MIN: f64 = 260.0;
+pub const SLAB_MAX: f64 = 400.0;
+
+/// The slab's width on this display.
+pub fn slab_width(geo: &NotchGeometry) -> f64 {
+    (geo.screen_width / SLAB_DIVISOR).clamp(SLAB_MIN, SLAB_MAX)
+}
 
 /// How far a chip may sit from the notch, in points.
 ///
@@ -106,7 +122,7 @@ pub fn window_frame(
 /// `notch_edges` derive from this, because two callers computing it separately
 /// is two callers that can disagree about where the notch is.
 fn half_width(geo: &NotchGeometry, budget: f64) -> f64 {
-    (geo.notch_width / 2.0 + budget).max(SLAB_WIDTH / 2.0)
+    (geo.notch_width / 2.0 + budget).max(slab_width(geo) / 2.0)
 }
 
 /// The two menu-bar rects the chips may occupy, in window-local coordinates.
@@ -299,7 +315,7 @@ pub fn notch_layout() -> Option<NotchLayout> {
         notch_right,
         bar_height: geo.bar_height,
         budget: FLANK_BUDGET,
-        slab_width: SLAB_WIDTH,
+        slab_width: slab_width(&geo),
     })
 }
 
@@ -339,7 +355,7 @@ mod tests {
             size,
             ((geo.notch_width / 2.0 + FLANK_BUDGET) * 2.0, geo.bar_height + 400.0)
         );
-        assert!(size.0 >= SLAB_WIDTH);
+        assert!(size.0 >= slab_width(&geo));
         // Centred on the notch centre, which is the screen centre here.
         let notch_centre = geo.notch_x + geo.notch_width / 2.0;
         assert_eq!(origin, (notch_centre - size.0 / 2.0, 0.0));
@@ -351,11 +367,30 @@ mod tests {
         // is inside it whichever of the two set the width.
         let geo = built_in();
         let (_, size) = window_frame(&geo, FLANK_BUDGET, 0.0);
-        assert!(size.0 >= SLAB_WIDTH);
+        assert!(size.0 >= slab_width(&geo));
         let (notch_left, notch_right) = notch_edges(&geo, FLANK_BUDGET);
         let centre = (notch_left + notch_right) / 2.0;
-        assert!(centre - SLAB_WIDTH / 2.0 >= 0.0);
-        assert!(centre + SLAB_WIDTH / 2.0 <= size.0);
+        assert!(centre - slab_width(&geo) / 2.0 >= 0.0);
+        assert!(centre + slab_width(&geo) / 2.0 <= size.0);
+    }
+
+    #[test]
+    fn the_slab_is_a_share_of_the_display_within_bounds() {
+        // Measured: on this panel it must stay clear of the leftmost menu bar
+        // extra at 910, with the notch centred at 735.
+        let geo = built_in();
+        let width = slab_width(&geo);
+        assert_eq!(width, 1512.0 / SLAB_DIVISOR);
+        let centre = geo.notch_x + geo.notch_width / 2.0;
+        assert!(centre + width / 2.0 < 910.0 + geo.screen_width - 1470.0);
+    }
+
+    #[test]
+    fn the_share_is_bounded_at_both_ends() {
+        let narrow = NotchGeometry { screen_width: 800.0, ..built_in() };
+        assert_eq!(slab_width(&narrow), SLAB_MIN);
+        let wide = NotchGeometry { screen_width: 6016.0, ..built_in() };
+        assert_eq!(slab_width(&wide), SLAB_MAX);
     }
 
     #[test]
@@ -365,7 +400,7 @@ mod tests {
         let geo = NotchGeometry { notch_width: 10.0, ..built_in() };
         let (_, size) = window_frame(&geo, 900.0, 0.0);
         assert_eq!(size.0, (10.0 / 2.0 + 900.0) * 2.0);
-        assert!(size.0 >= SLAB_WIDTH);
+        assert!(size.0 >= slab_width(&geo));
     }
 
     #[test]

@@ -130,13 +130,14 @@ describe('NotchFlanks opening', () => {
     render(<NotchFlanks sessions={[session('api-service-55', 'waiting')]} usage={USAGE} />)
     await screen.findByTestId('rest-left')
     const slab = screen.getByTestId('notch-slab')
-    const restingWidth = slab.style.width
+    // At rest it hugs its content, so it stays clear of the menu bar extras.
+    expect(slab.style.height).toBe(`${LAYOUT.barHeight}px`)
+    expect(slab.style.width).not.toBe(`${LAYOUT.slabWidth}px`)
 
     open()
     expect(slab).toHaveAttribute('data-open', 'true')
+    // Open is one fixed width, whatever there is to say.
     expect(slab.style.width).toBe(`${LAYOUT.slabWidth}px`)
-    expect(slab.style.width).not.toBe(restingWidth)
-    // Centred on the notch once open, so it covers both resting halves.
     const centre = (LAYOUT.notchLeft + LAYOUT.notchRight) / 2
     expect(slab.style.left).toBe(`${centre - LAYOUT.slabWidth / 2}px`)
   })
