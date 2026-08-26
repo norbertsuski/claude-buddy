@@ -41,6 +41,22 @@ describe('App routing', () => {
     expect(screen.queryByTestId('settings')).not.toBeInTheDocument()
   })
 
+  it('renders the notch chips instead of the row when placement is notch', async () => {
+    window.location.hash = ''
+    invoke.mockImplementation(async (command: string) => {
+      if (command === 'get_config') return { placement: 'notch', smoothStatusChanges: true }
+      if (command === 'notch_layout') {
+        return { notchLeft: 240, notchRight: 430, barHeight: 37, budget: 240 }
+      }
+      return []
+    })
+
+    render(<App />)
+
+    await waitFor(() => expect(screen.getByTestId('notch-flanks')).toBeInTheDocument())
+    expect(screen.queryByTestId('dot-row')).not.toBeInTheDocument()
+  })
+
   it('renders settings on the settings route and marks the body opaque', async () => {
     window.location.hash = '#settings'
     const config = {
@@ -53,6 +69,7 @@ describe('App routing', () => {
       muteUntilMs: 0,
       launchAtLogin: false,
       showBackgroundJobs: true,
+      placement: 'free',
       preferredDisplay: null,
       positions: {},
     }

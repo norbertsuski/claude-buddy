@@ -6,6 +6,9 @@ import './settings.css'
 export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [displays, setDisplays] = useState<DisplayInfo[]>([])
+  // Whether this Mac has a notch to place against. Rust answers with null when
+  // it has not, which is also the answer when the lid is shut.
+  const [hasNotch, setHasNotch] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -16,6 +19,13 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       // A malformed response must not blank the whole form.
       .then((list) => setDisplays(Array.isArray(list) ? list : []))
       .catch(() => setDisplays([]))
+    invoke<unknown>('notch_layout')
+      // Boolean, not `!== null`: Rust sends null for no notch, but a command
+      // that resolves with nothing at all must read the same way.
+      .then((layout) => setHasNotch(Boolean(layout)))
+      // No notch is the safe reading: the control stays disabled rather than
+      // offering a placement the widget cannot take up.
+      .catch(() => setHasNotch(false))
   }, [])
 
   // Save on every change: there is no Apply button, so a rejected value must be
@@ -49,9 +59,24 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
         ))}
       </select>
 
+      <label>
+        <input
+          type="checkbox"
+          checked={config.placement === 'notch'}
+          disabled={!hasNotch}
+          data-testid="placement-notch"
+          onChange={(e) => update({ placement: e.target.checked ? 'notch' : 'free' })}
+        />
+        Sit in the menu bar beside the notch
+        {!hasNotch && ' — needs a MacBook with a notch'}
+      </label>
+
       <label htmlFor="display">Show on display</label>
       <select
         id="display"
+        // Notch placement derives its display from where the notch is, so the
+        // choice would be silently ignored rather than merely unused.
+        disabled={config.placement === 'notch'}
         value={config.preferredDisplay ?? ''}
         onChange={(e) => update({ preferredDisplay: e.target.value === '' ? null : e.target.value })}
       >

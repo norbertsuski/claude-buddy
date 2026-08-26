@@ -85,6 +85,8 @@ export interface AppConfig {
   showUsage: boolean
   /** When the widget takes itself off screen; mirrors visibility::HIDE_MODES. */
   hideWhen: string
+  /** `free` to float where dragged, `notch` to flank the notch in the menu bar. */
+  placement: string
   /** Display key to show the widget on, or null for the primary display. */
   preferredDisplay: string | null
   positions: Record<string, [number, number]>

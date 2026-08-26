@@ -29,7 +29,7 @@ merely running. Each chip's inner edge is flush with the notch.
 Hovering either chip expands both outward, away from the notch, replacing counts
 with session names. Hovering a name opens the existing popover, which drops out
 of the menu bar onto the desktop below because 335 × ~100pt does not fit in a
-37pt bar.
+menu bar of any height.
 
 ## Decisions
 
@@ -72,7 +72,10 @@ pub struct NotchGeometry {
 }
 ```
 
-`bar_height` is `safeAreaInsets.top`, 37pt on current hardware. `left_flank` and
+`bar_height` is `safeAreaInsets.top` — measured at 32pt on a 13" M4 Air at
+1470x956, not the 37pt this design assumed from the 14"/16" Pro. It is read
+rather than hardcoded, so the assumption never reached the code, but no number
+in this document should be treated as fixed. `left_flank` and
 `right_flank` come from `auxiliaryTopLeftArea.width` and
 `auxiliaryTopRightArea.width`; `notch_width` is the screen width minus both.
 `notch_x` is `left_flank`, so an off-centre notch is handled without assuming

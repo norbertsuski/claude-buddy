@@ -297,11 +297,21 @@ pub fn spawn_cursor_watcher(window: WebviewWindow) -> Arc<AtomicBool> {
                     }
                     PressAction::Drag => {
                         press.dragging = true;
-                        let (x, y) = dragged_origin(cursor, press.grab);
-                        let _ = window.set_position(tauri::LogicalPosition::new(x, y));
+                        // Notch placement is derived, so a drag would move the
+                        // chips somewhere the next placement pass undoes — or,
+                        // worse, off the bar with no drag left to rescue them.
+                        if !crate::config::cached().wants_notch() {
+                            let (x, y) = dragged_origin(cursor, press.grab);
+                            let _ = window.set_position(tauri::LogicalPosition::new(x, y));
+                        }
                     }
                     PressAction::DragEnd => {
-                        crate::window::persist_position(&window);
+                        // Nothing moved under notch placement, so there is no
+                        // position to record — and recording one would resurface
+                        // when the user switches back to free placement.
+                        if !crate::config::cached().wants_notch() {
+                            crate::window::persist_position(&window);
+                        }
                         press.active = false;
                         press.dragging = false;
                     }

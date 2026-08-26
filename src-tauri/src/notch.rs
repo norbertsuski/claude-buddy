@@ -20,11 +20,20 @@ use crate::cursor::Rect;
 /// without Accessibility, and it changes on every app switch. So expansion is
 /// capped rather than clamped, and a chip occludes whatever is under it for as
 /// long as the cursor is on it.
+///
 /// 240 rather than the 200 this started at: measured against the real
 /// stylesheet an expanded entry is 72-91pt, and 200 could hold neither two of
 /// them nor the overflow marker beside them. 240 still leaves over 400pt of the
 /// left flank untouched.
 pub const FLANK_BUDGET: f64 = 240.0;
+
+/// Height reserved below the menu bar for a popover, whether or not one is open.
+///
+/// Mirrors `useWidgetSize.POPOVER_ALLOWANCE`, and reserved for the same reason:
+/// resizing a transparent panel shows one unpainted frame, so a popover opening
+/// must not change the window. The reserved area stays transparent and
+/// click-through, because the chips are the only rects reported as the widget.
+pub const POPOVER_ALLOWANCE: f64 = 400.0;
 
 /// The notched display, in the top-left-origin, y-down space that Tauri's
 /// `set_position` uses.

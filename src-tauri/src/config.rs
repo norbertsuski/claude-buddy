@@ -42,8 +42,12 @@ pub struct Config {
     /// `nothingActive`. The tray icon always remains, so a hidden widget is
     /// never unreachable.
     pub hide_when: String,
+    /// Where the widget lives: `free` to float wherever the user dragged it, or
+    /// `notch` to sit in the menu bar flanking a MacBook's notch.
+    pub placement: String,
     /// Display key the widget should appear on, or `None` for the primary
-    /// display. Keys come from `list_displays`.
+    /// display. Keys come from `list_displays`. Ignored under `notch`
+    /// placement, which derives its display from where the notch is.
     pub preferred_display: Option<String>,
     /// Widget position keyed by display identifier, so docking and undocking a
     /// monitor does not leave the widget off-screen.
@@ -65,15 +69,28 @@ impl Default for Config {
             smooth_status_changes: true,
             show_usage: true,
             hide_when: "noSessions".into(),
+            placement: "free".into(),
             preferred_display: None,
             positions: HashMap::new(),
         }
     }
 }
 
+/// Accepted values for the `placement` setting.
+pub const PLACEMENTS: [&str; 2] = ["free", "notch"];
+
 impl Config {
     pub fn alerts_muted(&self, now_ms: i64) -> bool {
         now_ms < self.mute_until_ms
+    }
+
+    /// Whether the widget places itself against the notch.
+    ///
+    /// Anything other than exactly `notch` reads as free placement. A
+    /// hand-edited config must not be able to put the widget somewhere it
+    /// cannot be dragged back from, and notch placement suppresses dragging.
+    pub fn wants_notch(&self) -> bool {
+        self.placement == "notch"
     }
 }
 
@@ -170,6 +187,8 @@ mod tests {
         assert!(c.smooth_status_changes);
         assert!(c.show_usage);
         assert_eq!(c.hide_when, "noSessions");
+        assert_eq!(c.placement, "free");
+        assert!(!c.wants_notch());
         assert_eq!(c.preferred_display, None);
         assert!(c.positions.is_empty());
     }
@@ -247,4 +266,19 @@ mod tests {
         let p = config_path();
         assert!(p.ends_with("com.clawde.buddy/config.json"), "got {p:?}");
     }
+    #[test]
+    fn only_the_exact_notch_value_places_against_the_notch() {
+        // A typo in a hand-edited file falls back to free placement rather than
+        // to a mode where the widget cannot be dragged.
+        let mut c = Config::default();
+        assert!(!c.wants_notch());
+        c.placement = "notch".into();
+        assert!(c.wants_notch());
+        for wrong in ["Notch", "NOTCH", "notched", "", "free"] {
+            c.placement = wrong.into();
+            assert!(!c.wants_notch(), "{wrong} must not read as notch");
+        }
+        assert!(PLACEMENTS.contains(&"free") && PLACEMENTS.contains(&"notch"));
+    }
+
 }

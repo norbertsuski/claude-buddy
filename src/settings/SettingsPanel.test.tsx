@@ -20,6 +20,7 @@ const config: AppConfig = {
   showBackgroundJobs: true,
   smoothStatusChanges: true,
   showUsage: true,
+  placement: 'free',
   preferredDisplay: null,
   positions: {},
 }
@@ -37,6 +38,40 @@ describe('SettingsPanel', () => {
       if (cmd === 'list_displays') return Promise.resolve(displays)
       return Promise.resolve()
     })
+  })
+
+  it('offers notch placement only where there is a notch', async () => {
+    invoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_config') return Promise.resolve({ ...config })
+      if (cmd === 'list_displays') return Promise.resolve(displays)
+      if (cmd === 'notch_layout') {
+        return Promise.resolve({ notchLeft: 240, notchRight: 430, barHeight: 37, budget: 240 })
+      }
+      return Promise.resolve()
+    })
+    render(<SettingsPanel onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByTestId('placement-notch')).toBeEnabled())
+  })
+
+  it('disables notch placement when no notch is attached', async () => {
+    // Rust answers null with the lid shut or on a Mac without one. A command
+    // resolving with nothing at all has to read the same way.
+    render(<SettingsPanel onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByTestId('placement-notch')).toBeDisabled())
+    expect(screen.getByText(/needs a MacBook with a notch/)).toBeInTheDocument()
+  })
+
+  it('ignores the display picker under notch placement', async () => {
+    invoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_config') return Promise.resolve({ ...config, placement: 'notch' })
+      if (cmd === 'list_displays') return Promise.resolve(displays)
+      if (cmd === 'notch_layout') return Promise.resolve({ notchLeft: 240, notchRight: 430, barHeight: 37, budget: 240 })
+      return Promise.resolve()
+    })
+    render(<SettingsPanel onClose={vi.fn()} />)
+    // Notch placement derives its display, so the choice would be silently
+    // ignored rather than merely unused.
+    await waitFor(() => expect(screen.getByLabelText('Show on display')).toBeDisabled())
   })
 
   it('loads current settings into the form', async () => {

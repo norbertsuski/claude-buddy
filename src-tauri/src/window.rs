@@ -302,6 +302,19 @@ pub fn choose_display_key(
 pub fn restore_position(window: &WebviewWindow) {
     let settings = crate::config::cached();
 
+    // Notch placement is derived from the display, so it bypasses the saved
+    // positions and the display picker entirely — including the NSScreen to
+    // Tauri-Monitor name matching that `choose_display_key` would otherwise
+    // need, which would have been the most fragile part of the feature.
+    //
+    // Falling through on failure is the documented fallback: with the lid shut
+    // there is no notch to place against, and the widget returns to free
+    // placement without the config value being rewritten, so reopening the lid
+    // restores notch mode on its own.
+    if settings.wants_notch() && place_in_notch(window) {
+        return;
+    }
+
     let Ok(monitors) = window.available_monitors() else {
         return;
     };
@@ -325,6 +338,32 @@ pub fn restore_position(window: &WebviewWindow) {
     };
 
     place_on(window, monitor, settings.positions.get(&chosen).copied());
+}
+
+/// Put the widget in the menu bar, flanking the notch. False when there is no
+/// notch to place against.
+///
+/// Position *and* size both come from Rust here, unlike free placement where the
+/// frontend measures itself and calls `resize_widget`. The chips are laid out
+/// against the notch's edges, so the window has to be the size the geometry says
+/// before the page can place anything inside it.
+fn place_in_notch(window: &WebviewWindow) -> bool {
+    let Some(geo) = crate::notch::cached() else {
+        return false;
+    };
+    let (origin, size) = crate::notch::window_frame(
+        &geo,
+        crate::notch::FLANK_BUDGET,
+        crate::notch::POPOVER_ALLOWANCE,
+    );
+
+    // The swizzled NSPanel ignores Tauri's `set_size`, which is why
+    // `resize_widget` reaches for the panel's own `setContentSize:` too.
+    if let Ok(panel) = window.app_handle().get_webview_panel("widget") {
+        panel.set_content_size(size.0, size.1);
+    }
+    let _ = window.set_position(LogicalPosition::new(origin.0, origin.1));
+    true
 }
 
 /// Position the window on `monitor`, honouring a saved monitor-local point or
