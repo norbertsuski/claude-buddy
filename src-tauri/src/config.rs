@@ -28,6 +28,11 @@ pub struct Config {
     /// demoted when enabled, since they belong to a session rather than being
     /// one.
     pub show_background_jobs: bool,
+    /// Whether the widget times each animation to the distance it covers and
+    /// fades chips in as they appear, rather than giving every change the one
+    /// duration tuned for the widest morph. On by default; off restores the
+    /// fixed timing for anyone who prefers it.
+    pub smooth_status_changes: bool,
     /// When the widget takes itself off screen: `never`, `noSessions` or
     /// `nothingActive`. The tray icon always remains, so a hidden widget is
     /// never unreachable.
@@ -52,6 +57,7 @@ impl Default for Config {
             mute_until_ms: 0,
             launch_at_login: false,
             show_background_jobs: true,
+            smooth_status_changes: true,
             hide_when: "noSessions".into(),
             preferred_display: None,
             positions: HashMap::new(),
@@ -155,6 +161,7 @@ mod tests {
         assert_eq!(c.mute_until_ms, 0);
         assert!(!c.launch_at_login);
         assert!(c.show_background_jobs);
+        assert!(c.smooth_status_changes);
         assert_eq!(c.hide_when, "noSessions");
         assert_eq!(c.preferred_display, None);
         assert!(c.positions.is_empty());

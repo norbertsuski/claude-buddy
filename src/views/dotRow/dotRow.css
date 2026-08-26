@@ -20,8 +20,12 @@
      front-loaded, which over a 400px morph lurches then crawls. */
   --ease-morph: cubic-bezier(0.4, 0, 0.2, 1);
 
-  /* Duration of the pill's box morph. useWidgetSize.SHRINK_DELAY_MS must not be
-     shorter, or the window clips the pill while it contracts. */
+  /* Fallback duration for the pill's box morph, matching useWidgetSize.MORPH_MS.
+     DotRow overrides it on the pill itself for every change, because how long
+     the box should take depends on how far it is going: this value is tuned for
+     the ~400px collapsed↔expanded morph, and a status change moves the box a
+     third of that. The window's shrink is delayed by whatever duration DotRow
+     chose, so the two can never fall out of step. */
   --morph: 300ms;
   --gap-popover: 10px;
 
@@ -261,6 +265,28 @@ body {
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.1px;
+  /* Proportional digits change the chip's width as a count ticks over, which
+     re-runs the whole box morph for a change nobody asked to see. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* A chip is mounted and unmounted as its state comes and goes, so without this
+   it appears in a single frame while the pill it sits in takes the whole morph
+   to make room for it — the content arrives, then the box catches up. Fading it
+   in over roughly the morph's own length puts the two back together. */
+.dot-row[data-smooth='true'] .chip {
+  animation: chip-in 160ms var(--ease) both;
+}
+
+@keyframes chip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .chip-waiting {
@@ -287,6 +313,7 @@ body {
   color: var(--muted);
   font-size: 14px;
   padding: 0 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ...but not against the pill itself. There the summary's inset doubles up
@@ -485,6 +512,7 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .popover,
+  .chip,
   .dot-waiting::after {
     animation: none;
   }

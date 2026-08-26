@@ -1,15 +1,57 @@
 import { invoke } from '@tauri-apps/api/core'
 
 /**
- * How long to wait before shrinking the window.
+ * Longest the pill's box morph takes, and so the longest the window must wait
+ * before shrinking.
  *
  * The window must stay at least as large as its content for the whole
  * animation, or the pill is clipped as it contracts. Growing can happen
  * immediately — the extra area is transparent and invisible.
  *
- * Keep in step with the `--morph` duration in dotRow.css.
+ * Mirrors the `--morph` fallback in dotRow.css; the real duration is written
+ * onto the pill per change by `morphDuration`.
  */
-export const SHRINK_DELAY_MS = 300
+export const MORPH_MS = 300
+
+/**
+ * Floor for the morph.
+ *
+ * A change of a few pixels still has to read as a move rather than a jump, and
+ * below roughly this the eye sees a jump anyway.
+ */
+export const MORPH_MIN_MS = 120
+
+/**
+ * Distance `MORPH_MS` is tuned for: the collapsed↔expanded morph, which is the
+ * widest the box ever travels.
+ */
+export const MORPH_FULL_PX = 400
+
+/**
+ * How long the pill should take to move from one box to another.
+ *
+ * Constant velocity rather than constant duration. `MORPH_MS` was chosen for
+ * the ~400px collapsed↔expanded morph; spending the same 300ms on the ~130px a
+ * status change moves the box is what makes a status change look like a crawl
+ * while its content — which is swapped in a single frame — waits for it.
+ */
+export function morphDuration(
+  from: { width: number; height: number } | null,
+  to: { width: number; height: number },
+): number {
+  if (from === null) return MORPH_MS
+  const distance = Math.max(Math.abs(to.width - from.width), Math.abs(to.height - from.height))
+  const scaled = Math.round((distance / MORPH_FULL_PX) * MORPH_MS)
+  return Math.min(MORPH_MS, Math.max(MORPH_MIN_MS, scaled))
+}
+
+/** Whether two sizes are the same, either being absent counting as unknown. */
+export function sameSize(
+  a: { width: number; height: number } | null,
+  b: { width: number; height: number } | null,
+): boolean {
+  return a !== null && b !== null && a.width === b.width && a.height === b.height
+}
 
 const FALLBACK_PAD = 24
 

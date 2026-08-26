@@ -18,6 +18,7 @@ const config: AppConfig = {
   muteUntilMs: 0,
   launchAtLogin: false,
   showBackgroundJobs: true,
+  smoothStatusChanges: true,
   preferredDisplay: null,
   positions: {},
 }
@@ -55,6 +56,21 @@ describe('SettingsPanel', () => {
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith('set_config', {
         config: expect.objectContaining({ sound: true }),
+      }),
+    )
+  })
+
+  it('turns smooth transitions off', async () => {
+    render(<SettingsPanel onClose={vi.fn()} />)
+
+    const box = await screen.findByLabelText('Smooth transitions when a status changes')
+    expect(box).toBeChecked()
+
+    await userEvent.click(box)
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('set_config', {
+        config: expect.objectContaining({ smoothStatusChanges: false }),
       }),
     )
   })

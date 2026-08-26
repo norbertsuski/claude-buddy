@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { CollapsedPill } from './CollapsedPill'
@@ -8,11 +8,13 @@ import {
   afterResizeSettles,
   applyWidgetSize,
   layoutSize,
+  morphDuration,
+  MORPH_MS,
   POPOVER_ALLOWANCE,
   reportHoverRect,
   rowWidthFor,
+  sameSize,
   shadowPad,
-  SHRINK_DELAY_MS,
   unionRect,
   widgetWindowSize,
 } from '../../useWidgetSize'
@@ -29,11 +31,14 @@ export const HOVER_GRACE_MS = 180
 /** Gap between the pill and the popover, matching `--gap-popover`. */
 const POPOVER_GAP = 10
 
-export function DotRow({ sessions }: SessionViewProps) {
+export function DotRow({ sessions, smoothTransitions = true }: SessionViewProps) {
   const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null)
   const [anchorOffset, setAnchorOffset] = useState(0)
   const [flashing, setFlashing] = useState(false)
   const [pillBox, setPillBox] = useState<{ width: number; height: number } | null>(null)
+  // Written onto the pill alongside each new box, so the box moves at a
+  // constant speed instead of always taking the full morph.
+  const [morphMs, setMorphMs] = useState(MORPH_MS)
   // The row is held at the widest state so the pill can grow outwards from its
   // centre instead of unrolling from the left edge.
   const [rowWidth, setRowWidth] = useState<number | null>(null)
@@ -45,6 +50,9 @@ export function DotRow({ sessions }: SessionViewProps) {
   const pillRef = useRef<HTMLDivElement>(null)
   const appliedWindow = useRef<{ width: number; height: number } | null>(null)
   const shrinkTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The sizing effect must not depend on `pillBox` — setting it there would
+  // re-run the effect — so the box it is moving from is mirrored in a ref.
+  const appliedPill = useRef<{ width: number; height: number } | null>(null)
 
   // Hover comes from Rust, not from the DOM: a non-activating NSPanel never
   // becomes the key window, so WKWebView never delivers mousemove to the page.
@@ -159,6 +167,16 @@ export function DotRow({ sessions }: SessionViewProps) {
     const applied = appliedWindow.current
     const grows = applied === null || next.width > applied.width || next.height > applied.height
 
+    // How far the pill itself has to travel, which is not how far the window
+    // does: the window is held at the widest state and mostly does not move at
+    // all while the pill morphs beneath it.
+    const duration = smoothTransitions ? morphDuration(appliedPill.current, target) : MORPH_MS
+    const movePill = () => {
+      appliedPill.current = target
+      setMorphMs(duration)
+      setPillBox(target)
+    }
+
     if (shrinkTimer.current !== null) {
       clearTimeout(shrinkTimer.current)
       shrinkTimer.current = null
@@ -175,7 +193,7 @@ export function DotRow({ sessions }: SessionViewProps) {
       void applyWidgetSize(next.width, next.height)
         .then(afterResizeSettles)
         .then(() => {
-          if (!cancelled) setPillBox(target)
+          if (!cancelled) movePill()
         })
       return () => {
         cancelled = true
@@ -184,7 +202,14 @@ export function DotRow({ sessions }: SessionViewProps) {
 
     // Contracting animates first and the window follows, so the pill can start
     // moving immediately.
-    setPillBox(target)
+    movePill()
+
+    // A status change on the collapsed row leaves the window alone: it is sized
+    // to the widest of the two states and the expanded row is nearly always the
+    // wider one. Resizing to the size it already has still costs a window-server
+    // round trip and the one unpainted frame that comes with it, and the delay
+    // below lands that frame on the last frame of the morph.
+    if (sameSize(applied, next)) return
 
     // Shrinking has to wait for the morph, or the pill is clipped mid-contract
     // and the row narrows under the still-contracting pill.
@@ -193,8 +218,8 @@ export function DotRow({ sessions }: SessionViewProps) {
       setRowWidth(nextRow)
       applyWidgetSize(next.width, next.height)
       shrinkTimer.current = null
-    }, SHRINK_DELAY_MS)
-  }, [showNamed, sessions])
+    }, duration)
+  }, [showNamed, sessions, smoothTransitions])
 
   // Tell Rust which part of the window is the widget. Recomputed whenever the
   // pill or popover changes size or position.
@@ -218,12 +243,20 @@ export function DotRow({ sessions }: SessionViewProps) {
       className="dot-row"
       data-testid="dot-row"
       data-flashing={flashing ? 'true' : 'false'}
+      data-smooth={smoothTransitions ? 'true' : 'false'}
       style={rowWidth === null ? undefined : { width: rowWidth }}
     >
       <div
         ref={pillRef}
         className="pill"
-        style={pillBox === null ? undefined : { width: pillBox.width, height: pillBox.height }}
+        // `--morph` is written per change rather than left to the stylesheet:
+        // the duration the box needs depends on how far it is going.
+        style={
+          {
+            '--morph': `${morphMs}ms`,
+            ...(pillBox === null ? {} : { width: pillBox.width, height: pillBox.height }),
+          } as CSSProperties
+        }
       >
         <div className="variant-slot" ref={collapsedSlot} data-show={showNamed ? 'false' : 'true'}>
           <CollapsedPill sessions={sessions} />

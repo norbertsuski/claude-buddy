@@ -121,6 +121,15 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       <label>
         <input
           type="checkbox"
+          checked={config.smoothStatusChanges}
+          onChange={(e) => update({ smoothStatusChanges: e.target.checked })}
+        />
+        Smooth transitions when a status changes
+      </label>
+
+      <label>
+        <input
+          type="checkbox"
           checked={config.launchAtLogin}
           onChange={(e) => update({ launchAtLogin: e.target.checked })}
         />

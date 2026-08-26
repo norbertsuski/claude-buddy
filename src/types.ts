@@ -47,6 +47,9 @@ export interface TranscriptDetail {
 
 export const UPDATE_EVENT = 'sessions://update'
 
+/** Settings changed; mirrors commands::CONFIG_EVENT. */
+export const CONFIG_EVENT = 'config://update'
+
 // Mirrors src-tauri/src/config.rs.
 export interface AppConfig {
   pausedThresholdMs: number
@@ -57,6 +60,8 @@ export interface AppConfig {
   muteUntilMs: number
   launchAtLogin: boolean
   showBackgroundJobs: boolean
+  /** Time animations to the distance they cover, and fade chips in and out. */
+  smoothStatusChanges: boolean
   /** When the widget takes itself off screen; mirrors visibility::HIDE_MODES. */
   hideWhen: string
   /** Display key to show the widget on, or null for the primary display. */

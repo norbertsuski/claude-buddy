@@ -1,8 +1,12 @@
 use std::path::Path;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use crate::config::{self, Config};
+
+/// Broadcast whenever settings change, so the widget can apply the ones that
+/// are purely about how it draws itself without waiting for a restart.
+pub const CONFIG_EVENT: &str = "config://update";
 
 /// Reject settings that would break the widget rather than writing them.
 /// A zero paused threshold would mark every session paused instantly.
@@ -39,6 +43,11 @@ pub fn set_config(app: tauri::AppHandle, config: Config) -> Result<(), String> {
     use tauri_plugin_autostart::ManagerExt;
 
     persist(&config::config_path(), &config)?;
+
+    // Emitted through the AppHandle, not a window: the widget and the settings
+    // window are separate webviews and a window-scoped emit reaches neither
+    // one's global `listen`.
+    let _ = app.emit(CONFIG_EVENT, config.clone());
 
     // Applying a display choice immediately is the whole point of the setting.
     if let Some(widget) = app.get_webview_window("widget") {

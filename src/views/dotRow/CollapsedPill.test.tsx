@@ -120,3 +120,34 @@ describe('CollapsedPill background jobs', () => {
     expect(screen.queryByTestId('jobs')).not.toBeInTheDocument()
   })
 })
+
+describe('CollapsedPill chip identity', () => {
+  // The chips fade in as they appear, which is only right if a chip that was
+  // already there is left alone. React matches `{cond && <chip/>}` children by
+  // position, so a chip must survive both a count change beside it and a
+  // different chip appearing before it — otherwise every tick of a count would
+  // re-run the fade on everything in the row.
+  it('keeps the same element when only its count changes', () => {
+    const { rerender } = render(
+      <CollapsedPill sessions={[session('a', 'busy'), session('b', 'idle')]} />,
+    )
+    const before = screen.getByTestId('working')
+
+    rerender(<CollapsedPill sessions={[session('a', 'busy'), session('b', 'busy')]} />)
+
+    expect(screen.getByTestId('working')).toBe(before)
+    expect(screen.getByTestId('working')).toHaveTextContent('2 working')
+  })
+
+  it('keeps the working chip when a waiting chip appears before it', () => {
+    const { rerender } = render(
+      <CollapsedPill sessions={[session('a', 'busy'), session('b', 'idle')]} />,
+    )
+    const before = screen.getByTestId('working')
+
+    rerender(<CollapsedPill sessions={[session('a', 'busy'), session('b', 'waiting')]} />)
+
+    expect(screen.getByTestId('needs-you')).toBeInTheDocument()
+    expect(screen.getByTestId('working')).toBe(before)
+  })
+})

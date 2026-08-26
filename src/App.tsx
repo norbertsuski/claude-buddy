@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { useConfig } from './useConfig'
 import { useSessions } from './useSessions'
 import { DotRow } from './views/dotRow/DotRow'
 import { SettingsPanel } from './settings/SettingsPanel'
@@ -28,5 +29,8 @@ export function App() {
 
 function WidgetView() {
   const { sessions } = useSessions()
-  return <DotRow sessions={sessions} />
+  const config = useConfig()
+  // Defaulting to on while settings load keeps the widget from drawing its
+  // first frames with one timing and the rest with another.
+  return <DotRow sessions={sessions} smoothTransitions={config?.smoothStatusChanges ?? true} />
 }

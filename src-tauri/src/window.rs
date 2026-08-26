@@ -386,7 +386,18 @@ pub fn resize_widget(app: AppHandle, width: f64, height: f64) -> Result<(), Stri
     let panel = app
         .get_webview_panel("widget")
         .map_err(|e| format!("widget panel not found: {e:?}"))?;
-    panel.set_content_size(width.max(1.0), height.max(1.0));
+
+    let (width, height) = (width.max(1.0), height.max(1.0));
+
+    // A resize on a transparent panel costs a window-server round trip and shows
+    // one unpainted frame, so resizing to the size the window already has is not
+    // free — it is a dropped frame for nothing. The frontend skips the call in
+    // the case it can see; this catches the rest.
+    if !record_size(width, height) {
+        return Ok(());
+    }
+
+    panel.set_content_size(width, height);
 
     // Reposition in the same command rather than leaving it to a second call
     // from the frontend: two window-server updates around a resize produced a
@@ -402,6 +413,28 @@ pub fn resize_widget(app: AppHandle, width: f64, height: f64) -> Result<(), Stri
         }
     }
     Ok(())
+}
+
+/// The last size handed to `set_content_size`.
+///
+/// Deliberately remembered rather than read back off the window: the widget is
+/// a fixed-size panel with no resize handles, so this command is the only thing
+/// that ever changes its size, and a remembered value cannot be stale in the
+/// way an `inner_size` read taken before AppKit has applied the change can.
+static LAST_SIZE: std::sync::OnceLock<std::sync::Mutex<Option<(f64, f64)>>> =
+    std::sync::OnceLock::new();
+
+/// Record a requested size, reporting whether it differs from the last one.
+fn record_size(width: f64, height: f64) -> bool {
+    let mut slot = LAST_SIZE
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        .expect("widget size cache poisoned");
+    if *slot == Some((width, height)) {
+        return false;
+    }
+    *slot = Some((width, height));
+    true
 }
 
 /// Whether the user has already placed the widget on its current display.
@@ -468,6 +501,19 @@ mod tests {
 
     const DISPLAY: (f64, f64) = (1920.0, 1080.0);
     const WIDGET: (f64, f64) = (200.0, 40.0);
+
+    /// The one test touching `LAST_SIZE`, since it is process-wide: splitting
+    /// it up would let the cases race each other.
+    #[test]
+    fn a_repeated_size_is_not_applied_twice() {
+        // Resizing a transparent panel shows one unpainted frame, so resizing
+        // to the size the window already has is a dropped frame for nothing.
+        assert!(record_size(383.0, 460.0), "first size is applied");
+        assert!(!record_size(383.0, 460.0), "the same size is skipped");
+        assert!(record_size(383.0, 461.0), "a taller box is applied");
+        assert!(record_size(384.0, 461.0), "a wider box is applied");
+        assert!(!record_size(384.0, 461.0), "and then skipped again");
+    }
 
     #[test]
     fn an_explicit_display_choice_wins() {

@@ -1,6 +1,8 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import type { ReactElement } from 'react'
 import type { SessionSnapshot } from '../../types'
+import { MORPH_MS } from '../../useWidgetSize'
 
 const invoke = vi
   .fn()
@@ -184,5 +186,73 @@ describe('DotRow popover anchoring', () => {
 
     const anchor = screen.queryByTestId('popover-anchor')
     if (anchor) expect(anchor.style.marginLeft).not.toBe('')
+  })
+})
+
+describe('DotRow window resizing', () => {
+  const resizes = () => invoke.mock.calls.filter((c) => c[0] === 'resize_widget')
+
+  /** Settle the mount, including the shrink delay, then start counting. */
+  const settled = async (ui: ReactElement) => {
+    const rendered = render(ui)
+    await waitFor(() => expect(eventHandlers.has('ui://cursor')).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, MORPH_MS + 50)))
+    invoke.mockClear()
+    return rendered
+  }
+
+  it('does not resize the window when a status change leaves its size alone', async () => {
+    // The window is sized to the widest of the two states, and the expanded row
+    // is nearly always the wider one, so a status change on the collapsed row
+    // leaves it untouched. Resizing anyway costs a window-server round trip and
+    // one unpainted frame, and the delay put that frame on the last frame of
+    // the morph — which is what read as a stutter on every status change.
+    const { rerender } = await settled(<DotRow sessions={sessions} />)
+
+    rerender(<DotRow sessions={[{ ...sessions[0], state: 'busy' }]} />)
+    await act(() => new Promise((resolve) => setTimeout(resolve, MORPH_MS + 50)))
+
+    expect(resizes()).toHaveLength(0)
+  })
+
+  it('still resizes when the size actually changes', async () => {
+    const { rerender } = await settled(<DotRow sessions={sessions} />)
+
+    // jsdom reports every element as 0×0, so force a real change through the
+    // one input the effect reads that a test can control.
+    const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(500)
+    rerender(<DotRow sessions={[...sessions, { ...sessions[0], sessionId: 'id-b' }]} />)
+    await act(() => new Promise((resolve) => setTimeout(resolve, MORPH_MS + 50)))
+    // Counted before restoring: restoring the shared invoke mock would clear
+    // the very calls being asserted on.
+    const count = resizes().length
+    width.mockRestore()
+
+    expect(count).toBeGreaterThan(0)
+  })
+})
+
+describe('DotRow smooth transitions setting', () => {
+  it('marks the row so the chips animate with it', async () => {
+    render(<DotRow sessions={sessions} smoothTransitions={true} />)
+    await waitFor(() => expect(eventHandlers.has('ui://cursor')).toBe(true))
+
+    expect(screen.getByTestId('dot-row')).toHaveAttribute('data-smooth', 'true')
+  })
+
+  it('marks the row when the setting is off, so nothing animates on its own', async () => {
+    render(<DotRow sessions={sessions} smoothTransitions={false} />)
+    await waitFor(() => expect(eventHandlers.has('ui://cursor')).toBe(true))
+
+    expect(screen.getByTestId('dot-row')).toHaveAttribute('data-smooth', 'false')
+  })
+
+  it('holds the box at the full morph when the setting is off', async () => {
+    render(<DotRow sessions={sessions} smoothTransitions={false} />)
+    await waitFor(() => expect(eventHandlers.has('ui://cursor')).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, MORPH_MS + 50)))
+
+    const pill = screen.getByTestId('dot-row').querySelector<HTMLElement>('.pill')
+    expect(pill?.style.getPropertyValue('--morph')).toBe(`${MORPH_MS}ms`)
   })
 })
