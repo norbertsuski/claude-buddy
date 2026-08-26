@@ -2,8 +2,14 @@
    The same tokens as the free-mode pill at a smaller multiplier. The bar is
    37pt tall, which leaves about 24pt once the chip has any padding, against the
    pill's 76pt — so sizes here are roughly 0.55x of dotRow.css rather than a
-   second set of values. Overrides are scoped under .notch-flanks and win on
-   specificity, so import order does not matter. */
+   second set of values.
+
+   The scale is scoped to .flank-chip, not to an ancestor. FlankCluster renders
+   the chip and nothing above it, so hanging the sizes off .notch-flanks made
+   them depend on a wrapper the component neither owns nor requires: rendered
+   anywhere else it silently fell back to free-mode 11px dots, and the busy
+   dot's 4px glow — 19px across — clipped against the 24px chip. Overrides win
+   on specificity, so import order does not matter. */
 
 /* The chips sit flush at the top of the screen. --shadow-pad exists so the
    free-mode pill has somewhere to drop a shadow; here it would push the chips
@@ -15,7 +21,6 @@ body.notch-mode {
 .notch-flanks {
   position: relative;
   width: 100%;
-  font-size: 12px;
 }
 
 /* One flank is exactly the expansion budget wide, aligned so its inner edge is
@@ -48,6 +53,7 @@ body.notch-mode {
   padding: 0 8px;
   overflow: hidden;
   white-space: nowrap;
+  font-size: 12px;
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
@@ -77,7 +83,7 @@ body.notch-mode {
   border-color: var(--border-lit);
 }
 
-.notch-flanks .count {
+.flank-chip .count {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -85,39 +91,68 @@ body.notch-mode {
 }
 
 /* Notch scale. The free-mode dot is 11px against 15px text; here 8 against 12. */
-.notch-flanks .dot {
+.flank-chip .dot {
   width: 8px;
   height: 8px;
 }
 
-.notch-flanks .dot-waiting::after {
+/* Both rings are sized in absolute px around an 11px dot, so neither scales
+   with the box. At 8px the busy glow would be 19px across and the waiting ring
+   would reach 22px, against a chip 24px tall with a 1px border. */
+.flank-chip .dot-busy {
+  box-shadow: 0 0 0 3px rgba(63, 185, 80, 0.2);
+}
+
+.flank-chip .dot-waiting::after {
   inset: -2px;
   border-width: 1.5px;
 }
 
-.notch-flanks .entry-group {
+.flank-chip .entry-group {
   gap: 7px;
 }
 
-.notch-flanks .entry {
+.flank-chip .entry {
   gap: 6px;
 }
 
-.notch-flanks .entry-name {
-  font-size: 12px;
-}
-
-.notch-flanks .entry[data-background='true'] .entry-name {
+.flank-chip .entry[data-background='true'] .entry-name {
   font-size: 11px;
 }
 
-.notch-flanks .hairline {
+.flank-chip .entry[data-background='true'] .dot {
+  width: 6px;
+  height: 6px;
+}
+
+.flank-chip .hairline {
   height: 12px;
 }
 
-.notch-flanks .summary {
+/* Never shrinks, and never clips. The marker sits at the outer end of the chip,
+   which is the end `overflow: hidden` eats first — so the one element that says
+   sessions are hidden was the first thing to disappear. Reserving it lets the
+   entries beside it shrink instead. */
+.flank-chip .summary {
+  flex: none;
   font-size: 11px;
   padding: 0 2px;
+}
+
+/* Nothing bounds a session name — it comes from the user's repo — so a long one
+   would push the chip past its budget however many entries are allowed. The
+   name is the part that gives way. min-width on the ancestors is what lets a
+   flex item shrink below its content at all. */
+.flank-chip .entry-group,
+.flank-chip .entry {
+  min-width: 0;
+}
+
+.flank-chip .entry-name {
+  font-size: 12px;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Out of the bar and onto the desktop: 335 x ~100pt does not fit in 37pt. */

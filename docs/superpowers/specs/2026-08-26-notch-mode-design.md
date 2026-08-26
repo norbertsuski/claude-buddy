@@ -90,7 +90,7 @@ origin = screen_origin + (notch_x + notch_width / 2 - W / 2, 0)
 height = bar_height + POPOVER_GAP + POPOVER_ALLOWANCE + shadow_pad_bottom
 ```
 
-`FLANK_BUDGET` is 200pt, giving a window about 590pt wide centred on the notch.
+`FLANK_BUDGET` is 240pt, giving a window about 670pt wide centred on the notch.
 It therefore never covers the Apple menu or the clock at all.
 
 The width is constant across every hover state, which is the invariant
@@ -170,12 +170,18 @@ cleanly because it has a real background.
 near-black; wrong the moment it expands over a light wallpaper, and expansion is
 the whole interaction.
 
-### Sizes come from the existing tokens at a notch scale
+### The notch scale hangs off the chip, not off an ancestor
 
 `dotRow.css` states that its sizes are the design's base values scaled by 1.25.
-The bar allows about 22pt of content height after padding, against the pill's
+The bar allows about 24pt of content height after padding, against the pill's
 current 76pt, so notch mode needs the same tokens at a smaller multiplier —
-around 12px text and 8px dots — rather than a second set of values.
+12px text and 8px dots — rather than a second set of values.
+
+The overrides are scoped to `.flank-chip`, the element `FlankCluster` itself
+renders, not to a `.notch-flanks` ancestor. Scoping them to the wrapper made the
+scale depend on an ancestor the component neither owns nor requires: rendered
+anywhere else it silently fell back to free-mode 11px dots, and the busy dot's
+`box-shadow: 0 0 0 4px` glow — 19px across — clipped against the chip.
 
 `--shadow-pad` is 30px on all sides of `body` and feeds the window sizing. The
 chips must sit flush at `y = 0`, so notch mode zeroes the top padding while
@@ -183,10 +189,21 @@ keeping the rest for the popover's shadow.
 
 ### Capacity is about three names per side
 
-An entry at notch scale is roughly 75pt, so a 200pt budget holds three before
-`+N more`. `MAX_VISIBLE` in `NamedDotRow` becomes a prop rather than a constant:
-free mode keeps 8, each notch chip passes 3. Named capacity in notch mode is
-therefore about 6 across both sides, with the popover carrying detail.
+Measured against the real stylesheet rather than estimated: an expanded entry
+group is 72–91pt, so three of them plus the overflow marker wanted 313pt. The
+budget is 240pt and each chip shows **two** names before `+N`, which measures at
+222pt worst case. Named capacity in notch mode is about 4 across both sides, with
+the popover carrying detail.
+
+Two further consequences of measuring, both of which the estimate hid:
+
+- The overflow marker sits at the outer end of the chip, which is the end
+  `overflow: hidden` eats first — so the one element that says sessions are
+  hidden was the first thing to disappear. It is `flex: none`, and the entries
+  beside it shrink instead.
+- Nothing bounds a session name; it comes from the user's repo. `.entry-name` is
+  capped at 72px with an ellipsis, or one long name pushes the chip past its
+  budget however few entries are allowed.
 
 ### Drag is suppressed in notch mode
 

@@ -9,11 +9,13 @@ export type FlankSide = 'left' | 'right'
 /**
  * Names per chip before the rest collapse into a count.
  *
- * An entry is roughly 75pt at notch scale against a 200pt budget, so three fit.
- * Sessions arrive sorted with whatever needs the user first, so the hidden tail
- * is the least urgent by construction.
+ * Two, measured rather than estimated: against the real stylesheet an expanded
+ * entry group is 72-91pt, so three of them plus the overflow marker wanted
+ * 313pt of the 224pt a 240pt chip has to give. Sessions arrive sorted with
+ * whatever needs the user first, so the hidden tail is the least urgent by
+ * construction.
  */
-export const FLANK_MAX_VISIBLE = 3
+export const FLANK_MAX_VISIBLE = 2
 
 /**
  * Which states each chip carries, and in what order within it.

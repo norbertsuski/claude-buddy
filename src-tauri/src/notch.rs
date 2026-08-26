@@ -20,7 +20,11 @@ use crate::cursor::Rect;
 /// without Accessibility, and it changes on every app switch. So expansion is
 /// capped rather than clamped, and a chip occludes whatever is under it for as
 /// long as the cursor is on it.
-pub const FLANK_BUDGET: f64 = 200.0;
+/// 240 rather than the 200 this started at: measured against the real
+/// stylesheet an expanded entry is 72-91pt, and 200 could hold neither two of
+/// them nor the overflow marker beside them. 240 still leaves over 400pt of the
+/// left flank untouched.
+pub const FLANK_BUDGET: f64 = 240.0;
 
 /// The notched display, in the top-left-origin, y-down space that Tauri's
 /// `set_position` uses.
@@ -56,7 +60,7 @@ impl NotchGeometry {
 /// Where the widget window goes, and how big it is.
 ///
 /// Deliberately *not* the full width of the menu bar. The window spans the notch
-/// plus one budget either side — about 590pt — so it never covers the Apple menu
+/// plus one budget either side — about 670pt — so it never covers the Apple menu
 /// or the clock at all, whatever it does to the menu titles nearest the notch.
 ///
 /// The width does not depend on how much content there is, for the same reason
@@ -294,10 +298,12 @@ mod tests {
 
     #[test]
     fn the_window_is_the_notch_plus_a_budget_either_side() {
-        let (origin, size) = window_frame(&built_in(), FLANK_BUDGET, 400.0);
-        assert_eq!(size, (590.0, 437.0));
-        // Centred on the notch centre at 756, so 756 - 295.
-        assert_eq!(origin, (461.0, 0.0));
+        let geo = built_in();
+        let (origin, size) = window_frame(&geo, FLANK_BUDGET, 400.0);
+        assert_eq!(size, (geo.notch_width + FLANK_BUDGET * 2.0, geo.bar_height + 400.0));
+        // Centred on the notch centre, which is the screen centre here.
+        let notch_centre = geo.notch_x + geo.notch_width / 2.0;
+        assert_eq!(origin, (notch_centre - size.0 / 2.0, 0.0));
     }
 
     #[test]
@@ -315,8 +321,8 @@ mod tests {
         // Symmetry is not assumed anywhere: notch_x comes from the auxiliary
         // area rather than from screen_width / 2.
         let geo = NotchGeometry { notch_x: 500.0, ..built_in() };
-        let (origin, _) = window_frame(&geo, FLANK_BUDGET, 400.0);
-        assert_eq!(origin.0, 500.0 + 95.0 - 295.0);
+        let (origin, size) = window_frame(&geo, FLANK_BUDGET, 400.0);
+        assert_eq!(origin.0, 500.0 + geo.notch_width / 2.0 - size.0 / 2.0);
     }
 
     #[test]
@@ -325,15 +331,20 @@ mod tests {
         // origin, and a local value passed straight to set_position would land
         // in the dead space between displays.
         let geo = NotchGeometry { screen_origin: (-1512.0, -400.0), ..built_in() };
+        let (local, _) = window_frame(&built_in(), FLANK_BUDGET, 400.0);
         let (origin, _) = window_frame(&geo, FLANK_BUDGET, 400.0);
-        assert_eq!(origin, (-1512.0 + 461.0, -400.0));
+        assert_eq!(origin, (-1512.0 + local.0, -400.0));
     }
 
     #[test]
     fn the_budget_rects_sit_either_side_of_the_notch() {
-        let (left, right) = flank_rects(&built_in(), FLANK_BUDGET);
-        assert_eq!((left.x, left.width), (0.0, 200.0));
-        assert_eq!((right.x, right.width), (390.0, 200.0));
+        let geo = built_in();
+        let (left, right) = flank_rects(&geo, FLANK_BUDGET);
+        assert_eq!((left.x, left.width), (0.0, FLANK_BUDGET));
+        assert_eq!(
+            (right.x, right.width),
+            (FLANK_BUDGET + geo.notch_width, FLANK_BUDGET)
+        );
         // Both live in the menu bar and nowhere below it.
         assert_eq!((left.y, left.height), (0.0, 37.0));
         assert_eq!((right.y, right.height), (0.0, 37.0));
@@ -373,7 +384,7 @@ mod tests {
             ..built_in()
         };
         let (_, size) = window_frame(&geo, FLANK_BUDGET, 0.0);
-        assert_eq!(size.0, 700.0);
+        assert_eq!(size.0, 300.0 + FLANK_BUDGET * 2.0);
         let (left, right) = flank_rects(&geo, FLANK_BUDGET);
         assert!(left.width > 0.0 && right.width > 0.0);
         assert!(right.x > left.x + left.width);
