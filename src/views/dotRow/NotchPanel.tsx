@@ -1,6 +1,7 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { shortName, formatElapsed } from '../../format'
 import type { SessionSnapshot, SessionState, Usage } from '../../types'
+import { RowDetail } from './RowDetail'
 import './dotRow.css'
 import './notchFlanks.css'
 
@@ -12,18 +13,34 @@ import './notchFlanks.css'
  */
 export const MAX_ROWS = 8
 
+/**
+ * How many background agents each session has, keyed by session id.
+ *
+ * `SessionSnapshot` carries no parent field: a background entry belongs to the
+ * nearest own session earlier in the list, which is the same convention the
+ * free-mode row reads its continuation arrows from. An agent before any session
+ * has no parent and is counted against none.
+ */
+export function backgroundCounts(sessions: SessionSnapshot[]): Record<string, number> {
+  const counts: Record<string, number> = {}
+  let parent: string | null = null
+  for (const session of sessions) {
+    if (session.background) {
+      if (parent !== null) counts[parent] = (counts[parent] ?? 0) + 1
+      continue
+    }
+    parent = session.sessionId
+  }
+  return counts
+}
+
 /** Which row the cursor is on. */
 export interface RowTarget {
   kind: 'session' | 'usage'
   sessionId?: string
 }
 
-/**
- * What a row says about a session, beside its name.
- *
- * The slab is wide enough to spell this out, which is why there is no detail
- * card any more: what a popover used to carry, the row carries.
- */
+/** What a row says about a session, beside its name. */
 export function stateLabel(session: SessionSnapshot): string {
   const labels: Record<SessionState, string> = {
     waiting: 'needs you',
@@ -63,76 +80,111 @@ interface Props {
   sessions: SessionSnapshot[]
   usage: Usage | null
   open: boolean
-  /** The slab's width: the band in the bar and this list are the same. */
-  width: number
-  /** Menu bar height, reserved at the top so rows start below the bar. */
   barHeight: number
   row: RowTarget | null
+  /** The resting content: counts on the left of the notch, the limit on the right. */
+  restLeft: ReactNode
+  restRight: ReactNode
+  /** Width of the notch, held open between the two resting halves. */
+  notchWidth: number
+  restLeftRef?: React.Ref<HTMLDivElement>
+  restRightRef?: React.Ref<HTMLDivElement>
   /**
-   * The slab's full height, reported as it is measured.
+   * The list's height as measured, so the caller can size the band.
    *
-   * The caller needs this to describe the slab to Rust. Its own box cannot be
-   * used: the height is animated, so at the moment it opens the box is still 0
-   * tall and would be discarded as un-laid-out — leaving the cursor outside
-   * every reported rect and shutting the slab it just opened.
+   * Watched with a ResizeObserver rather than recomputed from a dependency
+   * list: a row's detail arrives asynchronously and changes the height after
+   * every dependency has already settled.
    */
   onMeasure?: (height: number) => void
 }
 
 /**
- * The slab: black across the menu bar and down into a list, one shape.
+ * The slab: the resting band in the menu bar and the list it grows into.
  *
- * The band and the list are the same width, so there is no join to treat — no
- * flare, no concave fillets where a wide panel would meet a narrow notch. The
- * notch sits inside it and disappears. Square at the top, where the screen ends,
- * and rounded at the bottom.
- *
- * Height is measured and written inline rather than transitioning to `auto`,
- * which does not animate.
+ * One element for both, so the black grows out of what is already on screen
+ * rather than unrolling down from the top of the display — which is what a
+ * separate panel pinned to `top: 0` looked like. The resting halves fade out as
+ * the list fades in.
  */
 export function NotchPanel({
   sessions,
   usage,
   open,
-  width,
   barHeight,
   row,
+  restLeft,
+  restRight,
+  notchWidth,
+  restLeftRef,
+  restRightRef,
   onMeasure,
 }: Props) {
-  const content = useRef<HTMLDivElement>(null)
-  const [height, setHeight] = useState(0)
+  const list = useRef<HTMLDivElement>(null)
+  const [listHeight, setListHeight] = useState(0)
 
   useLayoutEffect(() => {
-    if (content.current === null) return
-    const measured = content.current.offsetHeight
-    setHeight(open ? measured : 0)
-    onMeasure?.(measured)
-  }, [open, sessions, usage, onMeasure])
+    setListHeight(list.current?.offsetHeight ?? 0)
+  }, [sessions, usage, row])
 
-  const visible = sessions.slice(0, MAX_ROWS)
-  const hidden = sessions.length - visible.length
+  useEffect(() => {
+    const el = list.current
+    if (el === null || typeof ResizeObserver !== 'function') return
+    const observer = new ResizeObserver(() => setListHeight(el.offsetHeight))
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    onMeasure?.(listHeight)
+  }, [listHeight, onMeasure])
+
+  // Own sessions are the rows; their background agents are counted into the
+  // parent's detail instead of sitting beside it as peers. Four agents rendered
+  // as four more rows buried the three sessions they belonged to.
+  const agents = backgroundCounts(sessions)
+  const own = sessions.filter((session) => !session.background)
+  const visible = own.slice(0, MAX_ROWS)
+  const hidden = own.length - visible.length
+  const hoveredSession =
+    row?.kind === 'session' ? sessions.find((s) => s.sessionId === row.sessionId) ?? null : null
 
   return (
-    <div
-      className="notch-slab"
-      data-open={open ? 'true' : 'false'}
-      data-testid="notch-panel"
-      style={{ width, height }}
-    >
-      <div ref={content} className="notch-slab-content" style={{ paddingTop: barHeight }}>
+    <>
+      <div className="slab-rest" data-show={open ? 'false' : 'true'} style={{ height: barHeight }}>
+        <div className="slab-rest-half" ref={restLeftRef} data-testid="rest-left">
+          {restLeft}
+        </div>
+        <span className="slab-rest-notch" style={{ width: notchWidth }} aria-hidden="true" />
+        <div className="slab-rest-half" ref={restRightRef} data-testid="rest-right">
+          {restRight}
+        </div>
+      </div>
+
+      <div
+        ref={list}
+        className="slab-list"
+        data-show={open ? 'true' : 'false'}
+        data-testid="notch-panel"
+        style={{ paddingTop: barHeight }}
+      >
         {visible.map((session) => (
-          <div
-            key={session.sessionId}
-            className="notch-row"
-            data-notch-row="session"
-            data-testid={`row-${session.sessionId}`}
-            data-session-id={session.sessionId}
-            data-hovered={row?.sessionId === session.sessionId ? 'true' : 'false'}
-          >
-            <span className={`dot dot-${session.state}`} />
-            <span className="notch-name">{shortName(session.name)}</span>
-            <span className="notch-status">{stateLabel(session)}</span>
-            <span className="notch-elapsed">{formatElapsed(session.elapsedMs)}</span>
+          <div key={session.sessionId}>
+            <div
+              className="notch-row"
+              data-notch-row="session"
+              data-testid={`row-${session.sessionId}`}
+              data-session-id={session.sessionId}
+              data-hovered={row?.sessionId === session.sessionId ? 'true' : 'false'}
+            >
+              <span className={`dot dot-${session.state}`} />
+              <span className="notch-name">{shortName(session.name)}</span>
+              <span className="notch-status">{stateLabel(session)}</span>
+              <span className="notch-elapsed">{formatElapsed(session.elapsedMs)}</span>
+            </div>
+            {hoveredSession?.sessionId === session.sessionId && (
+              <RowDetail session={session} agents={agents[session.sessionId] ?? 0} />
+            )}
           </div>
         ))}
         {hidden > 0 && (
@@ -152,6 +204,6 @@ export function NotchPanel({
           </div>
         )}
       </div>
-    </div>
+    </>
   )
 }

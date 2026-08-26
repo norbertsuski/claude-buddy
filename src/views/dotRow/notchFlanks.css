@@ -24,91 +24,63 @@ body.notch-mode {
   height: 100%;
 }
 
-.flank {
-  position: absolute;
-  top: 0;
-  display: flex;
-  align-items: center;
-}
-
-.flank-left {
-  justify-content: flex-end;
-}
-
-.flank-right {
-  justify-content: flex-start;
-}
-
-.flank-chip {
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  box-sizing: border-box;
-  /* The menu bar's own height, read from safeAreaInsets. Anything less leaves a
-     seam above or below and the chip stops reading as part of the notch. */
-  height: 100%;
-  padding: 0 10px;
-  overflow: hidden;
-  white-space: nowrap;
-  font-size: 12px;
-  /* Pure black and no border, to match the notch rather than sit beside it. The
-     tradeoff — black looks wrong over a light wallpaper — is accepted: reading
-     as one shape with the notch is the point. */
-  background: #000;
-  color: var(--text);
-}
-
-/* Rounded on the outer bottom corner only, mirroring the notch's own corners.
-   The top edge is the screen edge, so it stays square, and the notch-facing
-   edge has nothing to round against. */
-.flank-chip[data-side='left'] {
-  border-radius: 0 0 0 9px;
-}
-
-.flank-chip[data-side='right'] {
-  border-radius: 0 0 9px 0;
-}
-
-/* Black across the notch, above the chips so they retract behind it. Invisible
-   on its own — the notch is a physical cutout and already black — but it hides
-   the retracting chips and removes any sub-pixel seam where a chip edge meets
-   the notch edge. Never reported as a hover rect on its own. */
-.notch-bridge {
-  position: absolute;
-  top: 0;
-  z-index: 3;
-  background: #000;
-  pointer-events: none;
-}
-
-.notch-slab-slot {
-  position: absolute;
-  top: 0;
-  /* Above the chips: the slab is wider than both and simply covers them, which
-     is why nothing has to slide out of the way. */
-  z-index: 4;
-}
-
-/* One width for the band in the bar and the list below it, so there is no join
-   to treat. Square at the top, where the screen ends; rounded at the bottom.
-   Height is written inline from the measured content, because `auto` does not
-   animate. */
+/* One element for both states, so the black grows out of what is already on
+   screen. A separate panel pinned to top: 0 looked like it was unrolling down
+   from the screen edge rather than opening from the notch. Square at the top,
+   where the screen ends; rounded below. */
 .notch-slab {
   position: absolute;
   top: 0;
+  z-index: 2;
   box-sizing: border-box;
   overflow: hidden;
   background: #000;
-  border-radius: 0 0 18px 18px;
-  transition: height var(--morph) var(--ease-morph);
+  border-radius: 0 0 14px 14px;
+  transition: width var(--morph) var(--ease-morph), height var(--morph) var(--ease-morph),
+    left var(--morph) var(--ease-morph);
 }
 
-/* The top padding is the menu bar's height, so the rows begin below the bar
-   while the black behind them runs all the way to the screen edge. */
-.notch-slab-content {
-  padding-bottom: 8px;
+/* The two resting halves, with the notch held open between them. Absolute so
+   they do not hold the band's height once the list is what sets it. */
+.slab-rest {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  transition: opacity 140ms var(--ease);
+}
+
+.slab-rest-half {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* Holds the notch's width open, so the two halves land either side of it. */
+.slab-rest-notch {
+  flex: none;
+}
+
+.slab-list {
+  transition: opacity var(--morph) var(--ease);
+}
+
+/* Fading rather than sliding: the texts swap in place while the box grows. */
+.slab-rest[data-show='false'],
+.slab-list[data-show='false'] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.slab-list[data-show='false'] {
+  /* Still measured while hidden — the band's open height comes from it. */
+  transition: opacity 120ms var(--ease);
 }
 
 .notch-row {
@@ -170,17 +142,17 @@ body.notch-mode {
    time are both spelled out in the slab's footer, where there is room. The
    border-left and padding are a separator for the free-mode row, where the meter
    follows the chips — here it is the only thing in the box. */
-.flank-chip .usage {
+.slab-rest-half .usage {
   gap: 0;
   padding-left: 0;
   border-left: none;
 }
 
-.flank-chip .usage-left {
+.slab-rest-half .usage-left {
   display: none;
 }
 
-.flank-chip .count {
+.slab-rest-half .count {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -188,7 +160,7 @@ body.notch-mode {
 }
 
 /* Notch scale. The free-mode dot is 11px against 15px text; here 8 against 12. */
-.flank-chip .dot,
+.slab-rest-half .dot,
 .notch-row .dot {
   width: 8px;
   height: 8px;
@@ -197,13 +169,32 @@ body.notch-mode {
 /* Both rings are sized in absolute px around an 11px dot, so neither scales
    with the box. At 8px the busy glow would be 19px across and the waiting ring
    would reach 22px. */
-.flank-chip .dot-busy,
+.slab-rest-half .dot-busy,
 .notch-row .dot-busy {
   box-shadow: 0 0 0 3px rgba(63, 185, 80, 0.2);
 }
 
-.flank-chip .dot-waiting::after,
+.slab-rest-half .dot-waiting::after,
 .notch-row .dot-waiting::after {
   inset: -2px;
   border-width: 1.5px;
+}
+
+/* What the popover used to carry, under the row it belongs to. Fetched per
+   hovered row, never for every row: tailing a transcript per session twice a
+   second for data nobody is reading is what the popover avoided too. */
+.notch-detail {
+  padding: 0 12px 7px 30px;
+}
+
+.notch-detail-line {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notch-detail-path {
+  opacity: 0.72;
 }

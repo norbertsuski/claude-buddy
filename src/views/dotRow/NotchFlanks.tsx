@@ -4,7 +4,6 @@ import { listen } from '@tauri-apps/api/event'
 import type { SessionSnapshot, Usage } from '../../types'
 import { useCursor } from '../../useCursor'
 import { reportHoverRects, useNotchLayout, visibleRects } from '../../useNotch'
-import { FlankChip } from './FlankChip'
 import { NotchPanel, rowAtPoint, type RowTarget } from './NotchPanel'
 import { StateCounts } from './StateCounts'
 import { UsageMeter } from './UsageMeter'
@@ -14,7 +13,7 @@ import './notchFlanks.css'
  * Delay before the highlight moves rows.
  *
  * Without it, sweeping down the list flickers a highlight per row on the way
- * past — and the click target moves with it.
+ * past — and the click target and the open detail move with it.
  */
 export const ROW_GRACE_MS = 120
 
@@ -30,19 +29,17 @@ function rowKey(target: RowTarget | null): string | null {
 }
 
 /**
- * The widget as black in the menu bar that grows into a slab.
+ * The widget as one black shape beside the notch that grows into a slab.
  *
- * At rest: session counts on the left of the notch, the five-hour limit on the
- * right, both flush against it and reading as one shape with it. On hover a slab
- * of a single fixed width takes over — black across the bar and down into a list
- * of every session with its status and elapsed time spelled out.
+ * At rest it is the menu bar's height and hugs its content: session counts to
+ * the left of the notch, the five-hour limit's bar to the right, the notch held
+ * open between them. On hover the same element widens to a fixed 340pt and grows
+ * downward into a list of every session, its status, and its elapsed time — the
+ * resting halves fading out as the list fades in.
  *
- * One width throughout, so there is no join to treat: no flare, no concave
- * fillets where a wide panel would meet a narrow notch. The notch sits inside
- * the slab and disappears.
- *
- * There is no detail card. The slab is wide enough that a row carries what a
- * popover used to, which is the whole reason for choosing this width.
+ * One element for both states, so the black grows out of what is already on
+ * screen. A separate panel pinned to the top of the display looked like it was
+ * unrolling from the screen edge rather than opening from the notch.
  */
 export function NotchFlanks({ sessions, usage }: Props) {
   const layout = useNotchLayout()
@@ -50,12 +47,13 @@ export function NotchFlanks({ sessions, usage }: Props) {
   const open = cursor.inside
 
   const [row, setRow] = useState<RowTarget | null>(null)
-  const [slabHeight, setSlabHeight] = useState(0)
+  const [listHeight, setListHeight] = useState(0)
+  const [restWidths, setRestWidths] = useState({ left: 0, right: 0 })
 
-  const leftRef = useRef<HTMLDivElement>(null)
-  const rightRef = useRef<HTMLDivElement>(null)
+  const restLeftRef = useRef<HTMLDivElement>(null)
+  const restRightRef = useRef<HTMLDivElement>(null)
 
-  // The chips sit flush at y = 0, but `body` carries --shadow-pad on every side
+  // The band sits flush at y = 0, but `body` carries --shadow-pad on every side
   // so the free-mode pill has somewhere to drop a shadow. Notch mode zeroes it,
   // and does so from here rather than from App so that turning the mode off
   // restores the padding without App having to know why it was gone.
@@ -63,6 +61,16 @@ export function NotchFlanks({ sessions, usage }: Props) {
     document.body.classList.add('notch-mode')
     return () => document.body.classList.remove('notch-mode')
   }, [])
+
+  // The resting band hugs its content, so its width has to be measured. It
+  // cannot animate from `auto` to a fixed width, and the two halves are not the
+  // same size as each other.
+  useLayoutEffect(() => {
+    setRestWidths({
+      left: restLeftRef.current?.offsetWidth ?? 0,
+      right: restRightRef.current?.offsetWidth ?? 0,
+    })
+  }, [sessions, usage])
 
   // Which row the cursor is on. Hit-testing forces a synchronous layout, so it
   // only runs while the slab is actually open.
@@ -111,79 +119,69 @@ export function NotchFlanks({ sessions, usage }: Props) {
     return () => stop?.()
   }, [sessions])
 
+  const notchWidth = layout === null ? 0 : layout.notchRight - layout.notchLeft
+  const restWidth = restWidths.left + notchWidth + restWidths.right
+  const band =
+    layout === null
+      ? null
+      : open
+        ? {
+            left: (layout.notchLeft + layout.notchRight) / 2 - layout.slabWidth / 2,
+            width: layout.slabWidth,
+            // Not barHeight + listHeight: the list reserves the bar's height as
+            // its own top padding, so adding it again left exactly one bar
+            // height of dead black below the footer.
+            height: listHeight,
+          }
+        : {
+            left: layout.notchLeft - restWidths.left,
+            width: restWidth,
+            height: layout.barHeight,
+          }
+
   // Tell Rust which parts of the window are the widget.
   //
-  // While open that is the slab alone, and because the slab spans the bar as
-  // well as the list, the cursor that opened it is already inside — no separate
-  // band is needed to stop it shutting itself.
+  // Open, that is the band alone: it spans the bar as well as the list, so the
+  // cursor that opened it is already inside. At rest it is the two resting
+  // halves and not the band, so that crossing the notch does not open it.
   useLayoutEffect(() => {
-    if (layout === null) return
-    const slabLeft = (layout.notchLeft + layout.notchRight) / 2 - layout.slabWidth / 2
-    // Described from the geometry rather than from its own box, which is
-    // mid-animation and would measure 0 tall exactly when it matters.
-    const slab =
-      open && slabHeight > 0
-        ? { left: slabLeft, top: 0, width: layout.slabWidth, height: slabHeight }
-        : null
+    if (layout === null || band === null) return
     reportHoverRects(
       visibleRects(
         open
-          ? [slab]
-          : [leftRef.current?.getBoundingClientRect(), rightRef.current?.getBoundingClientRect()],
+          ? [{ left: band.left, top: 0, width: band.width, height: band.height }]
+          : [
+              restLeftRef.current?.getBoundingClientRect(),
+              restRightRef.current?.getBoundingClientRect(),
+            ],
       ),
     )
-  }, [open, sessions, usage, row, layout, slabHeight])
+  }, [open, sessions, usage, row, layout, band?.left, band?.width, band?.height])
 
   // Every hook runs before this: a display without a notch must not change the
   // order they are called in.
-  if (layout === null) return null
-
-  const notchWidth = layout.notchRight - layout.notchLeft
-  const slabLeft = (layout.notchLeft + layout.notchRight) / 2 - layout.slabWidth / 2
+  if (layout === null || band === null) return null
 
   return (
     <div className="notch-flanks" data-testid="notch-flanks">
       <div
-        className="flank flank-left"
-        style={{
-          left: layout.notchLeft - layout.budget,
-          width: layout.budget,
-          height: layout.barHeight,
-        }}
+        className="notch-slab"
+        data-open={open ? 'true' : 'false'}
+        data-testid="notch-slab"
+        style={{ left: band.left, width: band.width, height: band.height }}
       >
-        <FlankChip side="left" chipRef={leftRef} testId="flank-left">
-          <StateCounts sessions={sessions} />
-        </FlankChip>
-      </div>
-      <div
-        className="flank flank-right"
-        style={{ left: layout.notchRight, width: layout.budget, height: layout.barHeight }}
-      >
-        {usage !== null && (
-          <FlankChip side="right" chipRef={rightRef} testId="flank-usage">
-            <UsageMeter usage={usage} show="percent" />
-          </FlankChip>
-        )}
-      </div>
-
-      {/* Black across the notch at rest, so the chips and the notch read as one
-          shape before the slab takes over. */}
-      <div
-        className="notch-bridge"
-        data-testid="notch-bridge"
-        aria-hidden="true"
-        style={{ left: layout.notchLeft, width: notchWidth, height: layout.barHeight }}
-      />
-
-      <div className="notch-slab-slot" style={{ left: slabLeft }}>
         <NotchPanel
           sessions={sessions}
           usage={usage}
           open={open}
-          width={layout.slabWidth}
           barHeight={layout.barHeight}
           row={row}
-          onMeasure={setSlabHeight}
+          notchWidth={notchWidth}
+          restLeft={<StateCounts sessions={sessions} />}
+          restRight={usage === null ? null : <UsageMeter usage={usage} show="percent" />}
+          restLeftRef={restLeftRef}
+          restRightRef={restRightRef}
+          onMeasure={setListHeight}
         />
       </div>
     </div>
