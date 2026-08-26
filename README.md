@@ -65,7 +65,7 @@ npm run tauri build
 cp -R src-tauri/target/release/bundle/macos/clawde-buddy.app /Applications/
 ```
 
-The build is unsigned, so Gatekeeper blocks the first launch: right-click the app in Finder, choose **Open**, and confirm. Once only. Opening it from the terminal will not get past that prompt.
+The build is unsigned, so Gatekeeper blocks the first launch. Try to open it, dismiss the warning, then go to **System Settings → Privacy & Security** and press **Open Anyway** in the block that has just appeared there. Once only. On macOS 14 and earlier, right-clicking the app and choosing **Open** does the same thing in one step. Opening it from the terminal will not get past either prompt.
 
 For a distributable image instead, `npm run dmg` writes `dist-dmg/clawde-buddy_<version>_<arch>.dmg`.
 
@@ -151,7 +151,7 @@ Jumping to a session walks the process tree to the first executable inside a `.a
 ## Limitations
 
 - **App-level raise only.** Clicking a session brings its editor to the front, not the specific tab. VS Code-family editors expose no tab-targeting API.
-- **Unsigned.** Gatekeeper prompts once per install, and getting rid of that prompt needs an Apple Developer ID to sign and notarize. Update *delivery* is a separate matter and does work: configure a minisign key and the app updates itself in place from the tray menu — see [Signing updates](#signing-updates). With no key, as shipped, it never checks and never updates.
+- **Unsigned.** The DMG carries an ad-hoc signature, which is what keeps Gatekeeper from calling the app *damaged*, but it is not a notarised one — so Gatekeeper still prompts once per install, and getting rid of that prompt needs an Apple Developer ID to sign and notarize. Update *delivery* is a separate matter and does work: configure a minisign key and the app updates itself in place from the tray menu — see [Signing updates](#signing-updates). With no key, as shipped, it never checks and never updates.
 - **A `claude-desktop` session inside a long tool call writes nothing** to its transcript, so it can read as idle until the result lands. It will not reach paused, which needs ten minutes of quiet.
 - **Multi-display placement follows the primary display** by default; pick another in Settings if that is not the one you watch.
 

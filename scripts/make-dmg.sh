@@ -19,6 +19,17 @@ STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
 cp -R "$APP" "$STAGE/"
+
+# `tauri build` leaves the bundle linker-signed: the arm64 binary carries an
+# ad-hoc signature but the bundle has no `_CodeSignature/CodeResources`, so
+# Gatekeeper reads it as "code has no resources but signature indicates they
+# must be present" and reports the downloaded app as *damaged* — with no
+# right-click-Open escape. An explicit ad-hoc signature over the whole bundle
+# leaves it unsigned as far as notarisation goes, but valid, which downgrades
+# that to the ordinary unidentified-developer prompt.
+codesign --force --deep --sign - "$STAGE/clawde-buddy.app"
+codesign --verify --deep --strict "$STAGE/clawde-buddy.app"
+
 ln -s /Applications "$STAGE/Applications"
 
 mkdir -p dist-dmg
