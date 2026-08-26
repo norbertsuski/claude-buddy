@@ -83,6 +83,14 @@ describe('FlankCluster', () => {
     expect(screen.queryByTestId('overflow-left')).not.toBeInTheDocument()
   })
 
+  it('counts a state its side does not nominally carry', () => {
+    // A background job follows its parent, so the urgent chip can hold a busy
+    // one. Counting only waiting and dead here would count that job nowhere.
+    chip({ sessions: [session('a-11', 'waiting'), session('job-22', 'busy')] })
+    expect(screen.getByTestId('count-waiting')).toHaveTextContent('1')
+    expect(screen.getByTestId('count-busy')).toHaveTextContent('1')
+  })
+
   it('marks its side so the CSS can flush it against the notch', () => {
     chip({ side: 'right', sessions: [session('a-11', 'busy')] })
     expect(screen.getByTestId('flank-right')).toHaveAttribute('data-side', 'right')

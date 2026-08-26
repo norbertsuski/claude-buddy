@@ -26,7 +26,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 
 const { NotchFlanks, splitByUrgency } = await import('./NotchFlanks')
 
-function session(name: string, state: SessionState): SessionSnapshot {
+function session(name: string, state: SessionState, background = false): SessionSnapshot {
   return {
     pid: 1,
     sessionId: `id-${name}`,
@@ -39,7 +39,7 @@ function session(name: string, state: SessionState): SessionSnapshot {
     uptimeMs: 60_000,
     statusTimeMs: 0,
     startedAtMs: 0,
-    background: false,
+    background,
   }
 }
 
@@ -73,6 +73,38 @@ describe('splitByUrgency', () => {
     ])
     expect(left.map((s) => s.state)).toEqual(['waiting', 'dead'])
     expect(right.map((s) => s.state)).toEqual(['busy', 'idle', 'paused'])
+  })
+
+  it('sends a job to its parent\'s chip, not to its own state\'s', () => {
+    // A busy job belonging to a waiting session goes left with its parent. Split
+    // by its own state it would land on the opposite chip, and the continuation
+    // arrow marking it as a continuation would point at a stranger.
+    const { left, right } = splitByUrgency([
+      session('api-11', 'waiting'),
+      session('subagent', 'busy', true),
+      session('web-22', 'busy'),
+    ])
+    expect(left.map((s) => s.name)).toEqual(['api-11', 'subagent'])
+    expect(right.map((s) => s.name)).toEqual(['web-22'])
+  })
+
+  it('keeps a job adjacent to the parent it belongs to', () => {
+    // Adjacency is what the arrow is drawn from: the job must be the entry
+    // immediately after its parent, not merely on the same side.
+    const { left } = splitByUrgency([
+      session('api-11', 'waiting'),
+      session('subagent', 'busy', true),
+      session('dead-33', 'dead'),
+    ])
+    expect(left.map((s) => s.name)).toEqual(['api-11', 'subagent', 'dead-33'])
+  })
+
+  it('falls back to its own state for a job with no parent before it', () => {
+    // Nothing guarantees an own session comes first, and a job that matched no
+    // side would be dropped from both chips.
+    const { left, right } = splitByUrgency([session('orphan', 'busy', true)])
+    expect(left).toEqual([])
+    expect(right.map((s) => s.name)).toEqual(['orphan'])
   })
 
   it('preserves the incoming order within each side', () => {
@@ -160,6 +192,22 @@ describe('NotchFlanks', () => {
     moveCursor({ x: 800, y: 400, inside: false })
     expect(screen.queryByText('api-service')).not.toBeInTheDocument()
     expect(screen.getByTestId('count-waiting')).toHaveTextContent('1')
+  })
+
+  it('draws the continuation arrow between a job and its parent', async () => {
+    const { container } = render(
+      <NotchFlanks
+        sessions={[session('api-11', 'waiting'), session('subagent', 'busy', true)]}
+      />,
+    )
+    await screen.findByTestId('flank-left')
+    moveCursor({ x: 170, y: 12, inside: true })
+
+    const chip = screen.getByTestId('flank-left')
+    expect(chip.querySelector('.child-arrow')).not.toBeNull()
+    // And no plain separator, which is what a peer would get.
+    expect(chip.querySelector('.hairline')).toBeNull()
+    expect(container.querySelector('[data-side="right"]')).toBeNull()
   })
 
   it('zeroes the shadow padding so the chips reach the top of the screen', async () => {

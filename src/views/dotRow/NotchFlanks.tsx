@@ -20,15 +20,39 @@ interface Props {
  *
  * Order within each side is preserved from the incoming list, which is already
  * sorted by urgency, so `slice` in the chip drops the least urgent.
+ *
+ * A background job goes wherever its parent went, not where its own state would
+ * send it. `SessionSnapshot` carries no parent field — free mode reads parentage
+ * from list order, where a background entry belongs to the nearest own session
+ * before it — so splitting a busy job by its own state put it on the opposite
+ * chip from the waiting session it belongs to, and the continuation arrow that
+ * marks it as a continuation pointed at a stranger, or vanished because the job
+ * had become the first entry in its chip.
  */
 export function splitByUrgency(sessions: SessionSnapshot[]): {
   left: SessionSnapshot[]
   right: SessionSnapshot[]
 } {
-  return {
-    left: sessions.filter((s) => CHIP_STATES.left.includes(s.state)),
-    right: sessions.filter((s) => CHIP_STATES.right.includes(s.state)),
+  const left: SessionSnapshot[] = []
+  const right: SessionSnapshot[] = []
+  const sideFor = (session: SessionSnapshot) =>
+    CHIP_STATES.left.includes(session.state) ? left : right
+
+  // The side of the most recent own session, which every job after it inherits.
+  let parentSide: SessionSnapshot[] | null = null
+
+  for (const session of sessions) {
+    if (session.background) {
+      // A job before any own session has no parent to follow, so it falls back
+      // to its own state rather than being dropped.
+      ;(parentSide ?? sideFor(session)).push(session)
+      continue
+    }
+    parentSide = sideFor(session)
+    parentSide.push(session)
   }
+
+  return { left, right }
 }
 
 /**

@@ -18,17 +18,29 @@ export type FlankSide = 'left' | 'right'
 export const FLANK_MAX_VISIBLE = 2
 
 /**
- * Which states each chip carries, and in what order within it.
+ * Which side each state sends a session to.
  *
  * The split is by urgency, not by count: the left chip is the one that lights up
- * when something wants you, the right is ambient. Ordering inside a chip puts
- * the more urgent state first, which — because the left chip lays itself out in
- * reverse — is nearest the notch on both sides.
+ * when something wants you, the right is ambient.
+ *
+ * This is the split rule only. It is deliberately not what a chip renders —
+ * a background job follows its parent, so the urgent chip can hold a busy job,
+ * and a chip that counted only the states it nominally carries would count that
+ * job nowhere at all.
  */
 export const CHIP_STATES: Record<FlankSide, SessionState[]> = {
   left: ['waiting', 'dead'],
   right: ['busy', 'idle', 'paused'],
 }
+
+/**
+ * Order the collapsed counts appear in, most urgent first.
+ *
+ * Applied to whatever the chip was actually given rather than to its side's
+ * nominal states. Because the left chip lays itself out in reverse, first here
+ * means nearest the notch on both sides.
+ */
+export const STATE_ORDER: SessionState[] = ['waiting', 'dead', 'busy', 'idle', 'paused']
 
 interface Props {
   side: FlankSide
@@ -69,7 +81,7 @@ export function FlankCluster({
   if (sessions.length === 0) return null
 
   const counts = countByState(sessions)
-  const groups = CHIP_STATES[side].filter((state) => counts[state] > 0)
+  const groups = STATE_ORDER.filter((state) => counts[state] > 0)
   const visible = sessions.slice(0, maxVisible)
   const hidden = sessions.length - visible.length
 
