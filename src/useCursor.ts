@@ -48,6 +48,30 @@ export function sessionAtPoint(
   return entry?.getAttribute('data-session-id') ?? null
 }
 
+/** What sits under the cursor, when anything does. */
+export type HoverTarget = { kind: 'session'; sessionId: string } | { kind: 'usage' } | null
+
+/**
+ * What the cursor is over, resolved in one hit-test.
+ *
+ * One `elementFromPoint` for every kind of target rather than one per kind:
+ * each call forces a synchronous layout, and this runs on every cursor sample.
+ */
+export function targetAtPoint(
+  cursor: CursorPosition,
+  resolve: (x: number, y: number) => Element | null,
+): HoverTarget {
+  if (!cursor.inside) return null
+  const element = resolve(cursor.x, cursor.y)
+  if (!element) return null
+
+  const entry = element.closest('[data-session-id]')
+  const sessionId = entry?.getAttribute('data-session-id')
+  if (sessionId) return { kind: 'session', sessionId }
+
+  return element.closest('[data-usage]') === null ? null : { kind: 'usage' }
+}
+
 /** Popover width, mirrored from `.popover` in dotRow.css. */
 export const POPOVER_WIDTH = 335
 

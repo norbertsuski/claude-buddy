@@ -385,8 +385,33 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* A percentage is narrower than a duration, but still reserved: `100%` and `9%`
+   must occupy the same space or the resting row twitches as the figure falls.
+   Measured at 36px for `100%`, which is the width a fresh window starts at. */
+.usage-left[data-show='percent'] {
+  min-width: 38px;
+}
+
 .usage[data-severity='critical'] .usage-left {
   color: var(--dead);
+}
+
+/* Stands in for the state dot in the usage popover's head, which has no session
+   and so no state to show. */
+.usage-blip {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  flex: none;
+  background: var(--muted);
+}
+
+.usage-blip-warn {
+  background: var(--waiting);
+}
+
+.usage-blip-critical {
+  background: var(--dead);
 }
 
 .entry-group {

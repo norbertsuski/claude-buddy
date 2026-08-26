@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ReactElement } from 'react'
 import type { SessionSnapshot } from '../../types'
 import { MORPH_MS } from '../../useWidgetSize'
@@ -20,7 +20,7 @@ function moveCursor(position: { x: number; y: number; inside: boolean }) {
   act(() => eventHandlers.get('ui://cursor')!({ payload: position }))
 }
 
-const { DotRow } = await import('./DotRow')
+const { DotRow, HOVER_GRACE_MS } = await import('./DotRow')
 
 const sessions: SessionSnapshot[] = [
   {
@@ -254,5 +254,152 @@ describe('DotRow smooth transitions setting', () => {
 
     const pill = screen.getByTestId('dot-row').querySelector<HTMLElement>('.pill')
     expect(pill?.style.getPropertyValue('--morph')).toBe(`${MORPH_MS}ms`)
+  })
+})
+
+describe('DotRow hover rect', () => {
+  const rects = () => invoke.mock.calls.filter((c) => c[0] === 'set_hover_rect')
+
+  it('reports the widest variant, not the box the pill is leaving', async () => {
+    // The rect effect runs after paint on the frame the morph starts, so a live
+    // measurement is of the old, narrower box. Reporting that made the row
+    // hittable only across its collapsed extent: moving onto a name beyond it
+    // put the cursor outside the widget, which collapsed the row instead of
+    // opening a popover.
+    const wide = 700
+    const w = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(wide)
+    // The pill itself still measures its pre-morph width mid-transition.
+    const r = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      left: 100, top: 10, right: 300, bottom: 55, width: 200, height: 45, x: 100, y: 10,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    render(<DotRow sessions={sessions} />)
+    await waitFor(() => expect(eventHandlers.has('ui://cursor')).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, MORPH_MS + 50)))
+
+    const reported = rects().at(-1)?.[1] as { width: number } | undefined
+    const widest = reported?.width ?? 0
+    w.mockRestore()
+    r.mockRestore()
+
+    expect(widest).toBe(wide)
+  })
+
+  it('stays centred on the pill while it widens', async () => {
+    const w = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(700)
+    const r = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      left: 100, top: 10, right: 300, bottom: 55, width: 200, height: 45, x: 100, y: 10,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    render(<DotRow sessions={sessions} />)
+    await waitFor(() => expect(eventHandlers.has('ui://cursor')).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, MORPH_MS + 50)))
+
+    const reported = rects().at(-1)?.[1] as { x: number; width: number } | undefined
+    const centre = (reported?.x ?? 0) + (reported?.width ?? 0) / 2
+    w.mockRestore()
+    r.mockRestore()
+
+    // The measured pill spans 100..300, so its centre is 200.
+    expect(centre).toBe(200)
+  })
+})
+
+describe('DotRow usage popover', () => {
+  const usage = { percent: 42, resetsAtMs: Date.now() + 3_600_000, severity: 'normal' as const }
+
+  /**
+   * jsdom has no layout and no `elementFromPoint` at all — which is why DotRow
+   * feature-tests for it — so the hit-test is driven by installing one that
+   * answers with whatever element the test means the cursor to be over.
+   */
+  type Pointable = { elementFromPoint?: (x: number, y: number) => Element | null }
+  const pointAt = (selector: string) => {
+    ;(document as Pointable).elementFromPoint = () => document.querySelector(selector)
+  }
+  afterEach(() => {
+    delete (document as Pointable).elementFromPoint
+  })
+
+  it('opens over the meter, which the session popover never covered', async () => {
+    pointAt('[data-usage]')
+    render(<DotRow sessions={sessions} usage={usage} />)
+    await waitFor(() => expect(eventHandlers.has('ui://cursor')).toBe(true))
+
+    moveCursor({ x: 400, y: 15, inside: true })
+    await act(() => new Promise((resolve) => setTimeout(resolve, HOVER_GRACE_MS + 30)))
+
+    expect(screen.getByTestId('usage-popover')).toBeInTheDocument()
+    expect(screen.queryByTestId('popover')).not.toBeInTheDocument()
+  })
+
+  it('closes when the cursor leaves the widget', async () => {
+    pointAt('[data-usage]')
+    render(<DotRow sessions={sessions} usage={usage} />)
+    await waitFor(() => expect(eventHandlers.has('ui://cursor')).toBe(true))
+
+    moveCursor({ x: 400, y: 15, inside: true })
+    await act(() => new Promise((resolve) => setTimeout(resolve, HOVER_GRACE_MS + 30)))
+    moveCursor({ x: -1, y: -1, inside: false })
+
+    expect(screen.queryByTestId('usage-popover')).not.toBeInTheDocument()
+  })
+
+  it('gives way to a session when the cursor moves onto a name', async () => {
+    pointAt('[data-usage]')
+    render(<DotRow sessions={sessions} usage={usage} />)
+    await waitFor(() => expect(eventHandlers.has('ui://cursor')).toBe(true))
+
+    moveCursor({ x: 400, y: 15, inside: true })
+    await act(() => new Promise((resolve) => setTimeout(resolve, HOVER_GRACE_MS + 30)))
+    expect(screen.getByTestId('usage-popover')).toBeInTheDocument()
+
+    pointAt('[data-session-id]')
+    moveCursor({ x: 40, y: 15, inside: true })
+    await act(() => new Promise((resolve) => setTimeout(resolve, HOVER_GRACE_MS + 30)))
+
+    expect(screen.queryByTestId('usage-popover')).not.toBeInTheDocument()
+  })
+
+  it('stays shut when there is no figure to show', async () => {
+    pointAt('[data-usage]')
+    render(<DotRow sessions={sessions} usage={null} />)
+    await waitFor(() => expect(eventHandlers.has('ui://cursor')).toBe(true))
+
+    moveCursor({ x: 400, y: 15, inside: true })
+    await act(() => new Promise((resolve) => setTimeout(resolve, HOVER_GRACE_MS + 30)))
+
+    expect(screen.queryByTestId('usage-popover')).not.toBeInTheDocument()
+  })
+})
+
+describe('DotRow usage popover anchoring', () => {
+  const usage = { percent: 42, resetsAtMs: Date.now() + 3_600_000, severity: 'normal' as const }
+  type Pointable = { elementFromPoint?: (x: number, y: number) => Element | null }
+
+  afterEach(() => {
+    delete (document as Pointable).elementFromPoint
+  })
+
+  it('measures the meter in the expanded row, not the hidden collapsed one', async () => {
+    // Both variants stay mounted and both draw a meter. A row-wide lookup found
+    // the collapsed one first, whose offsets belong to a different slot, and
+    // the popover was anchored somewhere the visible meter had never been.
+    ;(document as Pointable).elementFromPoint = () => document.querySelector('[data-usage]')
+
+    render(<DotRow sessions={sessions} usage={usage} />)
+    await waitFor(() => expect(eventHandlers.has('ui://cursor')).toBe(true))
+    moveCursor({ x: 400, y: 15, inside: true })
+    await act(() => new Promise((resolve) => setTimeout(resolve, HOVER_GRACE_MS + 30)))
+
+    const expanded = screen.getByTestId('named-dot-row').closest('.variant-slot')
+    const meters = screen.getAllByTestId('usage')
+    // The one the anchor must measure is the expanded row's, and there is more
+    // than one to choose from — which is the whole point of the regression.
+    expect(meters.length).toBeGreaterThan(1)
+    expect(expanded?.contains(meters.find((m) => expanded?.contains(m)) ?? null)).toBe(true)
+    expect(screen.getByTestId('popover-anchor')).toBeInTheDocument()
   })
 })

@@ -1,5 +1,6 @@
-import type { SessionSnapshot } from '../../types'
+import type { SessionSnapshot, Usage } from '../../types'
 import { SessionEntry } from './SessionEntry'
+import { UsageMeter } from './UsageMeter'
 import './dotRow.css'
 
 /**
@@ -17,6 +18,12 @@ interface Props {
   hoveredSessionId: string | null
   onHoverSession: (sessionId: string | null) => void
   onHoverOffset?: (offsetPx: number) => void
+  /**
+   * Five-hour limit usage, drawn here as well as on the collapsed row so that
+   * hovering the widget does not make it vanish — the popover only opens over a
+   * name, so between two of them there would be nowhere left showing it.
+   */
+  usage?: Usage | null
 }
 
 export function NamedDotRow({
@@ -24,6 +31,7 @@ export function NamedDotRow({
   hoveredSessionId,
   onHoverSession,
   onHoverOffset,
+  usage = null,
 }: Props) {
   const visible = sessions.slice(0, MAX_VISIBLE)
   const hidden = sessions.length - visible.length
@@ -52,6 +60,7 @@ export function NamedDotRow({
           +{hidden} more
         </span>
       )}
+      {usage !== null && <UsageMeter usage={usage} />}
     </div>
   )
 }

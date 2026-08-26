@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event'
 import { CollapsedPill } from './CollapsedPill'
 import { NamedDotRow } from './NamedDotRow'
 import { SessionPopover } from './SessionPopover'
+import { UsagePopover } from './UsagePopover'
 import {
   afterResizeSettles,
   applyWidgetSize,
@@ -18,7 +19,7 @@ import {
   unionRect,
   widgetWindowSize,
 } from '../../useWidgetSize'
-import { centredAnchor, POPOVER_WIDTH, sessionAtPoint, useCursor } from '../../useCursor'
+import { centredAnchor, POPOVER_WIDTH, targetAtPoint, useCursor } from '../../useCursor'
 import type { SessionViewProps } from '../SessionView'
 import './dotRow.css'
 
@@ -33,6 +34,7 @@ const POPOVER_GAP = 10
 
 export function DotRow({ sessions, smoothTransitions = true, usage = null }: SessionViewProps) {
   const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null)
+  const [hoveredUsage, setHoveredUsage] = useState(false)
   const [anchorOffset, setAnchorOffset] = useState(0)
   const [flashing, setFlashing] = useState(false)
   const [pillBox, setPillBox] = useState<{ width: number; height: number } | null>(null)
@@ -53,6 +55,9 @@ export function DotRow({ sessions, smoothTransitions = true, usage = null }: Ses
   // The sizing effect must not depend on `pillBox` — setting it there would
   // re-run the effect — so the box it is moving from is mirrored in a ref.
   const appliedPill = useRef<{ width: number; height: number } | null>(null)
+  // The larger of the two variants, which is what the window is sized to and
+  // what the hover rect is reported as.
+  const [widestPill, setWidestPill] = useState<{ width: number; height: number } | null>(null)
 
   // Hover comes from Rust, not from the DOM: a non-activating NSPanel never
   // becomes the key window, so WKWebView never delivers mousemove to the page.
@@ -75,11 +80,15 @@ export function DotRow({ sessions, smoothTransitions = true, usage = null }: Ses
 
   // Hit-testing forces a synchronous layout, so it only runs when there is
   // actually a row to hit — not on every cursor sample.
-  const pending = showNamed
-    ? sessionAtPoint(cursor, (x, y) =>
+  const target = showNamed
+    ? targetAtPoint(cursor, (x, y) =>
         typeof document.elementFromPoint === 'function' ? document.elementFromPoint(x, y) : null,
       )
     : null
+  // Kept as primitives, not the object: the effect below would otherwise see a
+  // fresh dependency on every cursor sample.
+  const pending = target?.kind === 'session' ? target.sessionId : null
+  const pendingUsage = target?.kind === 'usage'
 
   useEffect(() => {
     // Leaving the widget is the only thing that closes the popover. Sweeping
@@ -88,13 +97,27 @@ export function DotRow({ sessions, smoothTransitions = true, usage = null }: Ses
     // the grace delay on every pass.
     if (!cursor.inside) {
       setHoveredSessionId(null)
+      setHoveredUsage(false)
       return
     }
+
+    if (pendingUsage) {
+      if (hoveredUsage) return
+      const timer = setTimeout(() => {
+        setHoveredUsage(true)
+        setHoveredSessionId(null)
+      }, HOVER_GRACE_MS)
+      return () => clearTimeout(timer)
+    }
+
     if (pending === null || pending === hoveredSessionId) return
 
-    const timer = setTimeout(() => setHoveredSessionId(pending), HOVER_GRACE_MS)
+    const timer = setTimeout(() => {
+      setHoveredSessionId(pending)
+      setHoveredUsage(false)
+    }, HOVER_GRACE_MS)
     return () => clearTimeout(timer)
-  }, [pending, cursor.inside, hoveredSessionId])
+  }, [pending, pendingUsage, cursor.inside, hoveredSessionId, hoveredUsage])
 
   const hovered = sessions.find((s) => s.sessionId === hoveredSessionId) ?? null
 
@@ -117,11 +140,19 @@ export function DotRow({ sessions, smoothTransitions = true, usage = null }: Ses
   }, [])
 
   useLayoutEffect(() => {
-    if (hoveredSessionId === null || rowWidth === null) return
-    const entry = root.current?.querySelector<HTMLElement>(
-      `[data-session-id="${hoveredSessionId}"]`,
-    )
+    if (rowWidth === null) return
+    // The meter anchors its popover the same way an entry does — it is just a
+    // different element to measure from.
+    const selector =
+      hoveredSessionId !== null ? `[data-session-id="${hoveredSessionId}"]` : '[data-usage]'
+    if (hoveredSessionId === null && !hoveredUsage) return
     const slot = expandedSlot.current
+    // Scoped to the expanded slot, not the whole row. Both variants stay
+    // mounted and both draw a meter, so a row-wide lookup found the collapsed
+    // one first — and its offsets are relative to a slot that is not the one
+    // the offsets below are measured against, which put the popover somewhere
+    // the meter had never been.
+    const entry = slot?.querySelector<HTMLElement>(selector)
     if (!entry || !slot) return
 
     // Deliberately offsetLeft/offsetWidth rather than getBoundingClientRect.
@@ -132,7 +163,7 @@ export function DotRow({ sessions, smoothTransitions = true, usage = null }: Ses
     const slotWidth = slot.offsetWidth
     const entryLeftInRow = (rowWidth - slotWidth) / 2 + entry.offsetLeft
     setAnchorOffset(centredAnchor(entryLeftInRow, entry.offsetWidth, rowWidth))
-  }, [hoveredSessionId, sessions, rowWidth])
+  }, [hoveredSessionId, hoveredUsage, sessions, rowWidth])
 
   // Size the pill to the state being morphed into, and the window to hold it.
   // Both variants are mounted, so the target is measurable now rather than
@@ -163,6 +194,7 @@ export function DotRow({ sessions, smoothTransitions = true, usage = null }: Ses
       shadowPad(),
     )
     const nextRow = rowWidthFor(widest, POPOVER_WIDTH)
+    setWidestPill(widest)
 
     const applied = appliedWindow.current
     const grows = applied === null || next.width > applied.width || next.height > applied.height
@@ -221,14 +253,44 @@ export function DotRow({ sessions, smoothTransitions = true, usage = null }: Ses
     }, duration)
   }, [showNamed, sessions, smoothTransitions])
 
-  // Tell Rust which part of the window is the widget. Recomputed whenever the
-  // pill or popover changes size or position.
+  // The usage popover counts down, and nothing else in this component needs a
+  // clock, so it only runs while that popover is open.
+  const [usageNow, setUsageNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!hoveredUsage) return
+    setUsageNow(Date.now())
+    const timer = setInterval(() => setUsageNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [hoveredUsage])
+
+  // Tell Rust which part of the window is the widget.
+  //
+  // Reported at the widest of the two variants rather than at whatever the pill
+  // measures right now, for the same reason the window is sized that way: this
+  // runs after paint on the frame the morph *starts*, so a live measurement is
+  // of the box the pill is leaving, not the one it is going to. The row would
+  // then be hittable only across its old, narrower extent — and moving onto a
+  // name beyond that put the cursor outside the widget, collapsing the row
+  // instead of opening a popover.
   useEffect(() => {
     const pill = pillRef.current?.getBoundingClientRect()
     if (!pill) return
+
+    // The pill is centred and stays centred, so widening it about its own
+    // centre is the box it will settle into.
+    const centre = pill.left + pill.width / 2
+    const width = Math.max(pill.width, widestPill?.width ?? 0)
+    const height = Math.max(pill.height, widestPill?.height ?? 0)
+    const settled = {
+      left: centre - width / 2,
+      top: pill.top,
+      right: centre + width / 2,
+      bottom: pill.top + height,
+    }
+
     const popover = popoverSlot.current?.getBoundingClientRect() ?? null
-    reportHoverRect(unionRect(pill, popover))
-  }, [showNamed, hovered, pillBox, rowWidth])
+    reportHoverRect(unionRect(settled, popover))
+  }, [showNamed, hovered, hoveredUsage, pillBox, rowWidth, widestPill])
 
   useEffect(
     () => () => {
@@ -263,20 +325,25 @@ export function DotRow({ sessions, smoothTransitions = true, usage = null }: Ses
         </div>
         <div className="variant-slot" ref={expandedSlot} data-show={showNamed ? 'true' : 'false'}>
           <NamedDotRow
+            usage={usage}
             sessions={sessions}
             hoveredSessionId={hoveredSessionId}
             onHoverSession={setHoveredSessionId}
           />
         </div>
       </div>
-      {showNamed && hovered !== null && (
+      {showNamed && (hovered !== null || (hoveredUsage && usage !== null)) && (
         <div
           ref={popoverSlot}
           className="popover-anchor"
           data-testid="popover-anchor"
           style={{ marginLeft: anchorOffset }}
         >
-          <SessionPopover session={hovered} usage={usage} />
+          {hovered !== null ? (
+            <SessionPopover session={hovered} usage={usage} />
+          ) : (
+            usage !== null && <UsagePopover usage={usage} now={usageNow} />
+          )}
         </div>
       )}
     </div>

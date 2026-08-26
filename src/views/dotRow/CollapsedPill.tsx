@@ -58,7 +58,7 @@ export function CollapsedPill({ sessions, usage = null }: SessionViewProps) {
           {jobs} {jobs === 1 ? 'job' : 'jobs'}
         </span>
       )}
-      {usage !== null && <UsageMeter usage={usage} />}
+      {usage !== null && <UsageMeter usage={usage} show="percent" />}
     </div>
   )
 }

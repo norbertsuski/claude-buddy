@@ -160,3 +160,45 @@ describe('NamedDotRow background jobs', () => {
     )
   })
 })
+
+describe('NamedDotRow usage meter', () => {
+  const usage = { percent: 42, resetsAtMs: Date.now() + 3_600_000, severity: 'normal' as const }
+  const sessions = [session('api-service', 'busy'), session('web-app', 'idle')]
+
+  it('keeps the meter on screen while the row is expanded', () => {
+    // Hovering must not make it vanish: the popover only opens over a name, so
+    // between two of them there would otherwise be nowhere showing it.
+    render(
+      <NamedDotRow
+        sessions={sessions}
+        hoveredSessionId={null}
+        onHoverSession={vi.fn()}
+        usage={usage}
+      />,
+    )
+
+    expect(screen.getByTestId('usage')).toBeInTheDocument()
+  })
+
+  it('puts it last, after the overflow count', () => {
+    render(
+      <NamedDotRow
+        sessions={sessions}
+        hoveredSessionId={null}
+        onHoverSession={vi.fn()}
+        usage={usage}
+      />,
+    )
+
+    const row = screen.getByTestId('named-dot-row')
+    expect(row.children[row.children.length - 1]).toBe(screen.getByTestId('usage'))
+  })
+
+  it('shows nothing when there is no figure worth trusting', () => {
+    render(
+      <NamedDotRow sessions={sessions} hoveredSessionId={null} onHoverSession={vi.fn()} />,
+    )
+
+    expect(screen.queryByTestId('usage')).not.toBeInTheDocument()
+  })
+})

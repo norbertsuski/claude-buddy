@@ -22,25 +22,46 @@ export const TICK_MS = 15_000
  * passes `null` whenever the underlying figure describes a window that has
  * already reset. See `crate::usage` for why that is so often the case.
  */
-export function UsageMeter({ usage }: { usage: Usage }) {
+export function UsageMeter({
+  usage,
+  show = 'countdown',
+}: {
+  usage: Usage
+  /**
+   * What the label reads. The resting row is glanced at, where a share left is
+   * quicker to read than a duration; the expanded row is already being looked
+   * at deliberately, and there the time is the more useful of the two. Both are
+   * spelled out together in the popover.
+   */
+  show?: 'countdown' | 'percent'
+}) {
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
+    // A percentage does not move with the clock, so the resting row — the one
+    // on screen all day — schedules nothing at all.
+    if (show === 'percent') return
     const timer = setInterval(() => setNow(Date.now()), TICK_MS)
     return () => clearInterval(timer)
-  }, [])
+  }, [show])
 
   return (
     <span
       className="usage"
       data-testid="usage"
+      data-usage="true"
       data-severity={usage.severity}
-      title={`${usage.percent}% of the 5h limit used`}
     >
       <span className="usage-track">
-        <span className="usage-fill" style={{ width: `${usage.percent}%` }} />
+        {/* Drains rather than fills, so the bar falls as the figure beside it
+            does. With the bar growing on what was spent and the label counting
+            what is left, the two moved opposite ways and the pair read as a
+            contradiction. The popover states the spent share outright. */}
+        <span className="usage-fill" style={{ width: `${100 - usage.percent}%` }} />
       </span>
-      <span className="usage-left">{formatCountdown(usage.resetsAtMs - now)}</span>
+      <span className="usage-left" data-show={show}>
+        {show === 'percent' ? `${100 - usage.percent}%` : formatCountdown(usage.resetsAtMs - now)}
+      </span>
     </span>
   )
 }
