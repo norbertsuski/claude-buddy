@@ -110,13 +110,18 @@ panel shows one unpainted frame, and it lands on the start of the morph.
 `POPOVER_ALLOWANCE` is 400pt and already reserved unconditionally, staying
 transparent and click-through, so a popover opening resizes nothing.
 
-### Two hover rects at rest, one while open
+### The hover rect is whatever is painted black
 
-`cursor.rs` held a single `HOVER_RECT` and `contains` took one `Rect`. Two chips
-flanking a notch need two, and a union would bridge across the notch and make
-hovering the notch itself read as hovering the widget. So `HOVER_RECT` became a
-short list, `contains` gained `contains_any`, and `set_hover_rect` gained
-`set_hover_rects`.
+`cursor.rs` held a single `HOVER_RECT` and `contains` took one `Rect`. An earlier
+design flanked the notch with two chips and needed two rects, so `HOVER_RECT`
+became a short list, `contains` gained `contains_any`, and `set_hover_rect`
+gained `set_hover_rects`. Free mode still reports one box.
+
+The slab reports one box in both states: the band. Reporting the two resting
+halves instead — done originally so that sweeping across the notch would not
+open the slab — left the black either side of their content dead to the cursor,
+so the band responded only where it had something to say. Now the notch gap is
+inside the reported box, which is right: the notch is part of the black.
 
 While the slab is open it is the only rect, because it spans the bar as well as
 the list — the cursor that opened it is already inside. An earlier design, where

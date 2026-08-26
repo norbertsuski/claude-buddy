@@ -163,11 +163,12 @@ export function NotchFlanks({ sessions, usage }: Props) {
             height: layout.barHeight,
           }
 
-  // Tell Rust which parts of the window are the widget.
+  // Tell Rust which part of the window is the widget: the band, in both states.
   //
-  // Open, that is the band alone: it spans the bar as well as the list, so the
-  // cursor that opened it is already inside. At rest it is the two resting
-  // halves and not the band, so that crossing the notch does not open it.
+  // Whatever is painted black is the widget. Reporting the two resting halves
+  // instead — which is what this did, to keep the notch itself from opening the
+  // slab — left the black either side of their content dead to the cursor, so
+  // the band responded only where it had something to say.
   //
   // While open the height only ever grows: a detail closing shortens the list,
   // and a rect that shrinks under a stationary cursor put it outside the widget
@@ -180,10 +181,7 @@ export function NotchFlanks({ sessions, usage }: Props) {
     if (!open) {
       openHeight.current = 0
       reportHoverRects(
-        visibleRects([
-          restLeftRef.current?.getBoundingClientRect(),
-          restRightRef.current?.getBoundingClientRect(),
-        ]),
+        visibleRects([{ left: band.left, top: 0, width: band.width, height: band.height }]),
       )
       return
     }

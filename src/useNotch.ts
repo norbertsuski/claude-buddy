@@ -31,11 +31,11 @@ export interface HoverRect {
 }
 
 /**
- * Report the chips as the hover target.
+ * Report the widget's own boxes as the hover target.
  *
- * Several rects rather than one bounding box: the chips flank the notch, and a
- * union would bridge across it, holding the row expanded whenever the cursor
- * passed over the notch or the empty bar beside it.
+ * A list rather than one box because the caller decides: notch mode reports the
+ * black band, which is one box spanning the notch, and an earlier design that
+ * flanked the notch with two chips reported those.
  */
 export function reportHoverRects(rects: HoverRect[]): void {
   void invoke('set_hover_rects', { rects }).catch(() => {

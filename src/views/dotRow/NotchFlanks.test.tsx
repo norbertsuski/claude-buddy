@@ -183,11 +183,17 @@ describe('NotchFlanks opening', () => {
     expect(screen.getByTestId('notch-more')).toHaveTextContent('+3 more')
   })
 
-  it('reports the two resting halves, not the band, so the notch does not open it', async () => {
+  it('reports the whole resting band, so all of the black is hoverable', async () => {
     render(<NotchFlanks sessions={[session('a-11', 'busy')]} usage={USAGE} />)
     await screen.findByTestId('rest-left')
-    // Reporting the whole band would make sweeping across the notch open it.
-    await waitFor(() => expect(rectsFromLastCall()).toHaveLength(2))
+    // Reporting the two halves left the black either side of their content dead
+    // to the cursor: the band only responded where it had something to say.
+    await waitFor(() => {
+      const rects = rectsFromLastCall() as Array<{ y: number; height: number }>
+      expect(rects).toHaveLength(1)
+      expect(rects[0]!.y).toBe(0)
+      expect(rects[0]!.height).toBe(LAYOUT.barHeight)
+    })
   })
 
   it('reports the slab alone once open, spanning the bar it was opened from', async () => {
