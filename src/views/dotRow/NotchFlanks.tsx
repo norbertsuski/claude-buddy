@@ -89,31 +89,35 @@ export function NotchFlanks({ sessions, usage }: Props) {
     // zero-width band then clipped away the very content it was measuring.
   }, [layout])
 
-  // Which row the cursor is on. Hit-testing forces a synchronous layout, so it
-  // only runs while the slab is actually open.
-  const pending = open
-    ? rowAtPoint(cursor.x, cursor.y, (x, y) =>
-        typeof document.elementFromPoint === 'function' ? document.elementFromPoint(x, y) : null,
-      )
-    : null
-  const pendingRef = useRef(pending)
-  pendingRef.current = pending
-
+  // Which row the cursor is on.
+  //
+  // Driven by the cursor's own coordinates and nothing else. Selecting from a
+  // hit-test on every render made the list fight itself: opening a detail
+  // pushes the rows below it down, closing one pulls them back up, so a
+  // stationary cursor kept finding a different row under it as the layout
+  // settled — which moved the detail again. Two rows was enough to oscillate.
+  //
+  // Rust only reports a position that has actually changed, so the effect
+  // re-runs when the pointer moves and not when the layout does.
   useEffect(() => {
     if (!open) {
       setRow(null)
       return
     }
-    // Leaving the widget is the only thing that clears the highlight. Sweeping
-    // between rows crosses their padding, where nothing is hit — dropping the
-    // selection there would flicker it out on every pass.
-    const next = rowKey(pendingRef.current)
-    if (next === null || next === rowKey(row)) return
-    const timer = setTimeout(() => setRow(pendingRef.current), ROW_GRACE_MS)
+    // Hit-tested at the end of the grace rather than at the start: it forces a
+    // synchronous layout, and this way it reads the list as it has settled.
+    // Sweeping between rows crosses their padding, where nothing is hit —
+    // dropping the selection there would flicker it out on every pass, so a
+    // miss leaves the highlight where it is. Only leaving the widget clears it.
+    const timer = setTimeout(() => {
+      const next = rowAtPoint(cursor.x, cursor.y, (x, y) =>
+        typeof document.elementFromPoint === 'function' ? document.elementFromPoint(x, y) : null,
+      )
+      if (next === null) return
+      setRow((current) => (rowKey(current) === rowKey(next) ? current : next))
+    }, ROW_GRACE_MS)
     return () => clearTimeout(timer)
-    // Compared by key rather than by object, which is freshly allocated every
-    // render and would re-run this effect forever.
-  }, [open, rowKey(pending), rowKey(row)])
+  }, [open, cursor.x, cursor.y])
 
   // Clicks arrive from Rust for the same reason hover does: a non-activating
   // NSPanel never becomes the key window, so the page never sees its own.
@@ -164,17 +168,28 @@ export function NotchFlanks({ sessions, usage }: Props) {
   // Open, that is the band alone: it spans the bar as well as the list, so the
   // cursor that opened it is already inside. At rest it is the two resting
   // halves and not the band, so that crossing the notch does not open it.
+  //
+  // While open the height only ever grows: a detail closing shortens the list,
+  // and a rect that shrinks under a stationary cursor put it outside the widget
+  // — so moving from the first row towards the second shut the whole slab as
+  // the first row's detail collapsed. The latch is released on close.
+  const openHeight = useRef(0)
+
   useLayoutEffect(() => {
     if (layout === null || band === null) return
+    if (!open) {
+      openHeight.current = 0
+      reportHoverRects(
+        visibleRects([
+          restLeftRef.current?.getBoundingClientRect(),
+          restRightRef.current?.getBoundingClientRect(),
+        ]),
+      )
+      return
+    }
+    openHeight.current = Math.max(openHeight.current, band.height)
     reportHoverRects(
-      visibleRects(
-        open
-          ? [{ left: band.left, top: 0, width: band.width, height: band.height }]
-          : [
-              restLeftRef.current?.getBoundingClientRect(),
-              restRightRef.current?.getBoundingClientRect(),
-            ],
-      ),
+      visibleRects([{ left: band.left, top: 0, width: band.width, height: openHeight.current }]),
     )
   }, [open, sessions, usage, row, layout, band?.left, band?.width, band?.height])
 

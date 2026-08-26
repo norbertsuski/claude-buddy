@@ -12,6 +12,9 @@ const LAYOUT = {
 const USAGE = { percent: 36, resetsAtMs: Date.now() + 3_600_000, severity: 'normal' as const }
 
 let layout: typeof LAYOUT | null = LAYOUT
+// jsdom lays nothing out; this stands in for what the list measures, and is a
+// getter rather than a constant so a test can shorten it mid-hover.
+let panelHeight = 84
 const invoke = vi.fn(async (command: string, ..._args: unknown[]) => {
   if (command === 'notch_layout') return layout
   if (command === 'session_detail') {
@@ -31,7 +34,7 @@ vi.mock('@tauri-apps/api/event', () => ({
   }),
 }))
 
-const { NotchFlanks } = await import('./NotchFlanks')
+const { NotchFlanks, ROW_GRACE_MS } = await import('./NotchFlanks')
 const { MAX_ROWS } = await import('./NotchPanel')
 
 function session(name: string, state: SessionState): SessionSnapshot {
@@ -60,10 +63,13 @@ function open(inside = true, x = 400, y = 12) {
  * page hit-tests it. WKWebView delivers no mouse events to a non-activating
  * panel, so `userEvent.hover` would prove nothing about the real thing.
  */
-function pointAt(el: Element | null) {
+function pointAt(el: Element | null, y = 44) {
   // Assigned rather than spied: jsdom has no elementFromPoint to spy on.
   ;(document as unknown as Record<string, unknown>).elementFromPoint = () => el
-  open(true, 400, 44)
+  // A distinct point per row, because selection follows the pointer moving and
+  // not the page re-rendering: reporting the same coordinates twice is, to the
+  // widget, a cursor that has not moved.
+  open(true, 400, y)
 }
 
 function rectsFromLastCall() {
@@ -76,9 +82,10 @@ beforeEach(() => {
   ;(document as unknown as Record<string, unknown>).elementFromPoint = () => null
   // jsdom lays nothing out, so the panel would measure 0 tall and never be
   // reported to Rust — the same failure this measurement replaced.
+  panelHeight = 84
   Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
     configurable: true,
-    value: 84,
+    get: () => panelHeight,
   })
   invoke.mockClear()
   eventHandlers.clear()
@@ -283,7 +290,7 @@ describe('NotchFlanks rows', () => {
     const first = await screen.findByTestId('detail-slot-id-api-service-55')
     await waitFor(() => expect(first).toHaveAttribute('data-open', 'true'))
 
-    pointAt(screen.getByTestId('row-id-web-app'))
+    pointAt(screen.getByTestId('row-id-web-app'), 80)
     await waitFor(() =>
       expect(screen.getByTestId('detail-slot-id-web-app')).toHaveAttribute('data-open', 'true'),
     )
@@ -303,6 +310,58 @@ describe('NotchFlanks rows', () => {
     await waitFor(() =>
       expect(screen.getByTestId('row-id-api-service-55')).toHaveAttribute('data-hovered', 'true'),
     )
+  })
+
+  it('keeps its row while the list settles under a still cursor', async () => {
+    // Opening a detail pushes the rows below it down and closing one pulls them
+    // back up, so a hit-test on every render kept finding a different row under
+    // a cursor that had not moved — which moved the detail again. Two rows was
+    // enough to oscillate.
+    render(
+      <NotchFlanks
+        sessions={[session('api-service-55', 'waiting'), session('web-app', 'busy')]}
+        usage={null}
+      />,
+    )
+    await screen.findByTestId('rest-left')
+    open()
+
+    pointAt(screen.getByTestId('row-id-api-service-55'))
+    await waitFor(() =>
+      expect(screen.getByTestId('row-id-api-service-55')).toHaveAttribute('data-hovered', 'true'),
+    )
+
+    // The layout shifts the other row under the cursor, which has not moved.
+    ;(document as unknown as Record<string, unknown>).elementFromPoint = () =>
+      screen.getByTestId('row-id-web-app')
+    open(true, 400, 44)
+    await new Promise((resolve) => setTimeout(resolve, ROW_GRACE_MS + 40))
+
+    expect(screen.getByTestId('row-id-api-service-55')).toHaveAttribute('data-hovered', 'true')
+  })
+
+  it('never shrinks the open rect under the cursor', async () => {
+    // A detail closing shortens the list. Reporting the shorter box put a still
+    // cursor outside the widget, so moving from the first row towards the second
+    // shut the slab as the first row's detail collapsed.
+    render(
+      <NotchFlanks
+        sessions={[session('api-service-55', 'waiting'), session('web-app', 'busy')]}
+        usage={null}
+      />,
+    )
+    await screen.findByTestId('rest-left')
+    open()
+    const tall = (rectsFromLastCall()[0] as { height: number }).height
+    expect(tall).toBe(84)
+
+    // The list gets shorter, and the cursor moves within what was reported.
+    panelHeight = 20
+    pointAt(screen.getByTestId('row-id-web-app'), 60)
+    await waitFor(() =>
+      expect(screen.getByTestId('row-id-web-app')).toHaveAttribute('data-hovered', 'true'),
+    )
+    expect((rectsFromLastCall()[0] as { height: number }).height).toBe(tall)
   })
 
   it('raises the session the cursor is on when Rust reports a click', async () => {
