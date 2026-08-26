@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 
 use crate::watcher::activity::ActivityProbe;
+use crate::watcher::blocked::BlockedProbe;
 use crate::watcher::liveness::PidLiveness;
 use crate::watcher::registry::RegistryFile;
 
@@ -125,10 +126,14 @@ pub struct SnapshotResult {
 
 /// Derive every session's state. Pure: all time and all liveness are injected,
 /// so the whole state machine is testable without a filesystem or a clock.
+// Eight injected dependencies and settings, all of them load-bearing, is the
+// price of keeping this function pure and its whole state machine testable.
+#[allow(clippy::too_many_arguments)]
 pub fn snapshot(
     files: &[RegistryFile],
     liveness: &dyn PidLiveness,
     activity: &dyn ActivityProbe,
+    blocked: &dyn BlockedProbe,
     now_ms: i64,
     paused_threshold_ms: i64,
     include_background: bool,
@@ -158,8 +163,22 @@ pub fn snapshot(
             let elapsed_ms = age(now_ms, status_time);
             let alive = liveness.is_alive(f.pid, Some(f.started_at), now_ms);
 
+            // Statusless sessions never say they are waiting, so a transcript
+            // holding an unanswered user-blocking tool call is the only
+            // evidence there is. Sessions that do report status are left
+            // alone: what they say beats what the transcript implies.
+            let pending_prompt = if reported_status {
+                None
+            } else {
+                blocked.pending_prompt(&f.cwd, &f.session_id)
+            };
+
             let state = if !alive {
+                // Death outranks everything, including an unanswered question:
+                // there is no longer anyone to answer.
                 SessionState::Dead
+            } else if pending_prompt.is_some() {
+                SessionState::Waiting
             } else {
                 match f.status.as_deref() {
                     Some("waiting") => SessionState::Waiting,
@@ -182,7 +201,7 @@ pub fn snapshot(
                 entrypoint: f.entrypoint.clone().unwrap_or_default(),
                 state,
                 detail: match state {
-                    SessionState::Waiting => f.waiting_for.clone(),
+                    SessionState::Waiting => pending_prompt.or_else(|| f.waiting_for.clone()),
                     _ => None,
                 },
                 elapsed_ms,
@@ -268,6 +287,7 @@ pub fn group_jobs_with_parents(sessions: Vec<SessionSnapshot>) -> Vec<SessionSna
 mod tests {
     use super::*;
     use crate::watcher::activity::{FakeActivity, NoActivity};
+    use crate::watcher::blocked::{FakeBlocked, NoBlocked};
     use crate::watcher::liveness::FakeLiveness;
     use crate::watcher::registry::RegistryFile;
 
@@ -302,7 +322,7 @@ mod tests {
         f.waiting_for = Some("input needed".into());
         f.status_updated_at = Some(NOW - 6 * 60_000);
 
-        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].state, SessionState::Waiting);
@@ -316,7 +336,7 @@ mod tests {
         f.status = Some("busy".into());
         f.status_updated_at = Some(NOW - 3 * 60_000);
 
-        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out[0].state, SessionState::Busy);
         assert_eq!(out[0].detail, None);
@@ -326,7 +346,7 @@ mod tests {
     fn absent_status_within_threshold_yields_idle() {
         let mut f = file(1, "cli");
         f.status_updated_at = Some(NOW - 60_000);
-        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Idle);
+        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Idle);
     }
 
     #[test]
@@ -334,7 +354,7 @@ mod tests {
         let mut f = file(1, "cli");
         f.status = Some("idle".into());
         f.status_updated_at = Some(NOW - 60_000);
-        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Idle);
+        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Idle);
     }
 
     #[test]
@@ -342,21 +362,21 @@ mod tests {
         let mut f = file(1, "cli");
         f.status = Some("running".into());
         f.status_updated_at = Some(NOW - 60_000);
-        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Idle);
+        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Idle);
     }
 
     #[test]
     fn idle_past_threshold_yields_paused() {
         let mut f = file(1, "cli");
         f.status_updated_at = Some(NOW - 11 * 60_000);
-        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Paused);
+        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Paused);
     }
 
     #[test]
     fn paused_boundary_is_inclusive() {
         let mut f = file(1, "cli");
         f.status_updated_at = Some(NOW - PAUSED_THRESHOLD_MS);
-        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Paused);
+        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Paused);
     }
 
     #[test]
@@ -364,7 +384,7 @@ mod tests {
         let mut f = file(1, "cli");
         f.status = Some("busy".into());
         f.status_updated_at = Some(NOW - 60 * 60_000);
-        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Busy);
+        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Busy);
     }
 
     #[test]
@@ -373,14 +393,14 @@ mod tests {
         f.status = Some("waiting".into());
         f.waiting_for = Some("input needed".into());
         f.status_updated_at = Some(NOW - 60 * 60_000);
-        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Waiting);
+        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state, SessionState::Waiting);
     }
 
     #[test]
     fn dead_process_yields_dead_regardless_of_status() {
         let mut f = file(1, "cli");
         f.status = Some("busy".into());
-        let out = snapshot(&[f], &FakeLiveness::new(), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[f], &FakeLiveness::new(), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
         assert_eq!(out[0].state, SessionState::Dead);
     }
 
@@ -392,7 +412,7 @@ mod tests {
             .with_alive_any_start(2)
             .with_alive_any_start(3);
 
-        let out = snapshot(&files, &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&files, &live, &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out.iter().map(|s| s.pid).collect::<Vec<_>>(), vec![1, 3]);
     }
@@ -419,7 +439,7 @@ mod tests {
             .with_alive_any_start(1)
             .with_alive_any_start(2)
             .with_alive_any_start(3);
-        let out = snapshot(&[owned, first, second], &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[owned, first, second], &live, &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out.iter().map(|s| s.pid).collect::<Vec<_>>(), vec![1, 2, 3]);
         assert!(out[2].background);
@@ -431,7 +451,7 @@ mod tests {
         orphan.cwd = "/Users/n/Code/somewhere-else".into();
 
         let live = FakeLiveness::new().with_alive_any_start(1).with_alive_any_start(9);
-        let out = snapshot(&[orphan, file(1, "cli")], &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[orphan, file(1, "cli")], &live, &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out.iter().map(|s| s.pid).collect::<Vec<_>>(), vec![1, 9]);
     }
@@ -448,7 +468,7 @@ mod tests {
             .with_alive_any_start(1)
             .with_alive_any_start(3)
             .with_alive_any_start(4);
-        let out = snapshot(&[a, b, parent], &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[a, b, parent], &live, &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out.iter().map(|s| s.pid).collect::<Vec<_>>(), vec![1, 3, 4]);
     }
@@ -457,14 +477,14 @@ mod tests {
     fn background_jobs_are_dropped_when_the_setting_is_off() {
         let live = FakeLiveness::new().with_alive_any_start(1).with_alive_any_start(2);
 
-        let out = snapshot(&[job(1), file(2, "cli")], &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, false, &HashMap::new()).sessions;
+        let out = snapshot(&[job(1), file(2, "cli")], &live, &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, false, &HashMap::new()).sessions;
 
         assert_eq!(out.iter().map(|s| s.pid).collect::<Vec<_>>(), vec![2]);
     }
 
     #[test]
     fn a_session_is_never_marked_background() {
-        let out = snapshot(&[file(1, "cli")], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[file(1, "cli")], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
         assert!(!out[0].background);
     }
 
@@ -472,34 +492,34 @@ mod tests {
     fn a_background_entry_without_a_job_id_is_kept() {
         let mut bg = file(1, "cli");
         bg.kind = Some("bg".into());
-        assert_eq!(snapshot(&[bg], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions.len(), 1);
+        assert_eq!(snapshot(&[bg], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions.len(), 1);
     }
 
     #[test]
     fn sdk_kind_entries_are_filtered_out() {
         let mut f = file(1, "cli");
         f.kind = Some("sdk".into());
-        assert!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions.is_empty());
+        assert!(snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions.is_empty());
     }
 
     #[test]
     fn sessions_with_no_kind_are_filtered_out() {
         let mut f = file(1, "cli");
         f.kind = None;
-        assert!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions.is_empty());
+        assert!(snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions.is_empty());
     }
 
     #[test]
     fn sessions_with_no_entrypoint_are_filtered_out() {
         let mut f = file(1, "cli");
         f.entrypoint = None;
-        assert!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions.is_empty());
+        assert!(snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions.is_empty());
     }
 
     #[test]
     fn elapsed_falls_back_to_started_at_when_status_time_is_absent() {
         let f = file(1, "cli");
-        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
         assert_eq!(out[0].elapsed_ms, 60_000);
         assert_eq!(out[0].uptime_ms, 60_000);
     }
@@ -509,7 +529,7 @@ mod tests {
         // Clock skew must not render as a negative age.
         let mut f = file(1, "cli");
         f.status_updated_at = Some(NOW + 3 * 60_000);
-        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
         assert_eq!(out[0].elapsed_ms, 0);
         assert_eq!(out[0].state, SessionState::Idle);
     }
@@ -518,7 +538,7 @@ mod tests {
     fn missing_name_falls_back_to_the_cwd_basename() {
         let mut f = file(1, "cli");
         f.name = None;
-        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].name, "project-1");
+        assert_eq!(snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].name, "project-1");
     }
 
     #[test]
@@ -538,7 +558,7 @@ mod tests {
             .with_alive_any_start(30)
             .with_alive_any_start(40);
 
-        let out = snapshot(&[dead, paused, idle, busy, waiting], &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[dead, paused, idle, busy, waiting], &live, &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out.iter().map(|s| s.pid).collect::<Vec<_>>(), vec![10, 20, 30, 40, 50]);
     }
@@ -554,7 +574,7 @@ mod tests {
         newer.status_updated_at = Some(NOW - 30_000);
 
         let live = FakeLiveness::new().with_alive_any_start(10).with_alive_any_start(20);
-        let out = snapshot(&[newer, older], &live, &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[newer, older], &live, &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out.iter().map(|s| s.pid).collect::<Vec<_>>(), vec![10, 20]);
     }
@@ -569,7 +589,7 @@ mod tests {
         f.proc_start = Some("Tue Aug 25 03:53:49 2026".into());
         f.status = Some("busy".into());
 
-        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out.len(), 1, "session must not be dropped as dead");
         assert_eq!(out[0].state, SessionState::Busy);
@@ -582,7 +602,7 @@ mod tests {
         let f = file(1, "claude-desktop");
         let probe = FakeActivity::new().with("session-1", NOW - 2_000);
 
-        let out = snapshot(&[f], &alive(1), &probe, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[f], &alive(1), &probe, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out[0].state, SessionState::Busy);
         assert_eq!(out[0].elapsed_ms, 2_000);
@@ -593,7 +613,7 @@ mod tests {
         let f = file(1, "claude-desktop");
         let probe = FakeActivity::new().with("session-1", NOW - 5 * 60_000);
 
-        let out = snapshot(&[f], &alive(1), &probe, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[f], &alive(1), &probe, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out[0].state, SessionState::Idle);
     }
@@ -604,7 +624,7 @@ mod tests {
         let probe = FakeActivity::new().with("session-1", NOW - 20 * 60_000);
 
         assert_eq!(
-            snapshot(&[f], &alive(1), &probe, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state,
+            snapshot(&[f], &alive(1), &probe, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state,
             SessionState::Paused
         );
     }
@@ -613,7 +633,7 @@ mod tests {
     fn a_statusless_session_with_no_transcript_falls_back_to_session_age() {
         let f = file(1, "claude-desktop");
 
-        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out[0].state, SessionState::Idle);
         assert_eq!(out[0].elapsed_ms, 60_000);
@@ -629,10 +649,115 @@ mod tests {
         f.status_updated_at = Some(NOW - 4 * 60_000);
         let probe = FakeActivity::new().with("session-1", NOW - 1_000);
 
-        let out = snapshot(&[f], &alive(1), &probe, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[f], &alive(1), &probe, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out[0].state, SessionState::Waiting);
         assert_eq!(out[0].elapsed_ms, 4 * 60_000);
+    }
+
+    #[test]
+    fn a_statusless_session_with_a_pending_prompt_is_waiting() {
+        // Regression: Claude Desktop writes no status, statusUpdatedAt or
+        // waitingFor at all, so a session blocked on AskUserQuestion read as
+        // idle — grey — while it was in fact waiting on the user.
+        let f = file(1, "claude-desktop");
+        let activity = FakeActivity::new().with("session-1", NOW - 3 * 60_000);
+        let blocked = FakeBlocked::new().with("session-1", "question pending");
+
+        let out = snapshot(&[f], &alive(1), &activity, &blocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+
+        assert_eq!(out[0].state, SessionState::Waiting);
+        assert_eq!(out[0].detail.as_deref(), Some("question pending"));
+    }
+
+    #[test]
+    fn a_pending_prompt_beats_a_fresh_transcript() {
+        // A transcript touched seconds ago would otherwise read as busy.
+        let f = file(1, "claude-desktop");
+        let activity = FakeActivity::new().with("session-1", NOW - 2_000);
+        let blocked = FakeBlocked::new().with("session-1", "plan approval");
+
+        let out = snapshot(&[f], &alive(1), &activity, &blocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+
+        assert_eq!(out[0].state, SessionState::Waiting);
+        assert_eq!(out[0].detail.as_deref(), Some("plan approval"));
+    }
+
+    #[test]
+    fn a_pending_prompt_beats_a_stale_transcript() {
+        let f = file(1, "claude-desktop");
+        let activity = FakeActivity::new().with("session-1", NOW - 30 * 60_000);
+        let blocked = FakeBlocked::new().with("session-1", "question pending");
+
+        let out = snapshot(&[f], &alive(1), &activity, &blocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+
+        assert_eq!(out[0].state, SessionState::Waiting);
+    }
+
+    #[test]
+    fn a_statusless_session_with_no_pending_prompt_keeps_its_mtime_derived_state() {
+        // Guard on the existing behaviour: the blocked probe must only ever
+        // add a Waiting, never disturb what mtime already decided.
+        let quiet = FakeBlocked::new();
+
+        let busy = FakeActivity::new().with("session-1", NOW - 2_000);
+        assert_eq!(
+            snapshot(&[file(1, "claude-desktop")], &alive(1), &busy, &quiet, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state,
+            SessionState::Busy
+        );
+
+        let idle = FakeActivity::new().with("session-1", NOW - 5 * 60_000);
+        assert_eq!(
+            snapshot(&[file(1, "claude-desktop")], &alive(1), &idle, &quiet, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state,
+            SessionState::Idle
+        );
+
+        let paused = FakeActivity::new().with("session-1", NOW - 20 * 60_000);
+        assert_eq!(
+            snapshot(&[file(1, "claude-desktop")], &alive(1), &paused, &quiet, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions[0].state,
+            SessionState::Paused
+        );
+    }
+
+    #[test]
+    fn a_session_that_reports_status_ignores_the_blocked_probe() {
+        // A cli session says what it is doing. A stale AskUserQuestion left in
+        // its transcript must not override a reported busy.
+        let mut f = file(1, "cli");
+        f.status = Some("busy".into());
+        f.status_updated_at = Some(NOW - 60_000);
+        let blocked = FakeBlocked::new().with("session-1", "question pending");
+
+        let out = snapshot(&[f], &alive(1), &NoActivity, &blocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+
+        assert_eq!(out[0].state, SessionState::Busy);
+        assert_eq!(out[0].detail, None);
+    }
+
+    #[test]
+    fn a_dead_statusless_session_with_a_pending_prompt_is_still_dead() {
+        // Nobody is left to answer the question.
+        let f = file(1, "claude-desktop");
+        let blocked = FakeBlocked::new().with("session-1", "question pending");
+
+        let out = snapshot(&[f], &FakeLiveness::new(), &NoActivity, &blocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+
+        assert_eq!(out[0].state, SessionState::Dead);
+        assert_eq!(out[0].detail, None);
+    }
+
+    #[test]
+    fn a_waiting_session_sorts_ahead_even_when_its_waiting_was_inferred() {
+        let mut reported_busy = file(2, "cli");
+        reported_busy.status = Some("busy".into());
+        reported_busy.status_updated_at = Some(NOW - 60_000);
+        let inferred = file(1, "claude-desktop");
+        let blocked = FakeBlocked::new().with("session-1", "question pending");
+
+        let live = FakeLiveness::new().with_alive_any_start(1).with_alive_any_start(2);
+        let out = snapshot(&[reported_busy, inferred], &live, &NoActivity, &blocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+
+        assert_eq!(out.iter().map(|s| s.pid).collect::<Vec<_>>(), vec![1, 2]);
     }
 
     #[test]
@@ -645,7 +770,7 @@ mod tests {
         f.status_updated_at = Some(NOW - 12 * 60_000);
 
         let out = snapshot(
-            &[f], &FakeLiveness::new(), &NoActivity, NOW,
+            &[f], &FakeLiveness::new(), &NoActivity, &NoBlocked, NOW,
             PAUSED_THRESHOLD_MS, true, &HashMap::new(),
         );
 
@@ -661,7 +786,7 @@ mod tests {
         let seen = HashMap::from([("session-1".to_string(), NOW - DEAD_RETENTION_MS - 1)]);
 
         let out = snapshot(
-            &[f], &FakeLiveness::new(), &NoActivity, NOW,
+            &[f], &FakeLiveness::new(), &NoActivity, &NoBlocked, NOW,
             PAUSED_THRESHOLD_MS, true, &seen,
         );
 
@@ -679,7 +804,7 @@ mod tests {
         let seen = HashMap::from([("session-1".to_string(), NOW - DEAD_RETENTION_MS - 1)]);
 
         let out = snapshot(
-            &[f], &FakeLiveness::new(), &NoActivity, NOW,
+            &[f], &FakeLiveness::new(), &NoActivity, &NoBlocked, NOW,
             PAUSED_THRESHOLD_MS, true, &seen,
         );
 
@@ -689,7 +814,7 @@ mod tests {
     #[test]
     fn a_live_session_is_not_reported_dead() {
         let out = snapshot(
-            &[file(1, "cli")], &alive(1), &NoActivity, NOW,
+            &[file(1, "cli")], &alive(1), &NoActivity, &NoBlocked, NOW,
             PAUSED_THRESHOLD_MS, true, &HashMap::new(),
         );
         assert!(out.dead_now.is_empty());
@@ -700,7 +825,7 @@ mod tests {
         let mut f = file(1, "cli");
         f.status_updated_at = Some(NOW - 60_000);
         let seen = HashMap::from([("session-1".to_string(), NOW - 60_000)]);
-        let out = snapshot(&[f], &FakeLiveness::new(), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &seen);
+        let out = snapshot(&[f], &FakeLiveness::new(), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &seen);
         assert_eq!(out.sessions[0].state, SessionState::Dead);
     }
 
@@ -710,7 +835,7 @@ mod tests {
         // unlinks them, so it stops showing them instead.
         let f = file(1, "cli");
         let seen = HashMap::from([("session-1".to_string(), NOW - DEAD_RETENTION_MS - 1)]);
-        assert!(snapshot(&[f], &FakeLiveness::new(), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &seen)
+        assert!(snapshot(&[f], &FakeLiveness::new(), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &seen)
             .sessions
             .is_empty());
     }
@@ -720,7 +845,7 @@ mod tests {
         let mut f = file(1, "cli");
         f.status_updated_at = Some(NOW - 6 * 60_000);
 
-        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         assert_eq!(out[0].status_time_ms, NOW - 6 * 60_000);
         assert_eq!(out[0].started_at_ms, NOW - 60_000);
@@ -730,14 +855,14 @@ mod tests {
     #[test]
     fn status_time_falls_back_to_started_at_when_absent() {
         let f = file(1, "cli");
-        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
         assert_eq!(out[0].status_time_ms, NOW - 60_000);
         assert_eq!(out[0].started_at_ms, NOW - 60_000);
     }
 
     #[test]
     fn empty_input_yields_empty_output() {
-        assert!(snapshot(&[], &FakeLiveness::new(), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions.is_empty());
+        assert!(snapshot(&[], &FakeLiveness::new(), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions.is_empty());
     }
 
     #[test]
@@ -745,7 +870,7 @@ mod tests {
         let mut f = file(1, "cli");
         f.status = Some("waiting".into());
         f.waiting_for = Some("input needed".into());
-        let out = snapshot(&[f], &alive(1), &NoActivity, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
+        let out = snapshot(&[f], &alive(1), &NoActivity, &NoBlocked, NOW, PAUSED_THRESHOLD_MS, true, &HashMap::new()).sessions;
 
         let json = serde_json::to_value(&out[0]).unwrap();
         assert_eq!(json["state"], "waiting");

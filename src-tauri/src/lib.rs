@@ -69,6 +69,9 @@ pub fn run() {
                 Arc::new(crate::watcher::activity::TranscriptActivity::new(
                     crate::bridge::transcript::projects_dir(),
                 )),
+                Arc::new(crate::watcher::blocked::TranscriptBlocked::new(
+                    crate::bridge::transcript::projects_dir(),
+                )),
                 Arc::new(crate::watcher::question::TranscriptQuestion::new(
                     crate::bridge::transcript::projects_dir(),
                 )),

@@ -129,6 +129,89 @@ pub fn latest_activity(bytes: &[u8]) -> Option<String> {
     fallback
 }
 
+/// Each user-blocking tool paired with how it reads in the widget. One table,
+/// so a name can never be listed as blocking without a label or the reverse.
+const BLOCKING_TOOL_LABELS: [(&str, &str); 2] = [
+    ("AskUserQuestion", "question pending"),
+    ("ExitPlanMode", "plan approval"),
+];
+
+/// Tools that block on a human by definition. A pending call to one of these
+/// is proof the session wants the user, not that a tool is slow.
+pub const BLOCKING_TOOLS: [&str; 2] =
+    [BLOCKING_TOOL_LABELS[0].0, BLOCKING_TOOL_LABELS[1].0];
+
+/// How a blocking tool reads in the widget, or `None` if it does not block.
+fn blocking_tool_label(name: &str) -> Option<&'static str> {
+    BLOCKING_TOOL_LABELS
+        .iter()
+        .find(|(tool, _)| *tool == name)
+        .map(|(_, label)| *label)
+}
+
+/// The content blocks of any record, assistant or user.
+fn message_content(record: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+    record
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_array())
+}
+
+/// Every `tool_use_id` that has a result somewhere in this tail.
+fn answered_tool_uses(records: &[serde_json::Value]) -> std::collections::HashSet<&str> {
+    records
+        .iter()
+        .filter_map(message_content)
+        .flatten()
+        .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_result"))
+        .filter_map(|b| b.get("tool_use_id").and_then(|v| v.as_str()))
+        .collect()
+}
+
+/// The label for a pending user-blocking tool call, if the session has one.
+///
+/// Claude Desktop never writes `status` to the registry, so a session blocked
+/// asking the user a question is indistinguishable, by mtime alone, from one
+/// sitting idle. The transcript says otherwise: an `AskUserQuestion` or
+/// `ExitPlanMode` call with no `tool_result` for its id can only be waiting on
+/// a human. A pending `Bash` proves nothing — it may still be running — which
+/// is why only the tools in `BLOCKING_TOOLS` count.
+///
+/// Unparseable lines are skipped, as in `detail_from_tail`: a fixed-size tail
+/// almost always truncates its first record.
+pub fn pending_user_prompt(bytes: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(bytes);
+    let records: Vec<serde_json::Value> = text
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+
+    let answered = answered_tool_uses(&records);
+
+    for record in records.iter().rev() {
+        let Some(content) = assistant_content(record) else {
+            continue;
+        };
+        for block in content.iter().rev() {
+            if block.get("type").and_then(|t| t.as_str()) != Some("tool_use") {
+                continue;
+            }
+            let Some(name) = block.get("name").and_then(|n| n.as_str()) else {
+                continue;
+            };
+            let Some(label) = blocking_tool_label(name) else {
+                continue;
+            };
+            let id = block.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if !answered.contains(id) {
+                return Some(label.to_string());
+            }
+        }
+    }
+
+    None
+}
+
 /// The most recent thing the assistant actually said, ignoring tool uses.
 ///
 /// This is what a waiting session is asking. `latest_activity` prefers the tool
@@ -345,6 +428,89 @@ mod tests {
     #[test]
     fn entirely_unparseable_input_yields_all_none() {
         assert_eq!(detail_from_tail(b"not json at all\nnor this\n"), TranscriptDetail::default());
+    }
+
+    /// Shape taken from the live claude-desktop transcript: the newest record
+    /// is an assistant record whose stop_reason is tool_use and whose only
+    /// content block is a call to AskUserQuestion.
+    const PENDING_QUESTION_TAIL: &str = concat!(
+        r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_old"}]}}"#,
+        "\n",
+        r#"{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","id":"toolu_ask","name":"AskUserQuestion","input":{"questions":[]}}]}}"#,
+        "\n",
+    );
+
+    #[test]
+    fn a_pending_ask_user_question_is_a_pending_prompt() {
+        assert_eq!(
+            pending_user_prompt(PENDING_QUESTION_TAIL.as_bytes()).as_deref(),
+            Some("question pending")
+        );
+    }
+
+    #[test]
+    fn an_answered_ask_user_question_is_not_pending() {
+        let tail = format!(
+            "{}{}\n",
+            PENDING_QUESTION_TAIL,
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_ask","content":"answered"}]}}"#
+        );
+        assert_eq!(pending_user_prompt(tail.as_bytes()), None);
+    }
+
+    #[test]
+    fn a_pending_bash_call_is_not_a_pending_prompt() {
+        // The false-positive guard. A pending Bash means a tool is still
+        // running, which is exactly what a timeout heuristic gets wrong.
+        let tail = r#"{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","id":"toolu_bash","name":"Bash","input":{"command":"cargo build"}}]}}"#;
+        assert_eq!(pending_user_prompt(tail.as_bytes()), None);
+    }
+
+    #[test]
+    fn a_pending_exit_plan_mode_is_a_pending_prompt() {
+        let tail = r#"{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","id":"toolu_plan","name":"ExitPlanMode","input":{"plan":"do the thing"}}]}}"#;
+        assert_eq!(
+            pending_user_prompt(tail.as_bytes()).as_deref(),
+            Some("plan approval")
+        );
+    }
+
+    #[test]
+    fn pending_user_prompt_skips_a_truncated_leading_line() {
+        let tail = format!("{}\n{}", r#"e":"tool_use","name":"AskUserQuestion"#, PENDING_QUESTION_TAIL);
+        assert_eq!(
+            pending_user_prompt(tail.as_bytes()).as_deref(),
+            Some("question pending")
+        );
+    }
+
+    #[test]
+    fn an_irrelevant_tail_has_no_pending_prompt() {
+        assert_eq!(pending_user_prompt(b""), None);
+        assert_eq!(pending_user_prompt(TOOL_TAIL.as_bytes()), None);
+    }
+
+    #[test]
+    fn the_newest_unanswered_blocking_call_wins_over_an_older_answered_one() {
+        let tail = concat!(
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_a","name":"AskUserQuestion"}]}}"#,
+            "\n",
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_a"}]}}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_b","name":"ExitPlanMode"}]}}"#,
+            "\n",
+        );
+        assert_eq!(pending_user_prompt(tail.as_bytes()).as_deref(), Some("plan approval"));
+    }
+
+    #[test]
+    fn every_blocking_tool_has_a_label() {
+        assert!(BLOCKING_TOOLS.contains(&"AskUserQuestion"));
+        assert!(BLOCKING_TOOLS.contains(&"ExitPlanMode"));
+        for tool in BLOCKING_TOOLS {
+            assert!(blocking_tool_label(tool).is_some(), "{tool} has no label");
+        }
+        assert_eq!(blocking_tool_label("Bash"), None);
     }
 
     #[test]

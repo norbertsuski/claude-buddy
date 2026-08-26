@@ -10,6 +10,7 @@ use serde::Serialize;
 
 use crate::watcher::activity::ActivityProbe;
 use crate::watcher::alerts::{diff_alerts, Alert};
+use crate::watcher::blocked::BlockedProbe;
 use crate::watcher::liveness::PidLiveness;
 use crate::watcher::question::QuestionProbe;
 use crate::watcher::registry::read_registry_dir;
@@ -87,6 +88,7 @@ pub fn spawn_watcher(
     dir: PathBuf,
     liveness: Arc<dyn PidLiveness + Send + Sync>,
     activity: Arc<dyn ActivityProbe + Send + Sync>,
+    blocked: Arc<dyn BlockedProbe + Send + Sync>,
     question: Arc<dyn QuestionProbe + Send + Sync>,
     on_update: impl Fn(Update) + Send + 'static,
 ) -> WatcherHandle {
@@ -121,6 +123,7 @@ pub fn spawn_watcher(
                 &read_registry_dir(&dir),
                 liveness.as_ref(),
                 activity.as_ref(),
+                blocked.as_ref(),
                 now,
                 settings.paused_threshold_ms,
                 settings.show_background_jobs,
@@ -166,6 +169,7 @@ mod tests {
     use std::sync::Arc;
 
     use crate::watcher::activity::NoActivity;
+    use crate::watcher::blocked::NoBlocked;
     use crate::watcher::liveness::FakeLiveness;
     use crate::watcher::question::{FakeQuestion, NoQuestion};
     use crate::watcher::state::{SessionState, PAUSED_THRESHOLD_MS};
@@ -238,6 +242,7 @@ mod tests {
             &[],
             &FakeLiveness::new(),
             &NoActivity,
+            &NoBlocked,
             now_ms(),
             PAUSED_THRESHOLD_MS,
             true,
@@ -259,6 +264,7 @@ mod tests {
             dir.0.clone(),
             liveness,
             Arc::new(NoActivity),
+            Arc::new(NoBlocked),
             Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);
@@ -288,6 +294,7 @@ mod tests {
             dir.0.clone(),
             liveness,
             Arc::new(NoActivity),
+            Arc::new(NoBlocked),
             Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);
@@ -314,6 +321,7 @@ mod tests {
             dir.0.clone(),
             liveness,
             Arc::new(NoActivity),
+            Arc::new(NoBlocked),
             Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);
@@ -343,6 +351,7 @@ mod tests {
             dir.0.clone(),
             liveness,
             Arc::new(NoActivity),
+            Arc::new(NoBlocked),
             Arc::new(FakeQuestion::new().with("session-4242", "Shall I delete the branch?")),
             move |u| {
                 let _ = tx.send(u);
@@ -375,6 +384,7 @@ mod tests {
             dir.0.clone(),
             liveness,
             Arc::new(NoActivity),
+            Arc::new(NoBlocked),
             Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);
@@ -400,6 +410,7 @@ mod tests {
             missing,
             Arc::new(FakeLiveness::new()),
             Arc::new(NoActivity),
+            Arc::new(NoBlocked),
             Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);
@@ -423,6 +434,7 @@ mod tests {
             dir.0.clone(),
             liveness,
             Arc::new(NoActivity),
+            Arc::new(NoBlocked),
             Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);
