@@ -22,14 +22,19 @@ the notch, so the notch edges are what is left over.
 
 ## What it looks like
 
-At rest, two chips. The left chip carries the counts of sessions that want
-something from the user, the right chip carries the counts of sessions that are
-merely running. Each chip's inner edge is flush with the notch.
+At rest, two chips flush against the notch: session counts on the left, the
+five-hour limit on the right as a bare progress bar. All three read as one black
+shape.
 
-Hovering either chip expands both outward, away from the notch, replacing counts
-with session names. Hovering a name opens the existing popover, which drops out
-of the menu bar onto the desktop below because 335 × ~100pt does not fit in a
-menu bar of any height.
+Hovering either chip opens **the slab** — a single black block of one fixed
+width, spanning the menu bar and continuing down into a list of every session
+with its status and elapsed time. The notch sits inside the slab and disappears.
+
+**This shape was reached by iterating on hardware, not by design.** Three
+earlier shapes were built and rejected: chips expanding sideways over the app's
+menu titles; chips retracting into the notch with a notch-width list dropping
+out; and a 335pt detail card winging out beside that list. The record of why is
+kept below, because each rejection is a constraint on anything built here next.
 
 ## Decisions
 
@@ -93,8 +98,11 @@ origin = screen_origin + (notch_x + notch_width / 2 - W / 2, 0)
 height = bar_height + POPOVER_GAP + POPOVER_ALLOWANCE + shadow_pad_bottom
 ```
 
-`FLANK_BUDGET` is 240pt, giving a window about 670pt wide centred on the notch.
-It therefore never covers the Apple menu or the clock at all.
+The window is `2 × max(notch/2 + FLANK_BUDGET, SLAB_WIDTH/2)` — about 499pt on a
+179pt notch — centred on the notch. The resting chips set it, not the slab:
+`SLAB_WIDTH` is 340 and a chip reaches 160 beyond the notch's edge, so the chips
+reach further from the centre. Either way the window never comes near the Apple
+menu or the clock.
 
 The width is constant across every hover state, which is the invariant
 `widgetWindowSize` already maintains for the same reason: resizing a transparent
@@ -102,16 +110,25 @@ panel shows one unpainted frame, and it lands on the start of the morph.
 `POPOVER_ALLOWANCE` is 400pt and already reserved unconditionally, staying
 transparent and click-through, so a popover opening resizes nothing.
 
-### Two hover rects, not one
+### Two hover rects at rest, one while open
 
-`cursor.rs` holds a single `HOVER_RECT` and `contains` takes one `Rect`. Two
-chips flanking a notch need two, and a union would bridge across the notch and
-make hovering the notch itself read as hovering the widget.
+`cursor.rs` held a single `HOVER_RECT` and `contains` took one `Rect`. Two chips
+flanking a notch need two, and a union would bridge across the notch and make
+hovering the notch itself read as hovering the widget. So `HOVER_RECT` became a
+short list, `contains` gained `contains_any`, and `set_hover_rect` gained
+`set_hover_rects`.
 
-`HOVER_RECT` becomes a short list, `contains` gains a `contains_any`, and
-`set_hover_rect` becomes `set_hover_rects` taking a slice. Each chip contributes
-one rect with `top = 0` and `height = bar_height`, its inner edge on the notch
-edge and its width measured from content; the open popover contributes a third.
+While the slab is open it is the only rect, because it spans the bar as well as
+the list — the cursor that opened it is already inside. An earlier design, where
+the list was only as wide as the notch and the chips retracted, needed a third
+rect spanning the bar for exactly this reason: report only a panel *below* the
+bar and the cursor sitting *in* the bar falls outside every rect, shutting the
+panel and reopening it on the next 60ms sample, forever.
+
+The slab is described from the geometry and its measured content height, never
+from `getBoundingClientRect`. Its height is animated, so at the moment it opens
+its box is 0 tall and `visibleRects` discards it as un-laid-out — which produced
+exactly the oscillation above.
 
 **Why not two panels.** The cursor watcher, the press-gesture state machine,
 `resize_widget` and `configure_panel` are all written against one window labelled
@@ -128,45 +145,50 @@ stay clickable without further work.
 Known residual: the poll is 60ms, so a click that lands within one sample of the
 cursor crossing a chip boundary can still be swallowed.
 
-### Left/right split is by urgency
+### Counts left, the limit right — no urgency split
 
-Left chip: `Waiting ∪ Dead`. Right chip: `Busy ∪ Idle ∪ Paused`. A background job
-follows its parent rather than its own state — `SessionSnapshot` has no parent
-field, so parentage is the nearest own session earlier in the list, exactly as
-free mode reads it. Jobs remain subject to `show_background_jobs`.
+The left chip carries every state's count, most urgent first. The right chip
+carries the five-hour limit.
 
-The left chip is always drawn, carrying the total session count as muted text
-when nothing is waiting or dead. The right chip vanishes when it has nothing
-ambient to report.
+**An urgency split was tried and removed.** Waiting and dead on the left, the
+rest on the right, forced two rules that existed only to prop it up: a background
+job had to be walked onto its parent's chip to keep its continuation arrow
+meaningful, since `SessionSnapshot` has no parent field and parentage is only the
+nearest own session earlier in the list; and a chip had to count states its side
+did not nominally carry, or a job that crossed the split was counted nowhere.
+With one chip neither arises — order is the order it arrived in, and adjacency is
+free.
 
-**Revised after testing on hardware.** The original rule was that either side
-with nothing on it rendered no chip, so a quiet machine read as deliberately
-asymmetric. In practice a single chip beside the notch does not read as a
-signal — it reads as the notch being slightly wider — so presence is no longer
-load-bearing and colour carries urgency instead: muted total for calm, amber and
-red for act. Only one side holds the shape, because two placeholders either side
-of a quiet machine is noise.
+In the bar the limit is the bar and nothing else: no percentage, no countdown.
+The label took the chip to roughly 96pt, which reached the first menu bar extra
+on a 1470pt panel. The track alone is 34pt, and both figures are spelled out in
+the slab's footer.
 
-### Hovering either chip expands both
+### Hovering either chip opens the slab
 
-One `cursor.inside` boolean already exists and drives the whole morph. Per-side
+One `cursor.inside` boolean already exists and drives the whole thing. Per-side
 hover would mean two, plus a decision about what happens when the cursor crosses
 the notch between them.
 
-### Expansion occludes, within a fixed budget
+The chips do not move. The slab is wider than both and is painted over them, so
+nothing has to slide out of the way.
+
+### The slab is one fixed width, chosen to occlude nothing
 
 `auxiliaryTopLeftArea.width` gives the flank's total width, not its free width.
 Where the frontmost app's menus end is unobservable without Accessibility
-permissions, and changes on every app switch.
+permissions, and changes on every app switch — so occlusion cannot be avoided by
+measuring, only by picking a width and checking it.
 
-So expansion is capped at `FLANK_BUDGET` per side and occludes whatever is under
-it for as long as the cursor is there. In a menu-heavy app such as Xcode the left
-chip covers the tail of the menu titles while hovered.
+`SLAB_WIDTH` is 340. Centred on a 179pt notch on a 1470pt panel that spans
+roughly 565 to 905. Xcode's menu titles end well before 565 and the menu bar
+extras begin well after 905, so at this width it covers nothing — and because it
+is fixed, that is checkable rather than hoped for.
 
 **Why not read menu extents.** An `AXUIElement` query on every app switch buys
 exact clamping in exchange for an Accessibility permission prompt on first run
-and a denied-permission fallback path. Not worth it for an occlusion that lasts
-as long as a hover.
+and a denied-permission fallback path. Not worth it for a fixed width that
+already clears both sides.
 
 ### Chips are styled as app chips, not as native menu items
 
@@ -210,21 +232,15 @@ keeping the rest for the popover's shadow.
 
 ### Capacity is about three names per side
 
-Measured against the real stylesheet rather than estimated: an expanded entry
-group is 72–91pt, so three of them plus the overflow marker wanted 313pt. The
-budget is 240pt and each chip shows **two** names before `+N`, which measures at
-222pt worst case. Named capacity in notch mode is about 4 across both sides, with
-the popover carrying detail.
+A row costs height, not width, and 400pt is already reserved below the bar, so
+`MAX_ROWS` is 8 before the tail collapses into `+N more`. At 340pt a row holds a
+full session name, its status and its elapsed time — `dependencies-path-coverage`
+fits without an ellipsis, which a 179pt list could not manage.
 
-Two further consequences of measuring, both of which the estimate hid:
-
-- The overflow marker sits at the outer end of the chip, which is the end
-  `overflow: hidden` eats first — so the one element that says sessions are
-  hidden was the first thing to disappear. It is `flex: none`, and the entries
-  beside it shrink instead.
-- Nothing bounds a session name; it comes from the user's repo. `.entry-name` is
-  capped at 72px with an ellipsis, or one long name pushes the chip past its
-  budget however few entries are allowed.
+**This is why there is no popover in notch mode.** A 335pt card winging out
+beside a notch-width list was built and then removed: once the list itself is
+340pt, the row carries what the card carried. The name still truncates before the
+status and elapsed time, both of which are short and fixed.
 
 ### Drag is suppressed in notch mode
 

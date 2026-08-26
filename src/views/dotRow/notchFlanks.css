@@ -58,7 +58,6 @@ body.notch-mode {
      as one shape with the notch is the point. */
   background: #000;
   color: var(--text);
-  transition: transform var(--morph) var(--ease-morph);
 }
 
 /* Rounded on the outer bottom corner only, mirroring the notch's own corners.
@@ -70,17 +69,6 @@ body.notch-mode {
 
 .flank-chip[data-side='right'] {
   border-radius: 0 0 9px 0;
-}
-
-/* Slid by exactly its own width, which is why max-width is the notch's width:
-   a chip wider than the notch would reappear out the far side. The bridge is
-   painted over the notch and above these, so they simply vanish. */
-.flank-chip[data-retracted='true'][data-side='left'] {
-  transform: translateX(100%);
-}
-
-.flank-chip[data-retracted='true'][data-side='right'] {
-  transform: translateX(-100%);
 }
 
 /* Black across the notch, above the chips so they retract behind it. Invisible
@@ -95,26 +83,32 @@ body.notch-mode {
   pointer-events: none;
 }
 
-.notch-panel-slot {
+.notch-slab-slot {
   position: absolute;
   top: 0;
-  z-index: 2;
+  /* Above the chips: the slab is wider than both and simply covers them, which
+     is why nothing has to slide out of the way. */
+  z-index: 4;
 }
 
-/* Exactly the notch's width, which is the whole point: nothing flares, so there
-   are no concave corners where a wide panel meets a narrow slot. Height is
-   written inline from the measured content, because `auto` does not animate. */
-.notch-panel {
+/* One width for the band in the bar and the list below it, so there is no join
+   to treat. Square at the top, where the screen ends; rounded at the bottom.
+   Height is written inline from the measured content, because `auto` does not
+   animate. */
+.notch-slab {
   position: absolute;
+  top: 0;
   box-sizing: border-box;
   overflow: hidden;
   background: #000;
-  border-radius: 0 0 14px 14px;
+  border-radius: 0 0 18px 18px;
   transition: height var(--morph) var(--ease-morph);
 }
 
-.notch-panel-content {
-  padding: 6px 0 8px;
+/* The top padding is the menu bar's height, so the rows begin below the bar
+   while the black behind them runs all the way to the screen edge. */
+.notch-slab-content {
+  padding-bottom: 8px;
 }
 
 .notch-row {
@@ -123,7 +117,7 @@ body.notch-mode {
   gap: 6px;
   /* Rows are cheap vertically here — there is 400pt reserved below the bar —
      and the list is easier to aim at with room between the entries. */
-  padding: 6px 10px;
+  padding: 6px 12px;
   font-size: 12px;
   color: var(--text);
   white-space: nowrap;
@@ -133,14 +127,26 @@ body.notch-mode {
   background: rgba(255, 255, 255, 0.1);
 }
 
-/* About 159pt of usable width, so the name is what gives way. */
+/* The name is what gives way when a row is too long, since the status and the
+   elapsed time are both short and fixed. */
 .notch-name {
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.notch-elapsed {
+/* What the detail card used to carry. The slab's width is chosen so this fits. */
+.notch-status {
   margin-left: auto;
+  padding-left: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notch-elapsed {
+  min-width: 42px;
+  text-align: right;
   font-size: 11px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
@@ -158,17 +164,20 @@ body.notch-mode {
   border-top: 1px solid rgba(255, 255, 255, 0.14);
 }
 
-/* Out beside the panel rather than below it: 335pt does not fit in the notch's
-   width, and the window is sized so the right always has room. */
-.notch-wing {
-  position: absolute;
-  z-index: 4;
+/* In the bar, the limit is the bar and nothing else.
+   The label took the chip out to roughly 96pt, which reached the first menu bar
+   extra on a 1470pt panel; the track alone is 34pt. The percentage and the reset
+   time are both spelled out in the slab's footer, where there is room. The
+   border-left and padding are a separator for the free-mode row, where the meter
+   follows the chips — here it is the only thing in the box. */
+.flank-chip .usage {
+  gap: 0;
+  padding-left: 0;
+  border-left: none;
 }
 
-/* The popover carries its own top gap for the free-mode row, which sits below
-   the pill. Here it is positioned explicitly. */
-.notch-wing .popover {
-  margin-top: 0;
+.flank-chip .usage-left {
+  display: none;
 }
 
 .flank-chip .count {

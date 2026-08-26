@@ -16,6 +16,8 @@ export interface NotchLayout {
   notchRight: number
   barHeight: number
   budget: number
+  /** Width of the slab the widget becomes while open. */
+  slabWidth: number
 }
 
 /** Rust re-probed the display configuration; mirrors `notch::NOTCH_EVENT`. */

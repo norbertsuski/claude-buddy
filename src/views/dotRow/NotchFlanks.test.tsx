@@ -2,7 +2,13 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionSnapshot, SessionState } from '../../types'
 
-const LAYOUT = { notchLeft: 345, notchRight: 524, barHeight: 32, budget: 160 }
+const LAYOUT = {
+  notchLeft: 249,
+  notchRight: 428,
+  barHeight: 32,
+  budget: 160,
+  slabWidth: 340,
+}
 const USAGE = { percent: 36, resetsAtMs: Date.now() + 3_600_000, severity: 'normal' as const }
 
 let layout: typeof LAYOUT | null = LAYOUT
@@ -102,20 +108,10 @@ describe('NotchFlanks at rest', () => {
     expect(screen.getByTestId('count-waiting')).toHaveTextContent('1')
   })
 
-  it('leaves both chips out and the panel shut', async () => {
+  it('leaves the slab shut', async () => {
     render(<NotchFlanks sessions={[session('a-11', 'busy')]} usage={USAGE} />)
     await screen.findByTestId('flank-left')
-    expect(screen.getByTestId('flank-left')).toHaveAttribute('data-retracted', 'false')
     expect(screen.getByTestId('notch-panel')).toHaveAttribute('data-open', 'false')
-  })
-
-  it('caps a chip at the notch width so it cannot peek out the far side', async () => {
-    // The chip slides by its own width, so anything wider than the notch would
-    // reappear on the other side of it.
-    render(<NotchFlanks sessions={[session('a-11', 'busy')]} usage={USAGE} />)
-    await screen.findByTestId('flank-left')
-    const width = LAYOUT.notchRight - LAYOUT.notchLeft
-    expect(screen.getByTestId('flank-left').style.maxWidth).toBe(`${width}px`)
   })
 
   it('draws no limit chip when there is nothing trustworthy to show', async () => {
@@ -126,22 +122,34 @@ describe('NotchFlanks at rest', () => {
 })
 
 describe('NotchFlanks opening', () => {
-  it('retracts both chips and drops the panel', async () => {
+  it('opens the slab, one fixed width for the band and the list', async () => {
     render(<NotchFlanks sessions={[session('api-service-55', 'waiting')]} usage={USAGE} />)
     await screen.findByTestId('flank-left')
 
     open()
-    expect(screen.getByTestId('flank-left')).toHaveAttribute('data-retracted', 'true')
-    expect(screen.getByTestId('flank-usage')).toHaveAttribute('data-retracted', 'true')
-    expect(screen.getByTestId('notch-panel')).toHaveAttribute('data-open', 'true')
+    const slab = screen.getByTestId('notch-panel')
+    expect(slab).toHaveAttribute('data-open', 'true')
+    expect(slab.style.width).toBe(`${LAYOUT.slabWidth}px`)
+    // Centred on the notch, so it covers both chips without either moving.
+    const centre = (LAYOUT.notchLeft + LAYOUT.notchRight) / 2
+    expect(slab.parentElement!.style.left).toBe(`${centre - LAYOUT.slabWidth / 2}px`)
   })
 
-  it('lists the sessions and the limit in the panel', async () => {
+  it('spells the status out in the row, where a card used to', async () => {
+    render(<NotchFlanks sessions={[session('api-service-55', 'waiting')]} usage={USAGE} />)
+    await screen.findByTestId('flank-left')
+    open()
+    // The slab's width is chosen so this fits, which is why there is no popover.
+    expect(screen.getByText('input needed')).toBeInTheDocument()
+    expect(screen.getByText('api-service')).toBeInTheDocument()
+  })
+
+  it('lists the sessions and the limit in the slab', async () => {
     render(<NotchFlanks sessions={[session('api-service-55', 'waiting')]} usage={USAGE} />)
     await screen.findByTestId('flank-left')
     open()
     expect(screen.getByText('api-service')).toBeInTheDocument()
-    expect(screen.getByTestId('notch-usage-row')).toHaveTextContent('64% left')
+    expect(screen.getByTestId('notch-usage-row')).toHaveTextContent('64% of the 5h limit left')
   })
 
   it('collapses the tail beyond the row cap', async () => {
@@ -152,99 +160,100 @@ describe('NotchFlanks opening', () => {
     expect(screen.getByTestId('notch-more')).toHaveTextContent('+3 more')
   })
 
-  it('keeps a band across the bar reported while open', async () => {
-    // The cursor is up in the bar when the panel opens — that is what opened it.
-    // Reporting only the panel would put the cursor outside every rect, shut the
-    // panel, and reopen it on the next sample, forever.
-    render(<NotchFlanks sessions={[session('a-11', 'busy')]} usage={USAGE} />)
-    await screen.findByTestId('flank-left')
-    open()
-    await waitFor(() => {
-      const rects = rectsFromLastCall() as Array<{ x: number; y: number; height: number }>
-      const band = rects.find((r) => r.x === LAYOUT.notchLeft - LAYOUT.budget)
-      expect(band).toBeDefined()
-      expect(band!.height).toBe(LAYOUT.barHeight)
-    })
-  })
-
-  it('reports the chips at rest and the panel once open', async () => {
+  it('reports the slab alone once open, spanning the bar it was opened from', async () => {
+    // The slab covers the bar as well as the list, so the cursor that opened it
+    // is already inside — no separate band is needed to stop it shutting itself.
     render(<NotchFlanks sessions={[session('a-11', 'busy')]} usage={USAGE} />)
     await screen.findByTestId('flank-left')
     await waitFor(() => expect(rectsFromLastCall()).toHaveLength(2))
+
     open()
-    await waitFor(() => expect(rectsFromLastCall().length).toBeGreaterThanOrEqual(2))
+    await waitFor(() => {
+      const rects = rectsFromLastCall() as Array<{ x: number; y: number; width: number }>
+      expect(rects).toHaveLength(1)
+      const centre = (LAYOUT.notchLeft + LAYOUT.notchRight) / 2
+      expect(rects[0]!.x).toBe(centre - LAYOUT.slabWidth / 2)
+      expect(rects[0]!.y).toBe(0)
+      expect(rects[0]!.width).toBe(LAYOUT.slabWidth)
+    })
   })
 })
 
-describe('wingAtPoint', () => {
+describe('rowAtPoint', () => {
   it('picks the row under the point, and nothing outside one', async () => {
-    const { wingAtPoint } = await import('./NotchPanel')
+    const { rowAtPoint } = await import('./NotchPanel')
     const row = document.createElement('div')
     row.setAttribute('data-notch-row', 'session')
     row.setAttribute('data-session-id', 'id-a')
     document.body.append(row)
 
-    expect(wingAtPoint(0, 0, () => row)).toEqual({
-      kind: 'session',
-      sessionId: 'id-a',
-      top: 0,
-    })
-    expect(wingAtPoint(0, 0, () => null)).toBeNull()
+    expect(rowAtPoint(0, 0, () => row)).toEqual({ kind: 'session', sessionId: 'id-a' })
+    expect(rowAtPoint(0, 0, () => null)).toBeNull()
     // Padding between rows resolves to the panel, which is not a row.
-    expect(wingAtPoint(0, 0, () => document.body)).toBeNull()
+    expect(rowAtPoint(0, 0, () => document.body)).toBeNull()
     row.remove()
   })
 
   it('reads the footer as the limit rather than a session', async () => {
-    const { wingAtPoint } = await import('./NotchPanel')
+    const { rowAtPoint } = await import('./NotchPanel')
     const row = document.createElement('div')
     row.setAttribute('data-notch-row', 'usage')
-    expect(wingAtPoint(0, 0, () => row)).toEqual({ kind: 'usage', top: 0 })
+    expect(rowAtPoint(0, 0, () => row)).toEqual({ kind: 'usage' })
   })
 })
 
-describe('NotchFlanks detail card', () => {
-  it('wings a session card out beside the panel', async () => {
+describe('NotchFlanks rows', () => {
+  it('highlights the row under the cursor', async () => {
     render(<NotchFlanks sessions={[session('api-service-55', 'waiting')]} usage={USAGE} />)
     await screen.findByTestId('flank-left')
     open()
 
     pointAt(screen.getByTestId('row-id-api-service-55'))
-    const winged = await screen.findByTestId('notch-wing')
-    // Beside the panel, on the side the window is sized to hold.
-    expect(winged.style.left).toBe(`${LAYOUT.notchRight + 10}px`)
-    expect(screen.getByTestId('popover')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByTestId('row-id-api-service-55')).toHaveAttribute('data-hovered', 'true'),
+    )
   })
 
-  it('wings the limit card out from the footer row', async () => {
+  it('raises the session the cursor is on when Rust reports a click', async () => {
+    render(<NotchFlanks sessions={[session('api-service-55', 'waiting')]} usage={USAGE} />)
+    await screen.findByTestId('flank-left')
+    open()
+    pointAt(screen.getByTestId('row-id-api-service-55'))
+    await waitFor(() =>
+      expect(screen.getByTestId('row-id-api-service-55')).toHaveAttribute('data-hovered', 'true'),
+    )
+
+    act(() => eventHandlers.get('ui://click')!({ payload: {} }))
+    expect(invoke).toHaveBeenCalledWith('raise_session', { pid: 1 })
+  })
+
+  it('raises nothing when the cursor is on the limit row', async () => {
     render(<NotchFlanks sessions={[session('a-11', 'busy')]} usage={USAGE} />)
     await screen.findByTestId('flank-left')
     open()
-
     pointAt(screen.getByTestId('notch-usage-row'))
-    expect(await screen.findByTestId('usage-popover')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByTestId('notch-usage-row')).toHaveAttribute('data-hovered', 'true'),
+    )
+
+    act(() => eventHandlers.get('ui://click')!({ payload: {} }))
+    expect(invoke).not.toHaveBeenCalledWith('raise_session', expect.anything())
   })
 
-  it('reports the card so moving onto it does not shut the panel', async () => {
+  it('clears the highlight when the cursor leaves the widget', async () => {
     render(<NotchFlanks sessions={[session('api-service-55', 'waiting')]} usage={USAGE} />)
     await screen.findByTestId('flank-left')
     open()
     pointAt(screen.getByTestId('row-id-api-service-55'))
-    await waitFor(() => expect(rectsFromLastCall()).toHaveLength(3))
-  })
-
-  it('drops the card when the cursor leaves the widget', async () => {
-    render(<NotchFlanks sessions={[session('api-service-55', 'waiting')]} usage={USAGE} />)
-    await screen.findByTestId('flank-left')
-    open()
-    pointAt(screen.getByTestId('row-id-api-service-55'))
-    await screen.findByTestId('notch-wing')
+    await waitFor(() =>
+      expect(screen.getByTestId('row-id-api-service-55')).toHaveAttribute('data-hovered', 'true'),
+    )
 
     open(false)
-    expect(screen.queryByTestId('notch-wing')).not.toBeInTheDocument()
+    expect(screen.getByTestId('row-id-api-service-55')).toHaveAttribute('data-hovered', 'false')
   })
 
-  it('zeroes the shadow padding so the chips reach the top of the screen', async () => {
+  it('zeroes the shadow padding so the slab reaches the top of the screen', async () => {
     const { unmount } = render(<NotchFlanks sessions={[session('a-11', 'busy')]} usage={USAGE} />)
     await screen.findByTestId('flank-left')
     expect(document.body.classList.contains('notch-mode')).toBe(true)
