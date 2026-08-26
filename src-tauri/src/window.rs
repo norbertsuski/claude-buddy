@@ -1,4 +1,4 @@
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 use tauri::{AppHandle, LogicalPosition, LogicalSize, WebviewWindow, WebviewWindowBuilder, WebviewUrl};
@@ -58,19 +58,22 @@ pub fn build_tray_menu(app: &AppHandle) -> tauri::Result<()> {
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let mute = MenuItem::with_id(app, "mute", "Mute alerts 1h", true, None::<&str>)?;
     let update = MenuItem::with_id(app, "update", "Install update", true, None::<&str>)?;
-
     let quit = MenuItem::with_id(app, "quit", "Quit clawde-buddy", true, None::<&str>)?;
+    let separator = PredefinedMenuItem::separator(app)?;
 
-    let menu = Menu::with_items(
-        app,
-        &[
-            &settings,
-            &mute,
-            &update,
-            &PredefinedMenuItem::separator(app)?,
-            &quit,
-        ],
-    )?;
+    // Omitted rather than greyed out when there is no signing key. With the
+    // updater plugin unregistered there is nothing behind this item: clicking it
+    // reached for plugin state that was never managed, which does not even fail
+    // quietly — it panics on the spawned task, so the click looked like it did
+    // nothing at all. Anyone who has configured a key gets the item back.
+    let mut items: Vec<&dyn IsMenuItem<_>> = vec![&settings, &mute];
+    if crate::update::is_configured(app.config().plugins.0.get("updater")) {
+        items.push(&update);
+    }
+    items.push(&separator);
+    items.push(&quit);
+
+    let menu = Menu::with_items(app, &items)?;
 
     TrayIconBuilder::with_id("widget-menu")
         // A tray icon without an image fails to build on macOS.

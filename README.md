@@ -16,15 +16,19 @@ clawde-buddy reads the session registry Claude Code already maintains and puts i
 
 At rest, a small pill with counts. Each coloured chip carries the dot of the state it counts, and a chip is absent entirely when nothing is in that state — no amber when nothing needs you, no red when nothing has died. What is merely sitting there stays as quiet grey text.
 
-![The collapsed pill reading "1 needs you", "1 working", "1 died", "2 idle", "1 job"](docs/media/collapsed.png)
+![The collapsed pill reading "1 needs you", "1 working", "1 died", "2 idle", "1 job", then a progress bar and 64%](docs/media/collapsed.png)
 
 Hover it and the pill morphs into a named row, one dot per session.
 
-![The expanded row: api-service waiting behind an amber triangle, its background job migrate-schemas demoted behind an arrow, web-app working behind a green circle, design-system idle behind a hollow ring, docs-site paused behind a two-bar glyph, and infra-tools dead behind a red cross](docs/media/expanded.png)
+![The expanded row: api-service waiting behind an amber triangle, its background job migrate-schemas demoted behind an arrow, web-app working behind a green circle, design-system idle behind a hollow ring, docs-site paused behind a two-bar glyph, infra-tools dead behind a red cross, and the limit bar reading 2h40m](docs/media/expanded.png)
 
 Hover a name and a popover opens centred beneath it, with the state and how long it has held, what the session is *doing* — the newest tool it reached for, or failing that the last thing it said — plus the working directory, git branch, model, effort, entrypoint, pid and uptime. Click it to bring that session's editor to the front.
 
-![A popover open under web-app, reading: state busy for 1m, doing Grep, cwd /Users/n/Code/web-app, branch fix/checkout-totals, model claude-opus-5 at high effort, and cli, pid 12378, up 1h22m](docs/media/popover.png)
+![A popover open under web-app, reading: state busy for 1m, doing Grep, cwd /Users/n/Code/web-app, branch fix/checkout-totals, model claude-opus-5 at high effort, cli with pid 927 up 47m, and 36% of the five-hour limit used with 2h40m to the reset](docs/media/popover.png)
+
+### The five-hour limit
+
+The end of the row is Claude Code's own five-hour usage window: a bar of how much is left, and the share as a number. It is read from the same file Claude Code caches it in, so it is whatever the CLI last saw rather than a fresh call, and it disappears entirely when that file says nothing usable — a lapsed window, a shape the field does not have any more, no file at all. The bar warms to amber and then red as the window fills, and hovering it opens a popover with the reset time. Turn it off with `showUsage`.
 
 Every state carries a shape as well as a hue, because colour alone is unreadable to a red-green colourblind user and these five dots are the widget's whole vocabulary. The box stays 11px in each case, so nothing shifts as a session changes state.
 
@@ -54,7 +58,13 @@ On a MacBook with a notch, the widget can live *in* the menu bar instead of floa
 
 At rest it is a black band the height of the menu bar, hugging the notch: session counts on the left of it, the five-hour limit's progress bar on the right. The notch is part of the band rather than a hole in it, so the three read as one shape.
 
+![The menu bar with a black band across the notch: amber, red, green, grey and paused dots each with a count on the left, and the limit's bar on the right](docs/media/notch-rest.png)
+
 Hover anywhere on the black and that same element grows — down and out to a third of the display's width — into a list of every session with its status and elapsed time, and the detail of the row under the cursor opens beneath it. There is no popover in this mode; the slab is wide enough to say everything the popover said. Leave it and it collapses back into the menu bar.
+
+![The slab open below the notch: api-service needing input and hovered, its detail showing AskUserQuestion, one background agent, branch and model, and cwd; then web-app working, design-system idle, docs-site paused and infra-tools died; a footer reading 64% of the 5h limit left](docs/media/notch-open.png)
+
+Background agents are counted into the detail of the session that owns them rather than listed beside it — four agents rendered as four more rows buried the three sessions they belonged to.
 
 The open width is a third of the display, bounded to 260–560pt. It does reach across the menu bar extras while open, which is deliberate: the resting band hugs its content and stays clear of them, so nothing sits over your clock unless the cursor is on the widget.
 
@@ -134,6 +144,8 @@ Clicking any notification raises that session's window, the same as clicking its
   "muteUntilMs": 0,
   "launchAtLogin": false,
   "showBackgroundJobs": true,
+  "smoothStatusChanges": true,
+  "showUsage": true,
   "hideWhen": "noSessions",
   "preferredDisplay": null,
   "positions": {}
@@ -183,10 +195,10 @@ cd src-tauri && cargo test -- --test-threads=1
 
 257 Rust tests and 192 frontend tests. The Rust suite is weighted toward `watcher::state`, where every session state and transition is derived — that function is pure, with the clock, pid liveness and transcript activity all injected, so the whole state machine is tested without touching a filesystem. The watcher-loop tests use real files and real time, hence `--test-threads=1`.
 
-Two environment variables point the widget at fixtures instead of live data, which is how the screenshots on this page were made:
+Three environment variables point the widget at fixtures instead of live data, which is how the screenshots on this page were made — the third because the real usage file carries what the account has actually spent, which is neither reproducible nor anyone else's business:
 
 ```bash
-CLAWDE_BUDDY_REGISTRY_DIR=/path/to/sessions CLAWDE_BUDDY_PROJECTS_DIR=/path/to/projects src-tauri/target/release/bundle/macos/clawde-buddy.app/Contents/MacOS/clawde-buddy
+CLAWDE_BUDDY_REGISTRY_DIR=/path/to/sessions CLAWDE_BUDDY_PROJECTS_DIR=/path/to/projects CLAWDE_BUDDY_USAGE_FILE=/path/to/usage.json src-tauri/target/release/bundle/macos/clawde-buddy.app/Contents/MacOS/clawde-buddy
 ```
 
 ## Releasing

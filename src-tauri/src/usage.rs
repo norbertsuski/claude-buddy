@@ -50,8 +50,19 @@ fn severity_for(percent: u8) -> Severity {
     }
 }
 
+/// Environment variable pointing the meter at a different state file.
+///
+/// The companion of `REGISTRY_DIR_ENV` and `PROJECTS_DIR_ENV`, and there for
+/// the same reason: the real file carries whatever the account has actually
+/// spent, which is neither reproducible nor anyone else's business, so the
+/// documentation screenshots cannot be taken against it.
+pub const USAGE_FILE_ENV: &str = "CLAWDE_BUDDY_USAGE_FILE";
+
 /// Where Claude Code keeps its global state.
 pub fn usage_path() -> std::path::PathBuf {
+    if let Some(override_path) = std::env::var_os(USAGE_FILE_ENV) {
+        return std::path::PathBuf::from(override_path);
+    }
     dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("/"))
         .join(".claude.json")
