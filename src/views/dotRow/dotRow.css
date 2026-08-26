@@ -91,14 +91,21 @@ body {
 
    Centred horizontally so the pill reveals its content outwards from the middle
    as it widens, rather than unrolling from the left edge. */
+/* Every duration here is a fraction of the box's own, inherited from the pill,
+   rather than a fixed number of milliseconds. The box no longer always takes
+   300ms — it is timed to how far it travels — and a crossfade pinned to the old
+   duration outlasted a short morph by more than twice over: the pill arrived at
+   its new size and the text was still drifting in behind it. The fractions are
+   the original values over the original 300ms, so a full-length morph is
+   unchanged. */
 .variant-slot {
   position: absolute;
   top: 0;
   left: 50%;
   width: max-content;
   transition:
-    opacity 170ms var(--ease),
-    transform 240ms var(--ease);
+    opacity calc(var(--morph) * 0.57) var(--ease),
+    transform calc(var(--morph) * 0.8) var(--ease);
 }
 
 .variant-slot[data-show='false'] {
@@ -106,14 +113,14 @@ body {
   transform: translateX(-50%) translateY(-4px) scale(0.97);
   pointer-events: none;
   /* Leave quickly so the two never look superimposed. */
-  transition-duration: 120ms, 160ms;
+  transition-duration: calc(var(--morph) * 0.4), calc(var(--morph) * 0.53);
 }
 
 .variant-slot[data-show='true'] {
   opacity: 1;
   transform: translateX(-50%);
   /* Arrive just behind the box so the reveal leads and the text follows. */
-  transition-delay: 90ms;
+  transition-delay: calc(var(--morph) * 0.3);
 }
 
 .variant {
