@@ -7,6 +7,7 @@ import { SessionPopover } from './SessionPopover'
 import {
   afterResizeSettles,
   applyWidgetSize,
+  layoutSize,
   POPOVER_ALLOWANCE,
   reportHoverRect,
   rowWidthFor,
@@ -132,14 +133,15 @@ export function DotRow({ sessions }: SessionViewProps) {
     const slot = (showNamed ? expandedSlot : collapsedSlot).current
     if (!slot) return
 
-    const slotBox = slot.getBoundingClientRect()
-    const target = { width: slotBox.width, height: slotBox.height }
+    // layoutSize, not getBoundingClientRect: the hidden slot is mid-transition
+    // out of scale(0.97) when this runs, and the rect reports that scale.
+    const target = layoutSize(slot)
 
     // Size the window to whichever state is larger, not to the current one, so
     // hovering resizes nothing. Resizing a transparent panel shows one
     // unpainted frame, and it was landing exactly on the start of the morph.
-    const collapsedBox = collapsedSlot.current?.getBoundingClientRect()
-    const expandedBox = expandedSlot.current?.getBoundingClientRect()
+    const collapsedBox = collapsedSlot.current && layoutSize(collapsedSlot.current)
+    const expandedBox = expandedSlot.current && layoutSize(expandedSlot.current)
     const widest = {
       width: Math.max(collapsedBox?.width ?? 0, expandedBox?.width ?? 0),
       height: Math.max(collapsedBox?.height ?? 0, expandedBox?.height ?? 0),

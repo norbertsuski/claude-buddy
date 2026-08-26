@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { rowWidthFor, unionRect, widgetWindowSize } from './useWidgetSize'
+import { rowWidthFor, unionRect, widgetWindowSize,
+  layoutSize,
+} from './useWidgetSize'
 
 const PAD = 30
 const GAP = 10
@@ -58,5 +60,20 @@ describe('unionRect', () => {
   it('grows to cover a popover that starts left of the pill', () => {
     const popover = { left: 40, top: 90, right: 375, bottom: 300 }
     expect(unionRect(pill, popover)).toEqual({ x: 40, y: 30, width: 335, height: 270 })
+  })
+})
+
+describe('layoutSize', () => {
+  it('measures pre-transform size, ignoring a scale on the element', () => {
+    // Regression: the pill was sized from getBoundingClientRect while the
+    // hidden variant slot was still at scale(0.97), so it came out ~3% narrow
+    // and overflow:hidden clipped both ends of a wide row.
+    const el = {
+      offsetWidth: 800,
+      offsetHeight: 46,
+      getBoundingClientRect: () => ({ width: 776.5, height: 44.6 }),
+    } as unknown as HTMLElement
+
+    expect(layoutSize(el)).toEqual({ width: 800, height: 46 })
   })
 })

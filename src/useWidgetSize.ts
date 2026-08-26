@@ -45,6 +45,25 @@ export function afterResizeSettles(): Promise<void> {
   })
 }
 
+/**
+ * Layout size of an element, ignoring any transform applied to it.
+ *
+ * `getBoundingClientRect` reports the *transformed* box. The variant slots
+ * animate `transform: translateX(-50%) translateY(-4px) scale(0.97)` when
+ * hidden, and the sizing effect runs the instant `data-show` flips — while that
+ * transition is still at its start. Measuring the rect there returned 0.97 of
+ * the true width, so the pill was sized ~3% too narrow: on a five-session row
+ * that is 21px, and because the slot is centred with translateX(-50%) the
+ * content overflowed both ends equally and `.pill { overflow: hidden }` trimmed
+ * the first entry's pulse ring and the last entry's name mid-glyph.
+ *
+ * `offsetWidth`/`offsetHeight` are pre-transform, which is what the box needs
+ * to be sized to.
+ */
+export function layoutSize(el: HTMLElement): { width: number; height: number } {
+  return { width: el.offsetWidth, height: el.offsetHeight }
+}
+
 /** Border width of the pill. */
 export const PILL_BORDER = 1
 
