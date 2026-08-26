@@ -354,6 +354,7 @@ fn place_in_notch(window: &WebviewWindow) -> bool {
     let (origin, size) = crate::notch::window_frame(
         &geo,
         crate::notch::FLANK_BUDGET,
+        crate::notch::POPOVER_REACH,
         crate::notch::POPOVER_ALLOWANCE,
     );
 

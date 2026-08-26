@@ -13,7 +13,15 @@ use objc2_app_kit::NSScreen;
 
 use crate::cursor::Rect;
 
-/// How far a chip may expand away from the notch, in points.
+/// How far the detail card reaches out from the panel's edge, in points.
+///
+/// `POPOVER_WIDTH` in useCursor plus the gap. The window has to be wide enough
+/// to hold it, and because the window is centred on the notch that also settles
+/// which side the card opens on: the right always fits, so there is no
+/// left-or-right rule to get wrong.
+pub const POPOVER_REACH: f64 = 345.0;
+
+/// How far a chip may sit from the notch, in points.
 ///
 /// `auxiliaryTopLeftArea` reports the flank's *total* width, not the part of it
 /// that is free — where the frontmost app's menu titles end is not observable
@@ -21,11 +29,10 @@ use crate::cursor::Rect;
 /// capped rather than clamped, and a chip occludes whatever is under it for as
 /// long as the cursor is on it.
 ///
-/// 240 rather than the 200 this started at: measured against the real
-/// stylesheet an expanded entry is 72-91pt, and 200 could hold neither two of
-/// them nor the overflow marker beside them. 240 still leaves over 400pt of the
-/// left flank untouched.
-pub const FLANK_BUDGET: f64 = 240.0;
+/// Only the resting chips live here now — 96pt of counts and 70pt of limit,
+/// measured. The chips retract into the notch on hover rather than expanding
+/// outward, so nothing needs room to grow and this no longer bounds the window.
+pub const FLANK_BUDGET: f64 = 160.0;
 
 /// Height reserved below the menu bar for a popover, whether or not one is open.
 ///
@@ -79,15 +86,26 @@ impl NotchGeometry {
 pub fn window_frame(
     geo: &NotchGeometry,
     budget: f64,
+    reach: f64,
     popover_allowance: f64,
 ) -> ((f64, f64), (f64, f64)) {
-    let width = geo.notch_width + budget * 2.0;
+    let width = half_width(geo, budget, reach) * 2.0;
     let notch_centre = geo.notch_x + geo.notch_width / 2.0;
     let origin = (
         geo.screen_origin.0 + notch_centre - width / 2.0,
         geo.screen_origin.1,
     );
     (origin, (width, geo.bar_height + popover_allowance))
+}
+
+/// Half the window's width, and the single place that decides it.
+///
+/// Whichever is larger: room for a resting chip, or room for the detail card
+/// reaching out from the notch-wide panel. Both `window_frame` and
+/// `notch_edges` derive from this, because two callers computing it separately
+/// is two callers that can disagree about where the notch is.
+fn half_width(geo: &NotchGeometry, budget: f64, reach: f64) -> f64 {
+    (geo.notch_width / 2.0 + reach).max(budget)
 }
 
 /// The two menu-bar rects the chips may occupy, in window-local coordinates.
@@ -99,14 +117,15 @@ pub fn window_frame(
 ///
 /// The window is centred on the notch, so the left budget starts at the window's
 /// own left edge and the right budget starts one notch-width later.
-pub fn flank_rects(geo: &NotchGeometry, budget: f64) -> (Rect, Rect) {
-    let left = Rect { x: 0.0, y: 0.0, width: budget, height: geo.bar_height };
-    let right = Rect {
-        x: budget + geo.notch_width,
+pub fn flank_rects(geo: &NotchGeometry, budget: f64, reach: f64) -> (Rect, Rect) {
+    let (notch_left, notch_right) = notch_edges(geo, budget, reach);
+    let left = Rect {
+        x: (notch_left - budget).max(0.0),
         y: 0.0,
         width: budget,
         height: geo.bar_height,
     };
+    let right = Rect { x: notch_right, y: 0.0, width: budget, height: geo.bar_height };
     (left, right)
 }
 
@@ -115,8 +134,9 @@ pub fn flank_rects(geo: &NotchGeometry, budget: f64) -> (Rect, Rect) {
 /// The frontend needs these to sit its chips flush against the notch. It could
 /// derive them from the budget, but that would duplicate the centring rule in
 /// two languages, and the centring is the part that would be wrong.
-pub fn notch_edges(geo: &NotchGeometry, budget: f64) -> (f64, f64) {
-    (budget, budget + geo.notch_width)
+pub fn notch_edges(geo: &NotchGeometry, budget: f64, reach: f64) -> (f64, f64) {
+    let centre = half_width(geo, budget, reach);
+    (centre - geo.notch_width / 2.0, centre + geo.notch_width / 2.0)
 }
 
 /// The notched display, or `None` when there is not one.
@@ -270,7 +290,7 @@ pub fn spawn_geometry_watcher(app: tauri::AppHandle) -> std::sync::Arc<std::sync
 #[tauri::command]
 pub fn notch_layout() -> Option<NotchLayout> {
     let geo = cached()?;
-    let (notch_left, notch_right) = notch_edges(&geo, FLANK_BUDGET);
+    let (notch_left, notch_right) = notch_edges(&geo, FLANK_BUDGET, POPOVER_REACH);
     Some(NotchLayout {
         notch_left,
         notch_right,
@@ -306,13 +326,35 @@ mod tests {
     }
 
     #[test]
-    fn the_window_is_the_notch_plus_a_budget_either_side() {
+    fn the_window_is_wide_enough_for_the_detail_card() {
         let geo = built_in();
-        let (origin, size) = window_frame(&geo, FLANK_BUDGET, 400.0);
-        assert_eq!(size, (geo.notch_width + FLANK_BUDGET * 2.0, geo.bar_height + 400.0));
+        let (origin, size) = window_frame(&geo, FLANK_BUDGET, POPOVER_REACH, 400.0);
+        // Half the notch plus the card's reach, doubled: the card is what sets
+        // the width now, not the chips.
+        assert_eq!(size, ((geo.notch_width / 2.0 + POPOVER_REACH) * 2.0, geo.bar_height + 400.0));
         // Centred on the notch centre, which is the screen centre here.
         let notch_centre = geo.notch_x + geo.notch_width / 2.0;
         assert_eq!(origin, (notch_centre - size.0 / 2.0, 0.0));
+    }
+
+    #[test]
+    fn the_card_fits_beside_the_panel_on_either_side() {
+        // The window is centred on the notch, so a card that fits on the right
+        // fits on the left too — which is why there is no side rule.
+        let geo = built_in();
+        let (_, size) = window_frame(&geo, FLANK_BUDGET, POPOVER_REACH, 0.0);
+        let (notch_left, notch_right) = notch_edges(&geo, FLANK_BUDGET, POPOVER_REACH);
+        assert!(size.0 - notch_right >= POPOVER_REACH);
+        assert!(notch_left >= POPOVER_REACH);
+    }
+
+    #[test]
+    fn a_chip_wider_than_the_card_still_gets_its_room() {
+        // The budget only wins when it is the larger of the two, which is what
+        // keeps it meaningful on hardware with a very wide notch.
+        let geo = NotchGeometry { notch_width: 10.0, ..built_in() };
+        let (_, size) = window_frame(&geo, 900.0, POPOVER_REACH, 0.0);
+        assert_eq!(size.0, 1800.0);
     }
 
     #[test]
@@ -320,7 +362,7 @@ mod tests {
         // The whole point of budgeting rather than spanning the bar: the Apple
         // menu and the clock are never covered, only the titles near the notch.
         let geo = built_in();
-        let (origin, size) = window_frame(&geo, FLANK_BUDGET, 400.0);
+        let (origin, size) = window_frame(&geo, FLANK_BUDGET, POPOVER_REACH, 400.0);
         assert!(origin.0 > 0.0);
         assert!(origin.0 + size.0 < geo.screen_width);
     }
@@ -330,7 +372,7 @@ mod tests {
         // Symmetry is not assumed anywhere: notch_x comes from the auxiliary
         // area rather than from screen_width / 2.
         let geo = NotchGeometry { notch_x: 500.0, ..built_in() };
-        let (origin, size) = window_frame(&geo, FLANK_BUDGET, 400.0);
+        let (origin, size) = window_frame(&geo, FLANK_BUDGET, POPOVER_REACH, 400.0);
         assert_eq!(origin.0, 500.0 + geo.notch_width / 2.0 - size.0 / 2.0);
     }
 
@@ -340,20 +382,18 @@ mod tests {
         // origin, and a local value passed straight to set_position would land
         // in the dead space between displays.
         let geo = NotchGeometry { screen_origin: (-1512.0, -400.0), ..built_in() };
-        let (local, _) = window_frame(&built_in(), FLANK_BUDGET, 400.0);
-        let (origin, _) = window_frame(&geo, FLANK_BUDGET, 400.0);
+        let (local, _) = window_frame(&built_in(), FLANK_BUDGET, POPOVER_REACH, 400.0);
+        let (origin, _) = window_frame(&geo, FLANK_BUDGET, POPOVER_REACH, 400.0);
         assert_eq!(origin, (-1512.0 + local.0, -400.0));
     }
 
     #[test]
     fn the_budget_rects_sit_either_side_of_the_notch() {
         let geo = built_in();
-        let (left, right) = flank_rects(&geo, FLANK_BUDGET);
-        assert_eq!((left.x, left.width), (0.0, FLANK_BUDGET));
-        assert_eq!(
-            (right.x, right.width),
-            (FLANK_BUDGET + geo.notch_width, FLANK_BUDGET)
-        );
+        let (left, right) = flank_rects(&geo, FLANK_BUDGET, POPOVER_REACH);
+        let (notch_left, notch_right) = notch_edges(&geo, FLANK_BUDGET, POPOVER_REACH);
+        assert_eq!((left.x, left.width), (notch_left - FLANK_BUDGET, FLANK_BUDGET));
+        assert_eq!((right.x, right.width), (notch_right, FLANK_BUDGET));
         // Both live in the menu bar and nowhere below it.
         assert_eq!((left.y, left.height), (0.0, 37.0));
         assert_eq!((right.y, right.height), (0.0, 37.0));
@@ -362,8 +402,8 @@ mod tests {
     #[test]
     fn nothing_in_the_budget_rects_overlaps_the_notch() {
         let geo = built_in();
-        let (left, right) = flank_rects(&geo, FLANK_BUDGET);
-        let (notch_left, notch_right) = notch_edges(&geo, FLANK_BUDGET);
+        let (left, right) = flank_rects(&geo, FLANK_BUDGET, POPOVER_REACH);
+        let (notch_left, notch_right) = notch_edges(&geo, FLANK_BUDGET, POPOVER_REACH);
         assert_eq!(left.x + left.width, notch_left);
         assert_eq!(right.x, notch_right);
     }
@@ -371,14 +411,15 @@ mod tests {
     #[test]
     fn the_notch_edges_are_where_the_chips_meet_it() {
         let geo = built_in();
-        let (window_origin, size) = window_frame(&geo, FLANK_BUDGET, 0.0);
-        let (notch_left, notch_right) = notch_edges(&geo, FLANK_BUDGET);
+        let (window_origin, size) = window_frame(&geo, FLANK_BUDGET, POPOVER_REACH, 0.0);
+        let (notch_left, notch_right) = notch_edges(&geo, FLANK_BUDGET, POPOVER_REACH);
 
         // Converting both edges back to screen-local must land on the notch.
         assert_eq!(window_origin.0 + notch_left, geo.notch_x);
         assert_eq!(window_origin.0 + notch_right, geo.notch_x + geo.notch_width);
         assert_eq!(notch_right - notch_left, geo.notch_width);
-        assert_eq!(size.0 - notch_right, FLANK_BUDGET);
+        // Symmetric about the notch, so both flanks have the same room.
+        assert_eq!(size.0 - notch_right, notch_left);
     }
 
     #[test]
@@ -392,9 +433,9 @@ mod tests {
             notch_width: 300.0,
             ..built_in()
         };
-        let (_, size) = window_frame(&geo, FLANK_BUDGET, 0.0);
-        assert_eq!(size.0, 300.0 + FLANK_BUDGET * 2.0);
-        let (left, right) = flank_rects(&geo, FLANK_BUDGET);
+        let (_, size) = window_frame(&geo, FLANK_BUDGET, POPOVER_REACH, 0.0);
+        assert_eq!(size.0, (300.0 / 2.0 + POPOVER_REACH) * 2.0);
+        let (left, right) = flank_rects(&geo, FLANK_BUDGET, POPOVER_REACH);
         assert!(left.width > 0.0 && right.width > 0.0);
         assert!(right.x > left.x + left.width);
     }

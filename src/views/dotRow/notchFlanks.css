@@ -1,27 +1,20 @@
-/* Notch mode: two chips in the menu bar, flanking the notch.
-   The same tokens as the free-mode pill at a smaller multiplier. The bar is
-   37pt tall, which leaves about 24pt once the chip has any padding, against the
-   pill's 76pt — so sizes here are roughly 0.55x of dotRow.css rather than a
-   second set of values.
+/* Notch mode: two boxes either side of the notch that retract into it, and a
+   list the notch's own width that drops out of it.
 
-   The scale is scoped to .flank-chip, not to an ancestor. FlankCluster renders
-   the chip and nothing above it, so hanging the sizes off .notch-flanks made
-   them depend on a wrapper the component neither owns nor requires: rendered
-   anywhere else it silently fell back to free-mode 11px dots, and the busy
-   dot's 4px glow — 19px across — clipped against the 24px chip. Overrides win
-   on specificity, so import order does not matter. */
+   The same tokens as the free-mode pill at a smaller multiplier. Sizes are
+   scoped to the elements this file owns rather than to a wrapper, because a
+   component's scale must not depend on an ancestor it neither owns nor
+   requires — hanging them off .notch-flanks meant anything rendering a chip
+   elsewhere silently got free-mode 11px dots. */
 
-/* The chips sit flush at the top of the screen. --shadow-pad exists so the
-   free-mode pill has somewhere to drop a shadow; here it would push the chips
-   out of the menu bar entirely. NotchFlanks adds this class on mount. */
 body.notch-mode {
   padding: 0;
   /* Both of these matter, and the height is the one that is easy to miss.
-     dotRow.css sets `html, body { overflow: hidden }`. Every child of
-     .notch-flanks is absolutely positioned, so it contributes no height, so
-     body's content box is 0 tall — and overflow: hidden on a zero-height body
-     clips the chips away entirely. They lay out at the right coordinates and
-     report the right rects, and paint nowhere at all. */
+     dotRow.css sets `html, body { overflow: hidden }`. Everything here is
+     absolutely positioned, so it contributes no height, so body's content box
+     is 0 tall — and overflow: hidden on a zero-height body clips the whole
+     widget away. It lays out at the right coordinates, reports the right rects,
+     and paints nowhere at all. */
   height: 100vh;
 }
 
@@ -31,10 +24,6 @@ body.notch-mode {
   height: 100%;
 }
 
-
-/* One flank is exactly the expansion budget wide, aligned so its inner edge is
-   the notch edge. That caps expansion without any clamping logic: the chip
-   cannot grow past its own container. */
 .flank {
   position: absolute;
   top: 0;
@@ -52,48 +41,29 @@ body.notch-mode {
 
 .flank-chip {
   position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
+  gap: 8px;
   box-sizing: border-box;
-  max-width: 100%;
-  /* The flank is exactly the menu bar's height, read from safeAreaInsets, so
-     filling it makes the chip the same height as the notch. Anything less
-     leaves a seam above and below and the two stop reading as one shape. */
+  /* The menu bar's own height, read from safeAreaInsets. Anything less leaves a
+     seam above or below and the chip stops reading as part of the notch. */
   height: 100%;
   padding: 0 10px;
   overflow: hidden;
   white-space: nowrap;
   font-size: 12px;
-  /* Pure black and no border, to match the notch rather than sit beside it.
-     The earlier choice was the pill's own translucent --bg, argued for because
-     black looks wrong over a light wallpaper once the chip expands out into it.
-     That tradeoff still stands and is now taken deliberately: reading as one
-     shape with the notch is the point of the feature. */
+  /* Pure black and no border, to match the notch rather than sit beside it. The
+     tradeoff — black looks wrong over a light wallpaper — is accepted: reading
+     as one shape with the notch is the point. */
   background: #000;
-  border: none;
   color: var(--text);
-  /* The box morphs between the counts and the names rather than jumping. Width
-     is set inline from the measured slot, so it is a real animatable length —
-     `auto` would not transition at all. --ease-morph is the near-symmetric one,
-     for the same reason the pill uses it: --ease is front-loaded and lurches. */
-  transition: width var(--morph) var(--ease-morph),
-    background var(--morph) var(--ease), border-color var(--morph) var(--ease);
+  transition: transform var(--morph) var(--ease-morph);
 }
 
-/* Flush against the notch: the edge meeting it is square and unbordered, so the
-   chip reads as one shape with the notch rather than a separate pill beside it.
-
-   A 7pt gap was tried first, while the chips were invisible for an unrelated
-   reason — body had no height, so `overflow: hidden` clipped them away. Flush
-   was never the problem, and detached does not read as a Dynamic Island.
-
-   The left chip lays out in reverse so its first child — the most urgent state,
-   or the most urgent session — sits nearest the notch, matching the right chip
-   where document order already does that. It also puts the truncation at the
-   outer end, away from the entries that carry a pulse ring. */
-/* Rounded on the outer bottom corner only, mirroring the notch's own bottom
-   corners. The top edge is the screen edge, so it stays square, and the
-   notch-facing edge has nothing to round against. */
+/* Rounded on the outer bottom corner only, mirroring the notch's own corners.
+   The top edge is the screen edge, so it stays square, and the notch-facing
+   edge has nothing to round against. */
 .flank-chip[data-side='left'] {
   border-radius: 0 0 0 9px;
 }
@@ -102,40 +72,103 @@ body.notch-mode {
   border-radius: 0 0 9px 0;
 }
 
-/* Both states are mounted so the one being morphed into can be measured. They
-   are taken out of flow and anchored to the notch-facing edge, so the chip
-   grows away from the notch and the inactive one does not add width. */
-.flank-variant {
+/* Slid by exactly its own width, which is why max-width is the notch's width:
+   a chip wider than the notch would reappear out the far side. The bridge is
+   painted over the notch and above these, so they simply vanish. */
+.flank-chip[data-retracted='true'][data-side='left'] {
+  transform: translateX(100%);
+}
+
+.flank-chip[data-retracted='true'][data-side='right'] {
+  transform: translateX(-100%);
+}
+
+/* Black across the notch, above the chips so they retract behind it. Invisible
+   on its own — the notch is a physical cutout and already black — but it hides
+   the retracting chips and removes any sub-pixel seam where a chip edge meets
+   the notch edge. Never reported as a hover rect on its own. */
+.notch-bridge {
   position: absolute;
   top: 0;
-  bottom: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  white-space: nowrap;
-  transition: opacity var(--morph) var(--ease);
-}
-
-.flank-chip[data-side='left'] .flank-variant {
-  right: 10px;
-  flex-direction: row-reverse;
-}
-
-.flank-chip[data-side='right'] .flank-variant {
-  left: 10px;
-}
-
-.flank-variant[data-show='false'] {
-  opacity: 0;
+  z-index: 3;
+  background: #000;
   pointer-events: none;
 }
 
-/* Deliberately no lift on hover. Any lightening breaks the match with the
-   notch, and the box growing is already the feedback. */
+.notch-panel-slot {
+  position: absolute;
+  top: 0;
+  z-index: 2;
+}
 
-.flank-chip .total {
+/* Exactly the notch's width, which is the whole point: nothing flares, so there
+   are no concave corners where a wide panel meets a narrow slot. Height is
+   written inline from the measured content, because `auto` does not animate. */
+.notch-panel {
+  position: absolute;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: #000;
+  border-radius: 0 0 14px 14px;
+  transition: height var(--morph) var(--ease-morph);
+}
+
+.notch-panel-content {
+  padding: 6px 0 8px;
+}
+
+.notch-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* Rows are cheap vertically here — there is 400pt reserved below the bar —
+     and the list is easier to aim at with room between the entries. */
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.notch-row[data-hovered='true'] {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* About 159pt of usable width, so the name is what gives way. */
+.notch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notch-elapsed {
+  margin-left: auto;
+  font-size: 11px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.notch-more,
+.notch-foot {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.notch-foot {
+  margin-top: 5px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+/* Out beside the panel rather than below it: 335pt does not fit in the notch's
+   width, and the window is sized so the right always has room. */
+.notch-wing {
+  position: absolute;
+  z-index: 4;
+}
+
+/* The popover carries its own top gap for the free-mode row, which sits below
+   the pill. Here it is positioned explicitly. */
+.notch-wing .popover {
+  margin-top: 0;
 }
 
 .flank-chip .count {
@@ -146,83 +179,22 @@ body.notch-mode {
 }
 
 /* Notch scale. The free-mode dot is 11px against 15px text; here 8 against 12. */
-.flank-chip .dot {
+.flank-chip .dot,
+.notch-row .dot {
   width: 8px;
   height: 8px;
 }
 
 /* Both rings are sized in absolute px around an 11px dot, so neither scales
    with the box. At 8px the busy glow would be 19px across and the waiting ring
-   would reach 22px, against a chip 24px tall with a 1px border. */
-.flank-chip .dot-busy {
+   would reach 22px. */
+.flank-chip .dot-busy,
+.notch-row .dot-busy {
   box-shadow: 0 0 0 3px rgba(63, 185, 80, 0.2);
 }
 
-.flank-chip .dot-waiting::after {
+.flank-chip .dot-waiting::after,
+.notch-row .dot-waiting::after {
   inset: -2px;
   border-width: 1.5px;
-}
-
-.flank-chip .entry-group {
-  gap: 7px;
-}
-
-.flank-chip .entry {
-  gap: 6px;
-}
-
-.flank-chip .entry[data-background='true'] .entry-name {
-  font-size: 11px;
-}
-
-.flank-chip .entry[data-background='true'] .dot {
-  width: 6px;
-  height: 6px;
-}
-
-.flank-chip .hairline {
-  height: 12px;
-}
-
-/* Never shrinks, and never clips. The marker sits at the outer end of the chip,
-   which is the end `overflow: hidden` eats first — so the one element that says
-   sessions are hidden was the first thing to disappear. Reserving it lets the
-   entries beside it shrink instead. */
-.flank-chip .summary {
-  flex: none;
-  font-size: 11px;
-  padding: 0 2px;
-}
-
-/* Nothing bounds a session name — it comes from the user's repo — so a long one
-   would push the chip past its budget however many entries are allowed. The
-   name is the part that gives way. min-width on the ancestors is what lets a
-   flex item shrink below its content at all. */
-.flank-chip .entry-group,
-.flank-chip .entry {
-  min-width: 0;
-}
-
-.flank-chip .entry-name {
-  font-size: 12px;
-  max-width: 72px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Black behind the notch, so the two chips and the notch are one unbroken
-   shape. Invisible by itself — the notch is a physical cutout and already black
-   — but it removes any sub-pixel seam where a chip edge meets a notch edge,
-   which is what made the alignment look slightly off. Deliberately not reported
-   as a hover rect: hovering the notch is not hovering the widget. */
-.notch-bridge {
-  position: absolute;
-  top: 0;
-  background: #000;
-  pointer-events: none;
-}
-
-/* Out of the bar and onto the desktop: 335 x ~100pt does not fit in a bar. */
-.notch-popover {
-  position: absolute;
 }

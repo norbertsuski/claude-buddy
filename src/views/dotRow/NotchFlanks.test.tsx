@@ -2,13 +2,14 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionSnapshot, SessionState } from '../../types'
 
-const LAYOUT = { notchLeft: 200, notchRight: 390, barHeight: 37, budget: 200 }
+const LAYOUT = { notchLeft: 345, notchRight: 524, barHeight: 32, budget: 160 }
+const USAGE = { percent: 36, resetsAtMs: Date.now() + 3_600_000, severity: 'normal' as const }
 
 let layout: typeof LAYOUT | null = LAYOUT
 const invoke = vi.fn(async (command: string, ..._args: unknown[]) => {
   if (command === 'notch_layout') return layout
   if (command === 'session_detail') {
-    return { branch: null, model: null, effort: null, activity: null }
+    return { branch: 'main', model: 'opus', effort: 'high', activity: 'Edit src/auth.ts' }
   }
   return undefined
 })
@@ -25,10 +26,9 @@ vi.mock('@tauri-apps/api/event', () => ({
 }))
 
 const { NotchFlanks } = await import('./NotchFlanks')
+const { MAX_ROWS } = await import('./NotchPanel')
 
-const USAGE = { percent: 40, resetsAtMs: 0, severity: 'normal' as const }
-
-function session(name: string, state: SessionState, background = false): SessionSnapshot {
+function session(name: string, state: SessionState): SessionSnapshot {
   return {
     pid: 1,
     sessionId: `id-${name}`,
@@ -37,37 +37,60 @@ function session(name: string, state: SessionState, background = false): Session
     entrypoint: 'cli',
     state,
     detail: state === 'waiting' ? 'input needed' : null,
-    elapsedMs: 60_000,
-    uptimeMs: 60_000,
-    statusTimeMs: 0,
-    startedAtMs: 0,
-    background,
+    elapsedMs: 120_000,
+    uptimeMs: 600_000,
+    statusTimeMs: Date.now() - 120_000,
+    startedAtMs: Date.now() - 600_000,
+    background: false,
   }
 }
 
-function moveCursor(position: { x: number; y: number; inside: boolean }) {
-  act(() => eventHandlers.get('ui://cursor')!({ payload: position }))
+function open(inside = true, x = 400, y = 12) {
+  act(() => eventHandlers.get('ui://cursor')!({ payload: { x, y, inside } }))
+}
+
+/**
+ * Put the cursor on a row the way the app does: Rust reports a point, and the
+ * page hit-tests it. WKWebView delivers no mouse events to a non-activating
+ * panel, so `userEvent.hover` would prove nothing about the real thing.
+ */
+function pointAt(el: Element | null) {
+  // Assigned rather than spied: jsdom has no elementFromPoint to spy on.
+  ;(document as unknown as Record<string, unknown>).elementFromPoint = () => el
+  open(true, 400, 44)
+}
+
+function rectsFromLastCall() {
+  const calls = invoke.mock.calls.filter(([command]) => command === 'set_hover_rects')
+  return (calls[calls.length - 1]![1] as { rects: unknown[] }).rects
 }
 
 beforeEach(() => {
   layout = LAYOUT
+  ;(document as unknown as Record<string, unknown>).elementFromPoint = () => null
+  // jsdom lays nothing out, so the panel would measure 0 tall and never be
+  // reported to Rust — the same failure this measurement replaced.
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+    configurable: true,
+    value: 84,
+  })
   invoke.mockClear()
   eventHandlers.clear()
-  // jsdom lays nothing out, so every measured box would be zero-sized and get
-  // dropped as un-laid-out. One stub box is enough: the assertions are about
-  // how many rects are reported, not where they are.
+  // jsdom lays nothing out, so every measured box would be dropped as
+  // un-laid-out. One stub is enough: the assertions are about how many rects
+  // are reported, not where they are.
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
-    left: 140,
+    left: 345,
     top: 0,
-    width: 60,
-    height: 24,
+    width: 179,
+    height: 32,
   } as DOMRect)
 })
 
-describe('NotchFlanks', () => {
+describe('NotchFlanks at rest', () => {
   it('renders nothing on a display with no notch', async () => {
     layout = null
-    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={null} />)
+    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={USAGE} />)
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('notch_layout'))
     expect(screen.queryByTestId('notch-flanks')).not.toBeInTheDocument()
   })
@@ -76,142 +99,156 @@ describe('NotchFlanks', () => {
     render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={USAGE} />)
     expect(await screen.findByTestId('flank-left')).toBeInTheDocument()
     expect(screen.getByTestId('flank-usage')).toBeInTheDocument()
-    // The two carry unrelated things, so the side each lives on never moves.
-    expect(screen.getByTestId('count-waiting')).toBeInTheDocument()
-  })
-
-  it('keeps every state on the left chip', async () => {
-    render(
-      <NotchFlanks
-        sessions={[session('a-11', 'waiting'), session('b-22', 'busy'), session('c-33', 'idle')]}
-        usage={null}
-      />,
-    )
-    await screen.findByTestId('flank-left')
-    // No split: an earlier design put urgent left and ambient right, which
-    // forced a rule to keep background jobs beside their parent.
-    expect(screen.getByTestId('count-waiting')).toBeInTheDocument()
-    expect(screen.getByTestId('count-busy')).toBeInTheDocument()
-    expect(screen.getByTestId('count-idle')).toBeInTheDocument()
-  })
-
-  it('draws no limit chip when there is nothing trustworthy to show', async () => {
-    // Rust sends null for a window that has already reset, and the setting can
-    // turn it off outright.
-    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={null} />)
-    expect(await screen.findByTestId('flank-left')).toBeInTheDocument()
-    expect(screen.queryByTestId('flank-usage')).not.toBeInTheDocument()
-  })
-
-  it('shows the share left at rest and the countdown once expanded', async () => {
-    render(<NotchFlanks sessions={[session('a-11', 'busy')]} usage={USAGE} />)
-    await screen.findByTestId('flank-usage')
-    expect(screen.getByTestId('flank-usage-collapsed')).toHaveAttribute('data-show', 'true')
-    moveCursor({ x: 170, y: 12, inside: true })
-    expect(screen.getByTestId('flank-usage-expanded')).toHaveAttribute('data-show', 'true')
-  })
-
-  it('fills the notch span so there is no seam beside it', async () => {
-    render(<NotchFlanks sessions={[session('a-11', 'waiting'), session('b-22', 'busy')]} usage={null} />)
-    const bridge = await screen.findByTestId('notch-bridge')
-    expect(bridge.style.left).toBe('200px')
-    expect(bridge.style.width).toBe('190px')
-    expect(bridge.style.height).toBe('37px')
-  })
-
-  it('does not report the notch bridge as part of the widget', async () => {
-    // Hovering the notch must not expand the row: the bridge is decoration
-    // behind a physical cutout, not a target.
-    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={USAGE} />)
-    await screen.findByTestId('notch-bridge')
-    await waitFor(() => {
-      const calls = invoke.mock.calls.filter(([command]) => command === 'set_hover_rects')
-      const last = calls[calls.length - 1]![1] as { rects: unknown[] }
-      expect(last.rects).toHaveLength(2)
-    })
-  })
-
-  it('places each flank so its inner edge is the notch edge', async () => {
-    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={USAGE} />)
-    await screen.findByTestId('flank-left')
-    const left = screen.getByTestId('flank-left').parentElement!
-    const right = screen.getByTestId('flank-usage').parentElement!
-    // Left flank ends where the notch begins; right flank begins where it ends.
-    expect(left.style.left).toBe('0px')
-    expect(left.style.width).toBe('200px')
-    expect(right.style.left).toBe('390px')
-  })
-
-  it('reports the two chips as separate hover rects', async () => {
-    // A bounding box across both would bridge the notch, holding the row
-    // expanded whenever the cursor crossed it.
-    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={USAGE} />)
-    await waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith('set_hover_rects', {
-        rects: [
-          { x: 140, y: 0, width: 60, height: 24 },
-          { x: 140, y: 0, width: 60, height: 24 },
-        ],
-      }),
-    )
-  })
-
-  it('reports one rect when only one side is drawn', async () => {
-    // Sessions but no limit to show: the left chip is the whole widget.
-    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={null} />)
-    await waitFor(() => {
-      const calls = invoke.mock.calls.filter(([command]) => command === 'set_hover_rects')
-      const last = calls[calls.length - 1]![1] as { rects: unknown[] }
-      expect(last.rects).toHaveLength(1)
-    })
-  })
-
-  it('expands both chips when the cursor is on either of them', async () => {
-    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={USAGE} />)
-    await screen.findByTestId('flank-left')
-
-    expect(screen.getByTestId('flank-left')).toHaveAttribute('data-expanded', 'false')
-    moveCursor({ x: 170, y: 12, inside: true })
-    expect(screen.getByTestId('flank-left')).toHaveAttribute('data-expanded', 'true')
-    expect(screen.getByTestId('flank-usage')).toHaveAttribute('data-expanded', 'true')
-  })
-
-  it('shows names once expanded and counts again once the cursor leaves', async () => {
-    render(<NotchFlanks sessions={[session('api-service-55', 'waiting')]} usage={null} />)
-    await screen.findByTestId('flank-left')
-
-    moveCursor({ x: 170, y: 12, inside: true })
-    expect(screen.getByTestId('flank-left-expanded')).toHaveAttribute('data-show', 'true')
-
-    moveCursor({ x: 800, y: 400, inside: false })
-    expect(screen.getByTestId('flank-left-collapsed')).toHaveAttribute('data-show', 'true')
-    expect(screen.getByTestId('flank-left-expanded')).toHaveAttribute('data-show', 'false')
     expect(screen.getByTestId('count-waiting')).toHaveTextContent('1')
   })
 
-  it('draws the continuation arrow between a job and its parent', async () => {
-    const { container } = render(
-      <NotchFlanks
-        sessions={[session('api-11', 'waiting'), session('subagent', 'busy', true)]}
-        usage={null}
-      />,
-    )
+  it('leaves both chips out and the panel shut', async () => {
+    render(<NotchFlanks sessions={[session('a-11', 'busy')]} usage={USAGE} />)
     await screen.findByTestId('flank-left')
-    moveCursor({ x: 170, y: 12, inside: true })
+    expect(screen.getByTestId('flank-left')).toHaveAttribute('data-retracted', 'false')
+    expect(screen.getByTestId('notch-panel')).toHaveAttribute('data-open', 'false')
+  })
 
-    const chip = screen.getByTestId('flank-left')
-    expect(chip.querySelector('.child-arrow')).not.toBeNull()
-    // And no plain separator, which is what a peer would get.
-    expect(chip.querySelector('.hairline')).toBeNull()
-    expect(container.querySelector('[data-side="right"]')).toBeNull()
+  it('caps a chip at the notch width so it cannot peek out the far side', async () => {
+    // The chip slides by its own width, so anything wider than the notch would
+    // reappear on the other side of it.
+    render(<NotchFlanks sessions={[session('a-11', 'busy')]} usage={USAGE} />)
+    await screen.findByTestId('flank-left')
+    const width = LAYOUT.notchRight - LAYOUT.notchLeft
+    expect(screen.getByTestId('flank-left').style.maxWidth).toBe(`${width}px`)
+  })
+
+  it('draws no limit chip when there is nothing trustworthy to show', async () => {
+    render(<NotchFlanks sessions={[session('a-11', 'busy')]} usage={null} />)
+    await screen.findByTestId('flank-left')
+    expect(screen.queryByTestId('flank-usage')).not.toBeInTheDocument()
+  })
+})
+
+describe('NotchFlanks opening', () => {
+  it('retracts both chips and drops the panel', async () => {
+    render(<NotchFlanks sessions={[session('api-service-55', 'waiting')]} usage={USAGE} />)
+    await screen.findByTestId('flank-left')
+
+    open()
+    expect(screen.getByTestId('flank-left')).toHaveAttribute('data-retracted', 'true')
+    expect(screen.getByTestId('flank-usage')).toHaveAttribute('data-retracted', 'true')
+    expect(screen.getByTestId('notch-panel')).toHaveAttribute('data-open', 'true')
+  })
+
+  it('lists the sessions and the limit in the panel', async () => {
+    render(<NotchFlanks sessions={[session('api-service-55', 'waiting')]} usage={USAGE} />)
+    await screen.findByTestId('flank-left')
+    open()
+    expect(screen.getByText('api-service')).toBeInTheDocument()
+    expect(screen.getByTestId('notch-usage-row')).toHaveTextContent('64% left')
+  })
+
+  it('collapses the tail beyond the row cap', async () => {
+    const many = Array.from({ length: MAX_ROWS + 3 }, (_, i) => session(`s${i}-11`, 'busy'))
+    render(<NotchFlanks sessions={many} usage={null} />)
+    await screen.findByTestId('flank-left')
+    open()
+    expect(screen.getByTestId('notch-more')).toHaveTextContent('+3 more')
+  })
+
+  it('keeps a band across the bar reported while open', async () => {
+    // The cursor is up in the bar when the panel opens — that is what opened it.
+    // Reporting only the panel would put the cursor outside every rect, shut the
+    // panel, and reopen it on the next sample, forever.
+    render(<NotchFlanks sessions={[session('a-11', 'busy')]} usage={USAGE} />)
+    await screen.findByTestId('flank-left')
+    open()
+    await waitFor(() => {
+      const rects = rectsFromLastCall() as Array<{ x: number; y: number; height: number }>
+      const band = rects.find((r) => r.x === LAYOUT.notchLeft - LAYOUT.budget)
+      expect(band).toBeDefined()
+      expect(band!.height).toBe(LAYOUT.barHeight)
+    })
+  })
+
+  it('reports the chips at rest and the panel once open', async () => {
+    render(<NotchFlanks sessions={[session('a-11', 'busy')]} usage={USAGE} />)
+    await screen.findByTestId('flank-left')
+    await waitFor(() => expect(rectsFromLastCall()).toHaveLength(2))
+    open()
+    await waitFor(() => expect(rectsFromLastCall().length).toBeGreaterThanOrEqual(2))
+  })
+})
+
+describe('wingAtPoint', () => {
+  it('picks the row under the point, and nothing outside one', async () => {
+    const { wingAtPoint } = await import('./NotchPanel')
+    const row = document.createElement('div')
+    row.setAttribute('data-notch-row', 'session')
+    row.setAttribute('data-session-id', 'id-a')
+    document.body.append(row)
+
+    expect(wingAtPoint(0, 0, () => row)).toEqual({
+      kind: 'session',
+      sessionId: 'id-a',
+      top: 0,
+    })
+    expect(wingAtPoint(0, 0, () => null)).toBeNull()
+    // Padding between rows resolves to the panel, which is not a row.
+    expect(wingAtPoint(0, 0, () => document.body)).toBeNull()
+    row.remove()
+  })
+
+  it('reads the footer as the limit rather than a session', async () => {
+    const { wingAtPoint } = await import('./NotchPanel')
+    const row = document.createElement('div')
+    row.setAttribute('data-notch-row', 'usage')
+    expect(wingAtPoint(0, 0, () => row)).toEqual({ kind: 'usage', top: 0 })
+  })
+})
+
+describe('NotchFlanks detail card', () => {
+  it('wings a session card out beside the panel', async () => {
+    render(<NotchFlanks sessions={[session('api-service-55', 'waiting')]} usage={USAGE} />)
+    await screen.findByTestId('flank-left')
+    open()
+
+    pointAt(screen.getByTestId('row-id-api-service-55'))
+    const winged = await screen.findByTestId('notch-wing')
+    // Beside the panel, on the side the window is sized to hold.
+    expect(winged.style.left).toBe(`${LAYOUT.notchRight + 10}px`)
+    expect(screen.getByTestId('popover')).toBeInTheDocument()
+  })
+
+  it('wings the limit card out from the footer row', async () => {
+    render(<NotchFlanks sessions={[session('a-11', 'busy')]} usage={USAGE} />)
+    await screen.findByTestId('flank-left')
+    open()
+
+    pointAt(screen.getByTestId('notch-usage-row'))
+    expect(await screen.findByTestId('usage-popover')).toBeInTheDocument()
+  })
+
+  it('reports the card so moving onto it does not shut the panel', async () => {
+    render(<NotchFlanks sessions={[session('api-service-55', 'waiting')]} usage={USAGE} />)
+    await screen.findByTestId('flank-left')
+    open()
+    pointAt(screen.getByTestId('row-id-api-service-55'))
+    await waitFor(() => expect(rectsFromLastCall()).toHaveLength(3))
+  })
+
+  it('drops the card when the cursor leaves the widget', async () => {
+    render(<NotchFlanks sessions={[session('api-service-55', 'waiting')]} usage={USAGE} />)
+    await screen.findByTestId('flank-left')
+    open()
+    pointAt(screen.getByTestId('row-id-api-service-55'))
+    await screen.findByTestId('notch-wing')
+
+    open(false)
+    expect(screen.queryByTestId('notch-wing')).not.toBeInTheDocument()
   })
 
   it('zeroes the shadow padding so the chips reach the top of the screen', async () => {
-    const { unmount } = render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={null} />)
+    const { unmount } = render(<NotchFlanks sessions={[session('a-11', 'busy')]} usage={USAGE} />)
     await screen.findByTestId('flank-left')
     expect(document.body.classList.contains('notch-mode')).toBe(true)
     unmount()
-    // Leaving notch mode must give the free-mode pill its shadow room back.
     expect(document.body.classList.contains('notch-mode')).toBe(false)
   })
 })
