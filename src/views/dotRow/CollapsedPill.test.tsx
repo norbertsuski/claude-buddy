@@ -20,7 +20,39 @@ function session(id: string, state: SessionState): SessionSnapshot {
   }
 }
 
+function job(id: string, state: SessionState): SessionSnapshot {
+  return { ...session(id, state), background: true }
+}
+
 describe('CollapsedPill', () => {
+  it('counts a waiting background job in the needs-you chip', () => {
+    // Regression: a job blocked on input alerted and kept the widget on
+    // screen, but the collapsed pill — the surface you actually rest your eyes
+    // on — reported only "N jobs" and showed nothing amber.
+    render(<CollapsedPill sessions={[session('a', 'idle'), job('j', 'waiting')]} />)
+    expect(screen.getByTestId('needs-you')).toHaveTextContent('1 needs you')
+  })
+
+  it('counts a dead background job in the died chip', () => {
+    render(<CollapsedPill sessions={[session('a', 'idle'), job('j', 'dead')]} />)
+    expect(screen.getByTestId('died')).toHaveTextContent('1 died')
+  })
+
+  it('does not tally a surfaced job in the quiet jobs summary as well', () => {
+    // Otherwise "1 needs you · 2 jobs" double-counts the same entry.
+    render(
+      <CollapsedPill sessions={[session('a', 'idle'), job('j', 'waiting'), job('k', 'idle')]} />,
+    )
+    expect(screen.getByTestId('needs-you')).toHaveTextContent('1 needs you')
+    expect(screen.getByTestId('jobs')).toHaveTextContent('1 job')
+  })
+
+  it('still keeps ordinary jobs out of the working and idle counts', () => {
+    render(<CollapsedPill sessions={[session('a', 'busy'), job('j', 'busy'), job('k', 'idle')]} />)
+    expect(screen.getByTestId('working')).toHaveTextContent('1 working')
+    expect(screen.getByTestId('jobs')).toHaveTextContent('2 jobs')
+  })
+
   it('shows the needs-you chip with a count when sessions are waiting', () => {
     render(<CollapsedPill sessions={[session('a', 'waiting'), session('b', 'busy')]} />)
     expect(screen.getByTestId('needs-you')).toHaveTextContent('1 needs you')

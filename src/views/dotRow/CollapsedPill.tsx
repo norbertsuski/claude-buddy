@@ -8,12 +8,20 @@ import './dotRow.css'
  * than being swapped out.
  */
 export function CollapsedPill({ sessions }: SessionViewProps) {
-  // Background jobs never inflate the counts — they belong to a session rather
-  // than being one — but they are worth acknowledging.
+  // Background jobs never inflate the volume counts — they belong to a session
+  // rather than being one — but urgency is not a volume question. A job blocked
+  // on input already fires a notification and already keeps the widget on
+  // screen; leaving it out of the amber chip meant the one surface you actually
+  // rest your eyes on was the only one that stayed silent about it.
   const own = ownSessions(sessions)
-  const jobs = sessions.length - own.length
   const counts = countByState(own)
+  const urgent = countByState(sessions)
   const idle = counts.idle + counts.paused
+
+  // A job surfaced by its own chip is not also tallied in the quiet summary,
+  // or "1 needs you · 2 jobs" would be counting the same entry twice.
+  const backgrounded = sessions.filter((s) => s.background)
+  const jobs = backgrounded.filter((s) => s.state !== 'waiting' && s.state !== 'dead').length
 
   // Each state that carries urgency gets its own coloured chip. What is merely
   // sitting there stays as quiet text.
@@ -21,10 +29,10 @@ export function CollapsedPill({ sessions }: SessionViewProps) {
 
   return (
     <div className="variant" data-testid="collapsed-pill">
-      {counts.waiting > 0 && (
+      {urgent.waiting > 0 && (
         <span className="chip chip-waiting" data-testid="needs-you">
           <span className="dot dot-waiting" />
-          {counts.waiting} {counts.waiting === 1 ? 'needs' : 'need'} you
+          {urgent.waiting} {urgent.waiting === 1 ? 'needs' : 'need'} you
         </span>
       )}
       {counts.busy > 0 && (
@@ -33,10 +41,10 @@ export function CollapsedPill({ sessions }: SessionViewProps) {
           {counts.busy} working
         </span>
       )}
-      {counts.dead > 0 && (
+      {urgent.dead > 0 && (
         <span className="chip chip-dead" data-testid="died">
           <span className="dot dot-dead" />
-          {counts.dead} died
+          {urgent.dead} died
         </span>
       )}
       {summary !== null && (
