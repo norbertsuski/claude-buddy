@@ -3,6 +3,8 @@ pub mod commands;
 pub mod cursor;
 pub mod config;
 pub mod notify;
+pub mod update;
+pub mod visibility;
 pub mod watcher;
 pub mod window;
 
@@ -16,7 +18,6 @@ use crate::watcher::watch::{spawn_watcher, UPDATE_EVENT};
 
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_nspanel::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -39,6 +40,14 @@ pub fn run() {
             // runs the bare binary.
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
+            // Only when a signing key is configured; see `update::is_configured`.
+            // The registration is allowed to fail rather than taking the app
+            // down with it — an app that will not start because it cannot
+            // check for its own update is worse than one that never checks.
+            if crate::update::is_configured(app.config().plugins.0.get("updater")) {
+                let _ = app.handle().plugin(tauri_plugin_updater::Builder::new().build());
+            }
+
             let widget = app
                 .get_webview_window("widget")
                 .expect("widget window missing from tauri.conf.json");
@@ -60,17 +69,34 @@ pub fn run() {
                 Arc::new(crate::watcher::activity::TranscriptActivity::new(
                     crate::bridge::transcript::projects_dir(),
                 )),
+                Arc::new(crate::watcher::question::TranscriptQuestion::new(
+                    crate::bridge::transcript::projects_dir(),
+                )),
                 move |update| {
                     handle
                         .state::<crate::watcher::watch::SnapshotStore>()
                         .set(update.sessions.clone());
                     crate::notify::deliver(&handle, &update.alerts);
+
+                    let hide = crate::visibility::should_hide(
+                        &update.sessions,
+                        &crate::config::cached().hide_when,
+                    );
+                    let visibility_handle = handle.clone();
+                    // Panel calls must run on the main thread; the watcher is
+                    // its own thread.
+                    let _ = handle.run_on_main_thread(move || {
+                        crate::window::set_widget_visible(&visibility_handle, !hide);
+                    });
+
                     let _ = handle.emit(UPDATE_EVENT, &update);
                 },
             );
 
             // Keep the handle alive for the process lifetime.
             app.manage(watcher);
+
+            crate::update::check_on_launch(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())

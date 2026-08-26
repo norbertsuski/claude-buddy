@@ -15,6 +15,8 @@ function session(name: string, state: SessionState): SessionSnapshot {
     detail: state === 'waiting' ? 'input needed' : null,
     elapsedMs: 60_000,
     uptimeMs: 60_000,
+    statusTimeMs: 0,
+    startedAtMs: 0,
     background: false,
   }
 }
@@ -97,6 +99,19 @@ describe('NamedDotRow', () => {
     render(<NamedDotRow sessions={many} hoveredSessionId={null} onHoverSession={vi.fn()} />)
 
     expect(screen.queryByTestId('overflow')).not.toBeInTheDocument()
+  })
+
+  it('gives every state its own dot class so shape can differ, not just hue', () => {
+    const states: SessionState[] = ['waiting', 'busy', 'idle', 'paused', 'dead']
+    const sessions = states.map((state, i) => session(`project${i}-11`, state))
+
+    const { container } = render(
+      <NamedDotRow sessions={sessions} hoveredSessionId={null} onHoverSession={vi.fn()} />,
+    )
+
+    for (const state of states) {
+      expect(container.querySelector(`.dot-${state}`)).not.toBeNull()
+    }
   })
 })
 

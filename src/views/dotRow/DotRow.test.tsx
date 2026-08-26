@@ -2,7 +2,9 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionSnapshot } from '../../types'
 
-const invoke = vi.fn().mockResolvedValue({ branch: null, model: null, effort: null })
+const invoke = vi
+  .fn()
+  .mockResolvedValue({ branch: null, model: null, effort: null, activity: null })
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }))
 const eventHandlers = new Map<string, (event: { payload: unknown }) => void>()
 vi.mock('@tauri-apps/api/event', () => ({
@@ -29,6 +31,8 @@ const sessions: SessionSnapshot[] = [
     detail: 'input needed',
     elapsedMs: 360_000,
     uptimeMs: 3_600_000,
+    statusTimeMs: 0,
+    startedAtMs: 0,
     background: false,
   },
 ]

@@ -9,10 +9,11 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(
 const { SettingsPanel } = await import('./SettingsPanel')
 
 const config: AppConfig = {
-  viewMode: 'dotRow',
+  hideWhen: 'noSessions',
   pausedThresholdMs: 600_000,
   alertNeedsInput: true,
   alertDied: true,
+  alertFinished: false,
   sound: false,
   muteUntilMs: 0,
   launchAtLogin: false,
@@ -58,6 +59,21 @@ describe('SettingsPanel', () => {
     )
   })
 
+  it('toggles the finished alert', async () => {
+    render(<SettingsPanel onClose={vi.fn()} />)
+
+    const box = await screen.findByLabelText('Alert when a session finishes its turn')
+    expect(box).not.toBeChecked()
+
+    await userEvent.click(box)
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('set_config', {
+        config: expect.objectContaining({ alertFinished: true }),
+      }),
+    )
+  })
+
   it('converts the paused threshold from minutes to milliseconds', async () => {
     render(<SettingsPanel onClose={vi.fn()} />)
     const field = await screen.findByLabelText('Paused after (minutes)')
@@ -72,12 +88,24 @@ describe('SettingsPanel', () => {
     )
   })
 
-  it('offers every view mode', async () => {
+  it('has no view mode control', async () => {
     render(<SettingsPanel onClose={vi.fn()} />)
 
-    await waitFor(() => expect(screen.getByLabelText('View mode')).toBeInTheDocument())
-    expect(screen.getByRole('option', { name: 'Dot row' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Character buddy' })).toBeInTheDocument()
+    await screen.findByTestId('settings')
+    expect(screen.queryByLabelText('View mode')).toBeNull()
+  })
+
+  it('changes when the widget hides', async () => {
+    render(<SettingsPanel onClose={vi.fn()} />)
+
+    const select = await screen.findByLabelText('Hide the widget')
+    await userEvent.selectOptions(select, 'nothingActive')
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('set_config', {
+        config: expect.objectContaining({ hideWhen: 'nothingActive' }),
+      }),
+    )
   })
 
   it('surfaces a rejected save instead of silently dropping it', async () => {

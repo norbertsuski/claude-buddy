@@ -4,16 +4,14 @@ use tauri::Manager;
 
 use crate::config::{self, Config};
 
-pub const VIEW_MODES: [&str; 4] = ["dotRow", "cardStack", "characterBuddy", "invisible"];
-
 /// Reject settings that would break the widget rather than writing them.
 /// A zero paused threshold would mark every session paused instantly.
 pub fn validate(config: &Config) -> Result<(), String> {
     if config.paused_threshold_ms <= 0 {
         return Err("paused threshold must be greater than zero".into());
     }
-    if !VIEW_MODES.contains(&config.view_mode.as_str()) {
-        return Err(format!("unknown view mode: {}", config.view_mode));
+    if !crate::visibility::HIDE_MODES.contains(&config.hide_when.as_str()) {
+        return Err(format!("unknown hide mode: {}", config.hide_when));
     }
     Ok(())
 }
@@ -84,17 +82,17 @@ mod tests {
     }
 
     #[test]
-    fn rejects_an_unknown_view_mode() {
+    fn rejects_an_unknown_hide_mode() {
         let mut config = Config::default();
-        config.view_mode = "hologram".into();
+        config.hide_when = "sometimes".into();
         assert!(validate(&config).is_err());
     }
 
     #[test]
-    fn accepts_every_shipped_view_mode() {
-        for mode in ["dotRow", "cardStack", "characterBuddy", "invisible"] {
+    fn accepts_every_hide_mode() {
+        for mode in crate::visibility::HIDE_MODES {
             let mut config = Config::default();
-            config.view_mode = mode.into();
+            config.hide_when = mode.into();
             assert!(validate(&config).is_ok(), "{mode} should be valid");
         }
     }

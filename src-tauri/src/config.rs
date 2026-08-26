@@ -10,11 +10,16 @@ use crate::watcher::state::PAUSED_THRESHOLD_MS;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Config {
-    /// One of `dotRow`, `cardStack`, `characterBuddy`, `invisible`.
+    /// Vestigial. The view modes were removed in favour of `hide_when`, but the
+    /// field is kept so an existing config file still parses and is not silently
+    /// rewritten without it.
     pub view_mode: String,
     pub paused_threshold_ms: i64,
     pub alert_needs_input: bool,
     pub alert_died: bool,
+    /// Whether finishing a turn interrupts you. Off by default: a finished turn
+    /// is the common case, and alerting on it is the noisy choice.
+    pub alert_finished: bool,
     pub sound: bool,
     /// Epoch millis until which alerts stay suppressed. Backs "Mute alerts 1h".
     pub mute_until_ms: i64,
@@ -23,6 +28,10 @@ pub struct Config {
     /// demoted when enabled, since they belong to a session rather than being
     /// one.
     pub show_background_jobs: bool,
+    /// When the widget takes itself off screen: `never`, `noSessions` or
+    /// `nothingActive`. The tray icon always remains, so a hidden widget is
+    /// never unreachable.
+    pub hide_when: String,
     /// Display key the widget should appear on, or `None` for the primary
     /// display. Keys come from `list_displays`.
     pub preferred_display: Option<String>,
@@ -38,10 +47,12 @@ impl Default for Config {
             paused_threshold_ms: PAUSED_THRESHOLD_MS,
             alert_needs_input: true,
             alert_died: true,
+            alert_finished: false,
             sound: false,
             mute_until_ms: 0,
             launch_at_login: false,
             show_background_jobs: true,
+            hide_when: "noSessions".into(),
             preferred_display: None,
             positions: HashMap::new(),
         }
@@ -139,10 +150,12 @@ mod tests {
         assert_eq!(c.paused_threshold_ms, crate::watcher::state::PAUSED_THRESHOLD_MS);
         assert!(c.alert_needs_input);
         assert!(c.alert_died);
+        assert!(!c.alert_finished);
         assert!(!c.sound);
         assert_eq!(c.mute_until_ms, 0);
         assert!(!c.launch_at_login);
         assert!(c.show_background_jobs);
+        assert_eq!(c.hide_when, "noSessions");
         assert_eq!(c.preferred_display, None);
         assert!(c.positions.is_empty());
     }
@@ -180,7 +193,7 @@ mod tests {
         let path = temp_path("roundtrip");
         let mut c = Config::default();
         c.sound = true;
-        c.view_mode = "cardStack".into();
+        c.hide_when = "nothingActive".into();
         c.positions.insert("display-1".into(), [120.0, 44.5]);
 
         save(&path, &c).unwrap();

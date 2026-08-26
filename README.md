@@ -4,6 +4,8 @@ A floating always-on-top macOS widget that shows what every local Claude Code se
 
 ![Hovering the widget: the pill expands into a named row, and a popover follows the session under the cursor](docs/media/hover.gif)
 
+*The screenshots on this page predate the per-state dot shapes and the popover's `doing` line, so the dots and the popover look slightly different now.*
+
 *All screenshots on this page use mocked session data.*
 
 ## Why
@@ -22,17 +24,19 @@ Hover it and the pill morphs into a named row, one dot per session.
 
 ![The expanded row showing five entries in different states](docs/media/expanded.png)
 
-Hover a name and a popover opens centred beneath it, with the working directory, git branch, model, effort, pid and uptime. Click it to bring that session's editor to the front.
+Hover a name and a popover opens centred beneath it, with the state and how long it has held, what the session is *doing* — the newest tool it reached for, or failing that the last thing it said — plus the working directory, git branch, model, effort, entrypoint, pid and uptime. Click it to bring that session's editor to the front.
 
 ![A popover under the hovered session showing cwd, branch, model and pid](docs/media/popover.png)
 
-| Colour | State |
-|---|---|
-| amber | waiting on you — carries the reason, e.g. `input needed` |
-| green | working |
-| grey | idle |
-| dim grey | paused — quiet past the threshold, 10 minutes by default |
-| red | died — the process is gone |
+Every state carries a shape as well as a hue, because colour alone is unreadable to a red-green colourblind user and these five dots are the widget's whole vocabulary. The box stays 11px in each case, so nothing shifts as a session changes state.
+
+| Colour | Shape | State |
+|---|---|---|
+| amber | triangle, inside a pulsing ring | waiting on you — carries the reason, e.g. `input needed` |
+| green | filled circle with a glow | working |
+| grey | hollow ring | idle |
+| dim grey | two-bar pause glyph | paused — quiet past the threshold, 10 minutes by default |
+| red | cross | died — the process is gone |
 
 ### Sessions, subagents and jobs
 
@@ -79,14 +83,16 @@ The frontend hot-reloads; Rust changes trigger a rebuild.
 
 There is **no Dock icon and no Cmd-Tab entry** — it is a menu-bar app. The tray icon is the only way in and the only way out:
 
-- **Settings…** — opens a normal window: view mode, which display to use, paused threshold, per-alert toggles, sound, background jobs, launch at login
+- **Settings…** — opens a normal window: when to hide the widget, which display to use, paused threshold, the three alert toggles, sound, background jobs, launch at login
 - **Mute alerts 1h**
-- **View mode** — only the dot row is implemented so far
-- **Quit**
+- **Install update** — installs a newer release if one is available and the updater is configured; otherwise it does nothing
+- **Quit clawde-buddy**
 
 It starts at the top centre of the primary display. Pick a different screen under Settings → *Show on display*, or drag the pill anywhere; positions are remembered per display, so docking and undocking a monitor puts it back where you left it rather than off-screen.
 
 The widget floats above fullscreen apps and follows you across Spaces, and clicking it never takes focus from your editor.
+
+Settings → *Hide the widget* takes it off screen when there is nothing to watch: **Never**, **When there are no sessions** (the default), or **When nothing is waiting or working**. The tray icon stays either way, so a hidden widget is never unreachable.
 
 ### Alerts
 
@@ -94,7 +100,13 @@ macOS asks for notification permission on the first alert. Decline it and the pi
 
 **Alerts fire on transitions, not states.** A session that is already waiting when the widget starts stays silent, because the first reading is a baseline. Without that, every launch would open with a burst of alerts about things you already knew.
 
-Only two transitions interrupt you: a session starting to wait for input, and a session dying. Finishing a turn and going idle is a colour change, nothing more.
+Three transitions can interrupt you:
+
+- **A session starts waiting for input.** The notification carries the session's actual pending question, read from its transcript — not just `input needed`. The registry's own reason stands in when the transcript yields nothing.
+- **A session dies.** Its process is gone.
+- **A session finishes its turn** — busy to idle. Off by default, since a finished turn is the common case and alerting on it is the noisy choice; enable it in Settings. Only that edge counts: answering a question and going quiet is not a finished turn, and a session first seen idle has finished nothing.
+
+Clicking any notification raises that session's window, the same as clicking its popover.
 
 ### Settings file
 
@@ -106,14 +118,18 @@ Only two transitions interrupt you: a session starting to wait for input, and a 
   "pausedThresholdMs": 600000,
   "alertNeedsInput": true,
   "alertDied": true,
+  "alertFinished": false,
   "sound": false,
   "muteUntilMs": 0,
   "launchAtLogin": false,
   "showBackgroundJobs": true,
+  "hideWhen": "noSessions",
   "preferredDisplay": null,
   "positions": {}
 }
 ```
+
+`hideWhen` is one of `never`, `noSessions` or `nothingActive`; anything else falls back to showing the widget. `viewMode` is vestigial — the view modes are gone, and the field is still parsed only so an existing config file keeps loading.
 
 A corrupt or half-written file falls back to defaults rather than refusing to start.
 
@@ -137,8 +153,7 @@ Jumping to a session walks the process tree to the first executable inside a `.a
 ## Limitations
 
 - **App-level raise only.** Clicking a session brings its editor to the front, not the specific tab. VS Code-family editors expose no tab-targeting API.
-- **One view mode.** The dot row. Card stack, character buddy and invisible-until-needed are specified and disabled.
-- **Unsigned.** Gatekeeper prompts once per install. Distributing without that prompt needs an Apple Developer ID to sign and notarize.
+- **Unsigned.** Gatekeeper prompts once per install, and getting rid of that prompt needs an Apple Developer ID to sign and notarize. Update *delivery* is a separate matter and does work: configure a minisign key and the app updates itself in place from the tray menu — see [Signing updates](#signing-updates). With no key, as shipped, it never checks and never updates.
 - **A `claude-desktop` session inside a long tool call writes nothing** to its transcript, so it can read as idle until the result lands. It will not reach paused, which needs ten minutes of quiet.
 - **Multi-display placement follows the primary display** by default; pick another in Settings if that is not the one you watch.
 
@@ -152,7 +167,7 @@ npm test
 cd src-tauri && cargo test -- --test-threads=1
 ```
 
-167 Rust tests and 91 frontend tests. The Rust suite is weighted toward `watcher::state`, where every session state and transition is derived — that function is pure, with the clock, pid liveness and transcript activity all injected, so the whole state machine is tested without touching a filesystem. The watcher-loop tests use real files and real time, hence `--test-threads=1`.
+203 Rust tests and 97 frontend tests. The Rust suite is weighted toward `watcher::state`, where every session state and transition is derived — that function is pure, with the clock, pid liveness and transcript activity all injected, so the whole state machine is tested without touching a filesystem. The watcher-loop tests use real files and real time, hence `--test-threads=1`.
 
 Two environment variables point the widget at fixtures instead of live data, which is how the screenshots on this page were made:
 
@@ -180,9 +195,50 @@ CLAWDE_BUDDY_REGISTRY_DIR=/path/to/sessions CLAWDE_BUDDY_PROJECTS_DIR=/path/to/p
 
 Without any runner, build locally and run `GITLAB_TOKEN=... scripts/publish-release.sh v0.1.0`, which performs the same upload and release creation over the API.
 
+### Signing updates
+
+The app checks for a newer release on launch and only tells you about it;
+*Install update* in the tray menu does the install. The updater refuses
+anything it cannot verify, so a release needs a minisign keypair. This is
+separate from Apple code signing — it secures the update channel, not
+Gatekeeper.
+
+```bash
+npm run tauri signer generate -- -w ~/.tauri/clawde-buddy.key
+```
+
+Put the printed public key in `src-tauri/tauri.conf.json` under
+`plugins.updater.pubkey`, which ships empty, and add the private key and its
+password to GitLab under *Settings → CI/CD → Variables*, both masked:
+
+- `TAURI_SIGNING_PRIVATE_KEY` — the contents of `~/.tauri/clawde-buddy.key`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — the password you chose
+
+`plugins.updater.endpoints` already points at this project's package registry,
+addressed by path rather than by numeric id, so it needs no editing.
+
+**No key is committed, so as shipped the updater is switched off**: with an
+empty `pubkey` the plugin is never registered, so the launch check and the
+tray item both return without making any network call, and the app stays on
+the version you installed.
+
+That keylessness is also why `bundle.createUpdaterArtifacts` is `false` here.
+`tauri build` refuses to bundle an update tarball for a public key it cannot
+also sign, so leaving it on would break `npm run tauri build` for anyone
+without the private key. The tag pipeline turns it on for itself when
+`TAURI_SIGNING_PRIVATE_KEY` is set, publishing `clawde-buddy.app.tar.gz`, its
+`.sig` and a `latest.json` manifest alongside the DMG; without the variables it
+skips all three and releases the DMG alone. To bundle a signed tarball by hand:
+
+```bash
+TAURI_SIGNING_PRIVATE_KEY=$(cat ~/.tauri/clawde-buddy.key) \
+  npm run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":true}}'
+```
+
 ## Design documents
 
-The spec and implementation plan this was built from are kept in the repo:
+The spec and implementation plans this was built from are kept in the repo:
 
 - [Design spec](docs/superpowers/specs/2026-08-25-clawde-buddy-design.md)
-- [Implementation plan](docs/superpowers/plans/2026-08-25-clawde-buddy-v1.md)
+- [Implementation plan, v1](docs/superpowers/plans/2026-08-25-clawde-buddy-v1.md)
+- [Implementation plan, v2](docs/superpowers/plans/2026-08-25-clawde-buddy-v2.md)

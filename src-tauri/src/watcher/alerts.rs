@@ -9,22 +9,29 @@ use crate::watcher::state::{SessionSnapshot, SessionState};
 pub enum AlertKind {
     NeedsInput,
     Died,
+    Finished,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Alert {
     pub session_id: String,
+    /// The session's process, so a clicked notification knows what to raise.
+    pub pid: i32,
     pub name: String,
     pub kind: AlertKind,
     pub detail: Option<String>,
 }
 
-/// Which states are worth interrupting the user for, once, on entry.
-fn alert_kind(state: SessionState) -> Option<AlertKind> {
-    match state {
-        SessionState::Waiting => Some(AlertKind::NeedsInput),
-        SessionState::Dead => Some(AlertKind::Died),
+/// Which transitions are worth interrupting the user for.
+///
+/// A function of the edge, not the state: "finished" only means anything as a
+/// move out of `Busy`, and a session first seen idle has finished nothing.
+fn alert_kind(was: Option<SessionState>, now: SessionState) -> Option<AlertKind> {
+    match (was, now) {
+        (_, SessionState::Waiting) => Some(AlertKind::NeedsInput),
+        (_, SessionState::Dead) => Some(AlertKind::Died),
+        (Some(SessionState::Busy), SessionState::Idle) => Some(AlertKind::Finished),
         _ => None,
     }
 }
@@ -47,14 +54,15 @@ pub fn diff_alerts(prev: Option<&[SessionSnapshot]>, next: &[SessionSnapshot]) -
 
     next.iter()
         .filter_map(|s| {
-            let kind = alert_kind(s.state)?;
             let was = before.get(s.session_id.as_str()).copied();
             // Fire on entry only: unchanged alerting state is not an edge.
             if was == Some(s.state) {
                 return None;
             }
+            let kind = alert_kind(was, s.state)?;
             Some(Alert {
                 session_id: s.session_id.clone(),
+                pid: s.pid,
                 name: s.name.clone(),
                 kind,
                 detail: s.detail.clone(),
@@ -82,6 +90,8 @@ mod tests {
             },
             elapsed_ms: 0,
             uptime_ms: 0,
+            status_time_ms: 0,
+            started_at_ms: 0,
             background: false,
         }
     }
@@ -159,8 +169,41 @@ mod tests {
     }
 
     #[test]
-    fn turn_finishing_fires_nothing() {
+    fn finishing_a_turn_fires_finished() {
         let prev = vec![snap("a", SessionState::Busy)];
+        let next = vec![snap("a", SessionState::Idle)];
+
+        let alerts = diff_alerts(Some(&prev), &next);
+
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].kind, AlertKind::Finished);
+    }
+
+    #[test]
+    fn sitting_idle_does_not_fire_finished() {
+        let prev = vec![snap("a", SessionState::Idle)];
+        let next = vec![snap("a", SessionState::Idle)];
+        assert!(diff_alerts(Some(&prev), &next).is_empty());
+    }
+
+    #[test]
+    fn a_session_appearing_idle_does_not_fire_finished() {
+        // Never seen before, so there was no turn to finish.
+        let prev = vec![snap("a", SessionState::Busy)];
+        let next = vec![snap("a", SessionState::Busy), snap("b", SessionState::Idle)];
+        assert!(diff_alerts(Some(&prev), &next).is_empty());
+    }
+
+    #[test]
+    fn cold_start_does_not_fire_finished() {
+        let next = vec![snap("a", SessionState::Idle)];
+        assert!(diff_alerts(None, &next).is_empty());
+    }
+
+    #[test]
+    fn waiting_to_idle_does_not_fire_finished() {
+        // Answering a question and going quiet is not a completed turn.
+        let prev = vec![snap("a", SessionState::Waiting)];
         let next = vec![snap("a", SessionState::Idle)];
         assert!(diff_alerts(Some(&prev), &next).is_empty());
     }
@@ -191,6 +234,13 @@ mod tests {
         assert_eq!(alerts.len(), 2);
         assert!(alerts.iter().any(|a| a.session_id == "a" && a.kind == AlertKind::NeedsInput));
         assert!(alerts.iter().any(|a| a.session_id == "b" && a.kind == AlertKind::Died));
+    }
+
+    #[test]
+    fn an_alert_carries_the_pid_so_it_can_be_raised() {
+        let prev = vec![snap("a", SessionState::Busy)];
+        let next = vec![snap("a", SessionState::Waiting)];
+        assert_eq!(diff_alerts(Some(&prev), &next)[0].pid, 1);
     }
 
     #[test]

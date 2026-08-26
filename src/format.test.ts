@@ -33,6 +33,8 @@ function s(state: SessionState): SessionSnapshot {
     detail: null,
     elapsedMs: 0,
     uptimeMs: 0,
+    statusTimeMs: 0,
+    startedAtMs: 0,
     background: false,
   }
 }

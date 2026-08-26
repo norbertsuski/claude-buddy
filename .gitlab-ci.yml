@@ -37,7 +37,15 @@ build:dmg:
     - node --version && npm --version && cargo --version
     - npm ci
   script:
-    - npm run tauri build
+    # Updater artifacts are only bundled when they can be signed: `tauri build`
+    # fails outright on a non-empty `plugins.updater.pubkey` it has no private
+    # key for, so the signing variables are what switch the update channel on.
+    - |
+      if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+        npm run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":true}}'
+      else
+        npm run tauri build
+      fi
     - DMG=$(npm run --silent dmg)
     - echo "built $DMG"
     # Generic Packages gives the release a stable, linkable download URL.
@@ -46,6 +54,43 @@ build:dmg:
         --header "JOB-TOKEN: $CI_JOB_TOKEN" \
         --upload-file "$DMG" \
         "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/$PACKAGE_NAME/$CI_COMMIT_TAG/$(basename "$DMG")"
+    # The updater consumes a tarball and its signature, not the DMG. Both only
+    # exist once `plugins.updater.pubkey` and the signing variables are set; in
+    # the shipped keyless state there is nothing to publish, and the DMG
+    # release should not fail over an update channel that is switched off.
+    - |
+      BUNDLE=src-tauri/target/release/bundle/macos
+      TARBALL=$(ls "$BUNDLE"/*.app.tar.gz 2>/dev/null | head -1)
+      if [ -z "$TARBALL" ] || [ ! -f "$TARBALL.sig" ]; then
+        echo "no signed update tarball; skipping the updater manifest"
+      else
+        SIG=$(cat "$TARBALL.sig")
+        BASE="$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/$PACKAGE_NAME"
+        for FILE in "$TARBALL" "$TARBALL.sig"; do
+          curl --fail --silent --show-error \
+            --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+            --upload-file "$FILE" \
+            "$BASE/$CI_COMMIT_TAG/$(basename "$FILE")"
+        done
+        cat > latest.json <<EOF
+      {
+        "version": "${CI_COMMIT_TAG#v}",
+        "notes": "clawde-buddy $CI_COMMIT_TAG",
+        "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+        "platforms": {
+          "darwin-aarch64": {
+            "signature": "$SIG",
+            "url": "$BASE/$CI_COMMIT_TAG/$(basename "$TARBALL")"
+          }
+        }
+      }
+      EOF
+        # Published under a fixed `latest` version so the endpoint URL is stable.
+        curl --fail --silent --show-error \
+          --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+          --upload-file latest.json \
+          "$BASE/latest/latest.json"
+      fi
     # Pass the filename to the release job. A dotenv report is the only way —
     # the `release:` keyword is not shell-evaluated, so $(basename …) there
     # would be published literally.

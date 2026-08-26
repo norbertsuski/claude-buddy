@@ -49,16 +49,28 @@ pub fn raise(
     Ok(bundle_id)
 }
 
-/// Bring the window running a session to the front. Returns the bundle
-/// identifier that was activated, for display in the popover.
-#[tauri::command]
-pub fn raise_session(pid: i32) -> Result<String, String> {
+/// Raise the app hosting `pid`, callable outside the command layer.
+///
+/// The notification waiter runs on its own thread with no `AppHandle`
+/// available, so it needs a plain function rather than the command.
+pub fn raise_pid(pid: i32) -> Result<String, String> {
     raise(
         &PsProcTree::snapshot(),
         &OpenActivator,
         &|path| bundle_identifier(path),
         pid,
     )
+}
+
+/// Bring the window running a session to the front. Returns the bundle
+/// identifier that was activated, for display in the popover.
+///
+/// `async` deliberately: Tauri runs non-async commands on the main thread, and
+/// this one spawns `ps` and then `open` and waits on both. On the main thread
+/// that stalls the event loop mid-animation.
+#[tauri::command]
+pub async fn raise_session(pid: i32) -> Result<String, String> {
+    raise_pid(pid)
 }
 
 pub struct RecordingActivator {
