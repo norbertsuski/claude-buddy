@@ -60,7 +60,14 @@ build:dmg:
     # release should not fail over an update channel that is switched off.
     - |
       BUNDLE=src-tauri/target/release/bundle/macos
-      TARBALL=$(ls "$BUNDLE"/*.app.tar.gz 2>/dev/null | head -1)
+      # Plain glob, not `ls ... | head`: the shell executor runs with
+      # `set -eo pipefail`, so an `ls` that matches nothing fails the pipeline
+      # and takes the whole job with it — even though a missing tarball is the
+      # normal, keyless case this block exists to skip.
+      TARBALL=""
+      for candidate in "$BUNDLE"/*.app.tar.gz; do
+        [ -f "$candidate" ] && TARBALL="$candidate" && break
+      done
       if [ -z "$TARBALL" ] || [ ! -f "$TARBALL.sig" ]; then
         echo "no signed update tarball; skipping the updater manifest"
       else
