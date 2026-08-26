@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { shortName, formatElapsed } from '../../format'
 import type { SessionSnapshot, SessionState, Usage } from '../../types'
-import { RowDetail } from './RowDetail'
+import { DETAIL_MORPH_MS, RowDetailSlot } from './RowDetail'
 import './dotRow.css'
 import './notchFlanks.css'
 
@@ -158,8 +158,23 @@ export function NotchPanel({
   const own = sessions.filter((session) => !session.background)
   const visible = own.slice(0, MAX_ROWS)
   const hidden = own.length - visible.length
-  const hoveredSession =
-    row?.kind === 'session' ? sessions.find((s) => s.sessionId === row.sessionId) ?? null : null
+  const hovered = row?.kind === 'session' ? row.sessionId ?? null : null
+
+  // The row being left stays mounted until its detail has finished collapsing.
+  // Unmounting it on the same frame the next one opens made the list jump: the
+  // rows below snapped up by the old detail's height and then eased back down
+  // by the new one's, from a hover that had only moved by a row.
+  const [leaving, setLeaving] = useState<string | null>(null)
+  const previous = useRef<string | null>(null)
+
+  useEffect(() => {
+    const before = previous.current
+    previous.current = hovered
+    if (before === null || before === hovered) return
+    setLeaving(before)
+    const timer = setTimeout(() => setLeaving(null), DETAIL_MORPH_MS)
+    return () => clearTimeout(timer)
+  }, [hovered])
 
   return (
     <>
@@ -203,8 +218,12 @@ export function NotchPanel({
               <span className="notch-status">{stateLabel(session)}</span>
               <span className="notch-elapsed">{formatElapsed(session.elapsedMs)}</span>
             </div>
-            {hoveredSession?.sessionId === session.sessionId && (
-              <RowDetail session={session} agents={agents[session.sessionId] ?? 0} />
+            {(session.sessionId === hovered || session.sessionId === leaving) && (
+              <RowDetailSlot
+                session={session}
+                agents={agents[session.sessionId] ?? 0}
+                open={session.sessionId === hovered}
+              />
             )}
           </div>
         ))}

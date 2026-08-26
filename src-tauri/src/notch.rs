@@ -20,19 +20,27 @@ use crate::cursor::Rect;
 /// there is no join to treat — no flare, no concave fillets where a wide panel
 /// meets a narrow slot.
 ///
-/// A share rather than a constant so it travels between displays. The divisor is
-/// the widest that clears the menu bar extras on the panel this was measured on:
-/// on 1470pt it gives 342, spanning 564 to 906, and the leftmost extra starts at
-/// 910. A third of the display — the first thing tried — spans 490 to 980 and
-/// sits 70pt underneath them, permanently, because this width applies at rest.
+/// A third of the display, so it travels between panels. On 1470pt that is 490,
+/// spanning 490 to 980 about a notch centred at 735.
 ///
-/// Where the extras actually begin is not observable: they are right-aligned and
-/// roughly a fixed width, so they eat proportionally more of a narrow display
-/// than a wide one. `SLAB_MAX` bounds the share on a large display, and
-/// `SLAB_MIN` keeps a row legible on a small one.
-pub const SLAB_DIVISOR: f64 = 4.3;
+/// This does reach under the menu bar extras — the leftmost starts at 910 on the
+/// panel this was measured on. Accepted, because the width applies only while
+/// the cursor is on the widget: the slab is over the extras for as long as it is
+/// open and off them the moment it closes, which is the same trade the flanking
+/// chips already make against the app's menu titles. The resting band is
+/// content-hugging and stays clear of them, so nothing sits there permanently.
+///
+/// A narrower share was tried first — 4.3, the widest that clears 910 — and read
+/// as broken rather than tidy. It put the open width within 30pt of the resting
+/// one, so the slab appeared to shift sideways instead of growing out of the
+/// notch: too small a change to look like an expansion, big enough to look like
+/// a jump. The animation needs the two widths to be visibly different.
+///
+/// `SLAB_MAX` bounds the share on a large display, where a third would be far
+/// wider than any row needs, and `SLAB_MIN` keeps a row legible on a small one.
+pub const SLAB_DIVISOR: f64 = 3.0;
 pub const SLAB_MIN: f64 = 260.0;
-pub const SLAB_MAX: f64 = 400.0;
+pub const SLAB_MAX: f64 = 560.0;
 
 /// The slab's width on this display.
 pub fn slab_width(geo: &NotchGeometry) -> f64 {
@@ -376,18 +384,23 @@ mod tests {
 
     #[test]
     fn the_slab_is_a_share_of_the_display_within_bounds() {
-        // Measured: on this panel it must stay clear of the leftmost menu bar
-        // extra at 910, with the notch centred at 735.
         let geo = built_in();
-        let width = slab_width(&geo);
-        assert_eq!(width, 1512.0 / SLAB_DIVISOR);
-        let centre = geo.notch_x + geo.notch_width / 2.0;
-        assert!(centre + width / 2.0 < 910.0 + geo.screen_width - 1470.0);
+        assert_eq!(slab_width(&geo), 1512.0 / SLAB_DIVISOR);
+    }
+
+    #[test]
+    fn the_slab_is_visibly_wider_than_the_resting_band() {
+        // The resting band hugs its content: measured at 313pt on this panel,
+        // with the counts and the limit's bar either side of a 179pt notch. An
+        // open width close to that reads as a sideways jump rather than as an
+        // expansion, which is why a narrower share was rejected.
+        let geo = built_in();
+        assert!(slab_width(&geo) > 313.0 * 1.4);
     }
 
     #[test]
     fn the_share_is_bounded_at_both_ends() {
-        let narrow = NotchGeometry { screen_width: 800.0, ..built_in() };
+        let narrow = NotchGeometry { screen_width: 600.0, ..built_in() };
         assert_eq!(slab_width(&narrow), SLAB_MIN);
         let wide = NotchGeometry { screen_width: 6016.0, ..built_in() };
         assert_eq!(slab_width(&wide), SLAB_MAX);

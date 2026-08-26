@@ -92,6 +92,12 @@ body.notch-mode {
   white-space: nowrap;
 }
 
+/* Faster than the detail below it: the highlight is what confirms the cursor
+   moved, so it must not wait for the box to finish opening. */
+.notch-row {
+  transition: background 140ms var(--ease);
+}
+
 .notch-row[data-hovered='true'] {
   background: rgba(255, 255, 255, 0.1);
 }
@@ -172,6 +178,14 @@ body.notch-mode {
 .notch-row .dot-waiting::after {
   inset: -2px;
   border-width: 1.5px;
+}
+
+/* Opens and closes rather than appearing and vanishing. The height is written
+   inline from a measurement, because `auto` cannot be transitioned. Kept in step
+   with RowDetail.DETAIL_MORPH_MS. */
+.notch-detail-wrap {
+  overflow: hidden;
+  transition: height 200ms var(--ease-morph);
 }
 
 /* What the popover used to carry, under the row it belongs to. Fetched per

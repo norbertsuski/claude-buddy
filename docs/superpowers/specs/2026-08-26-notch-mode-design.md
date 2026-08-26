@@ -164,6 +164,23 @@ The label took the chip to roughly 96pt, which reached the first menu bar extra
 on a 1470pt panel. The track alone is 34pt, and both figures are spelled out in
 the slab's footer.
 
+### A detail opens and closes rather than appearing
+
+The hovered row's detail is wrapped in a box whose height is measured and
+written inline, transitioned over 200ms. `auto` cannot be transitioned, and the
+activity line arrives from `session_detail` after the row is hovered, so the box
+is re-measured with a `ResizeObserver`.
+
+The row being left stays mounted until it has finished collapsing —
+`DETAIL_MORPH_MS`, mirrored in the CSS. Unmounting it on the frame the next one
+opens snapped every row below up by the old detail's height and then eased them
+back down by the new one's, from a cursor that had moved by one row. Its 200ms
+is shorter than the band's own `--morph`: the band follows this, and a follower
+slower than what it follows reads as lag rather than as one movement.
+
+The highlight moves faster still, at 140ms, because it is what confirms the
+cursor moved and must not wait for the box.
+
 ### Hovering either chip opens the slab
 
 One `cursor.inside` boolean already exists and drives the whole thing. Per-side
@@ -173,21 +190,32 @@ the notch between them.
 The chips do not move. The slab is wider than both and is painted over them, so
 nothing has to slide out of the way.
 
-### The slab is one fixed width, chosen to occlude nothing
+### The slab is one fixed width: a third of the display
 
 `auxiliaryTopLeftArea.width` gives the flank's total width, not its free width.
 Where the frontmost app's menus end is unobservable without Accessibility
 permissions, and changes on every app switch — so occlusion cannot be avoided by
 measuring, only by picking a width and checking it.
 
-The open width is `display_width / 4.3`, bounded to 260–400pt — 342 on a 1470pt
-panel, spanning 564 to 906. Measured on that panel, the leftmost menu bar extra
-starts at logical 910, so it clears them. A third of the display was tried first
-and spans 490 to 980, sitting 70pt underneath them.
+The open width is `display_width / 3`, bounded to 260–560pt — 490 on a 1470pt
+panel, spanning 490 to 980 about a notch centred at 735.
 
-A share rather than a constant so it travels between displays, bounded because
-the extras are right-aligned and roughly a fixed width, so they eat
-proportionally more of a narrow display than a wide one.
+It does reach under the menu bar extras, which start at logical 910 on the panel
+this was measured on. Accepted: the width applies only while the cursor is on
+the widget, so the slab is over them for as long as it is open and off them the
+moment it closes — the same trade the resting chips already make against the
+app's menu titles.
+
+A narrower share was tried first: 4.3, the widest that clears 910, giving 342.
+Rejected on hardware. It put the open width within 30pt of the resting band's
+313, so the slab appeared to shift sideways rather than grow out of the notch —
+too small a change to read as an expansion, large enough to read as a jump. The
+two widths have to be visibly different for the animation to say what it means.
+It also made a row barely wider than the notch itself, which read as the hover
+only working behind the notch.
+
+A share rather than a constant so it travels between displays, bounded because a
+third of a large display is far wider than any row needs.
 
 **The resting band is not fixed** — it hugs its content, which keeps it clear of
 the extras without needing to know where they are. Only the open width is

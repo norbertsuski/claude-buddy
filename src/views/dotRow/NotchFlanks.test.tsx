@@ -267,6 +267,33 @@ describe('NotchFlanks rows', () => {
     expect(await screen.findByTestId('detail-id-api-service-55')).toBeInTheDocument()
   })
 
+  it('collapses the row it left instead of dropping it', async () => {
+    // Unmounting the old detail on the frame the new one opens snapped the rows
+    // below up and then eased them back down, from a one-row cursor move.
+    render(
+      <NotchFlanks
+        sessions={[session('api-service-55', 'waiting'), session('web-app', 'busy')]}
+        usage={null}
+      />,
+    )
+    await screen.findByTestId('rest-left')
+    open()
+
+    pointAt(screen.getByTestId('row-id-api-service-55'))
+    const first = await screen.findByTestId('detail-slot-id-api-service-55')
+    await waitFor(() => expect(first).toHaveAttribute('data-open', 'true'))
+
+    pointAt(screen.getByTestId('row-id-web-app'))
+    await waitFor(() =>
+      expect(screen.getByTestId('detail-slot-id-web-app')).toHaveAttribute('data-open', 'true'),
+    )
+    // Still there, on its way closed.
+    expect(screen.getByTestId('detail-slot-id-api-service-55')).toHaveAttribute(
+      'data-open',
+      'false',
+    )
+  })
+
   it('highlights the row under the cursor', async () => {
     render(<NotchFlanks sessions={[session('api-service-55', 'waiting')]} usage={USAGE} />)
     await screen.findByTestId('rest-left')
