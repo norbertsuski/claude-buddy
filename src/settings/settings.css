@@ -2,11 +2,22 @@
 body.settings-window {
   padding: 0;
   background: #12161d;
+  /* The widget's stylesheet puts `overflow: hidden` on html and body, so that a
+     transparent always-on-top panel can never scroll. The settings form is an
+     ordinary resizable window whose content can outgrow it, and there it meant
+     the overflow was simply unreachable — the Done button spent a release below
+     the bottom edge. Given a fixed height of its own, the body becomes the
+     scroll container and the clip on html no longer matters. */
+  height: 100vh;
+  overflow-y: auto;
 }
 
 body.settings-window .settings {
   width: auto;
   min-height: 100vh;
+  /* Or the panel's own padding is added to a full viewport height and the
+     window scrolls by 28px with nothing in them. */
+  box-sizing: border-box;
   border: 0;
   border-radius: 0;
   box-shadow: none;

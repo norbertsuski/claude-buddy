@@ -143,7 +143,11 @@ pub fn open_settings(app: &AppHandle) {
         WebviewUrl::App("index.html#settings".into()),
     )
     .title("clawde-buddy Settings")
-    .inner_size(360.0, 420.0)
+    // Measured: the form is 451px tall, and at 420 the Done button sat below
+    // the bottom edge with no way to reach it. The panel scrolls now too, so a
+    // window shrunk past its content — or a setting added later — cannot put a
+    // control out of reach again.
+    .inner_size(360.0, 500.0)
     .min_inner_size(320.0, 360.0)
     .resizable(true)
     .focused(true)
@@ -329,8 +333,18 @@ fn place_on(window: &WebviewWindow, monitor: &tauri::Monitor, saved: Option<[f64
     let scale = monitor.scale_factor();
     let size = monitor.size().to_logical::<f64>(scale);
     let origin = monitor.position().to_logical::<f64>(scale);
+    // The window's own scale, not the target monitor's. `outer_size` reports
+    // physical pixels on the display the window is currently on, and the window
+    // has not moved yet — so dividing them by the destination's scale sized the
+    // widget wrongly whenever the two displays differ, which is exactly the case
+    // this function exists to handle. A 383pt widget on a 2x panel measures
+    // 766px, and read against a 1x display that is a 766pt widget: centring it
+    // then pushed it well off centre.
+    let Ok(window_scale) = window.scale_factor() else {
+        return;
+    };
     let widget: LogicalSize<f64> = match window.outer_size() {
-        Ok(s) => s.to_logical(scale),
+        Ok(s) => s.to_logical(window_scale),
         Err(_) => return,
     };
 
@@ -501,6 +515,24 @@ mod tests {
 
     const DISPLAY: (f64, f64) = (1920.0, 1080.0);
     const WIDGET: (f64, f64) = (200.0, 40.0);
+
+    #[test]
+    fn a_widget_is_centred_by_its_size_in_points_not_its_pixels() {
+        // Regression: `place_on` divided the window's physical size by the
+        // *destination* monitor's scale. Moving a 383pt widget from a 2x panel
+        // to a 1x display read its 766 physical pixels as 766 points, and it
+        // landed far left of centre instead of on it.
+        let display = (3840.0, 2160.0);
+        let physical_on_a_2x_panel = 766.0;
+        let points = physical_on_a_2x_panel / 2.0;
+
+        let right = resolve_position(None, display, (points, 45.0), WIDGET_MARGIN);
+        let wrong = resolve_position(None, display, (physical_on_a_2x_panel, 45.0), WIDGET_MARGIN);
+
+        assert_eq!(right.0, (3840.0 - 383.0) / 2.0);
+        assert_ne!(right.0, wrong.0, "the two scales must not agree, or this proves nothing");
+        assert!(wrong.0 < right.0, "the old maths pushed the widget left of centre");
+    }
 
     /// The one test touching `LAST_SIZE`, since it is process-wide: splitting
     /// it up would let the cases race each other.
