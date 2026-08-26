@@ -2,9 +2,7 @@
 
 A floating always-on-top macOS widget that shows what every local Claude Code session is doing, and tells you when one is waiting on you.
 
-![Hovering the widget: the pill expands into a named row, and a popover follows the session under the cursor](docs/media/hover.gif)
-
-*The screenshots on this page predate the per-state dot shapes and the popover's `doing` line, so the dots and the popover look slightly different now.*
+![The cursor reaches the resting pill, which morphs into a named row of sessions, and a popover opens beneath the one under the cursor](docs/media/hover.gif)
 
 *All screenshots on this page use mocked session data.*
 
@@ -16,17 +14,17 @@ clawde-buddy reads the session registry Claude Code already maintains and puts i
 
 ## What you see
 
-At rest, a small pill with counts. The amber chip is absent entirely when nothing needs you.
+At rest, a small pill with counts. Each coloured chip carries the dot of the state it counts, and a chip is absent entirely when nothing is in that state — no amber when nothing needs you, no red when nothing has died. What is merely sitting there stays as quiet grey text.
 
-![The collapsed pill reading "1 needs you", "1 working", "2 idle", "1 job"](docs/media/collapsed.png)
+![The collapsed pill reading "1 needs you", "1 working", "1 died", "2 idle", "1 job"](docs/media/collapsed.png)
 
 Hover it and the pill morphs into a named row, one dot per session.
 
-![The expanded row showing five entries in different states](docs/media/expanded.png)
+![The expanded row: api-service waiting behind an amber triangle, its background job migrate-schemas demoted behind an arrow, web-app working behind a green circle, design-system idle behind a hollow ring, docs-site paused behind a two-bar glyph, and infra-tools dead behind a red cross](docs/media/expanded.png)
 
 Hover a name and a popover opens centred beneath it, with the state and how long it has held, what the session is *doing* — the newest tool it reached for, or failing that the last thing it said — plus the working directory, git branch, model, effort, entrypoint, pid and uptime. Click it to bring that session's editor to the front.
 
-![A popover under the hovered session showing cwd, branch, model and pid](docs/media/popover.png)
+![A popover open under web-app, reading: state busy for 1m, doing Grep, cwd /Users/n/Code/web-app, branch fix/checkout-totals, model claude-opus-5 at high effort, and cli, pid 12378, up 1h22m](docs/media/popover.png)
 
 Every state carries a shape as well as a hue, because colour alone is unreadable to a red-green colourblind user and these five dots are the widget's whole vocabulary. The box stays 11px in each case, so nothing shifts as a session changes state.
 
