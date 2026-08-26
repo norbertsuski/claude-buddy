@@ -86,9 +86,20 @@ describe('FlankCluster', () => {
   })
 
   it('shows names rather than counts once expanded', () => {
+    // Both states stay mounted so the box can be measured and morphed between,
+    // so which one is showing is an attribute rather than presence.
     chip({ sessions: [session('api-service-55', 'waiting')], expanded: true })
     expect(screen.getByText('api-service')).toBeInTheDocument()
-    expect(screen.queryByTestId('count-waiting')).not.toBeInTheDocument()
+    expect(screen.getByTestId('expanded-left')).toHaveAttribute('data-show', 'true')
+    expect(screen.getByTestId('collapsed-left')).toHaveAttribute('data-show', 'false')
+  })
+
+  it('keeps both states mounted so the box has something to morph to', () => {
+    chip({ sessions: [session('api-service-55', 'waiting')] })
+    expect(screen.getByTestId('collapsed-left')).toHaveAttribute('data-show', 'true')
+    expect(screen.getByTestId('expanded-left')).toHaveAttribute('data-show', 'false')
+    // The hidden state is still in the DOM, which is what makes it measurable.
+    expect(screen.getByText('api-service')).toBeInTheDocument()
   })
 
   it('collapses the tail beyond the per-side cap into a count', () => {

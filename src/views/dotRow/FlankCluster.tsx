@@ -1,5 +1,7 @@
+import { useLayoutEffect, useRef, useState } from 'react'
 import { countByState } from '../../format'
 import type { SessionSnapshot, SessionState } from '../../types'
+import { layoutSize } from '../../useWidgetSize'
 import { SessionEntry } from './SessionEntry'
 import './dotRow.css'
 import './notchFlanks.css'
@@ -16,6 +18,10 @@ export type FlankSide = 'left' | 'right'
  * construction.
  */
 export const FLANK_MAX_VISIBLE = 2
+
+/** Chip padding and border, mirroring `.flank-chip` in notchFlanks.css. */
+export const CHIP_PAD = 10
+export const CHIP_BORDER = 0
 
 /**
  * Which side each state sends a session to.
@@ -68,12 +74,13 @@ interface Props {
 }
 
 /**
- * One chip, beside its edge of the notch.
+ * One chip, flush against its edge of the notch.
  *
- * Collapsed it shows a count per state it holds; expanded it shows names.
- * Either way it grows away from the notch, which is where the free space is:
- * app menu titles fill the left flank from the left edge inward and menu bar
- * extras fill the right flank from the right edge inward.
+ * Collapsed it shows a count per state it holds; expanded it shows names. Both
+ * are mounted at once and the chip's own width is animated between the two, so
+ * the box morphs rather than jumping — the same approach `DotRow` takes for the
+ * pill, minus the window choreography, because the notch window is a fixed size
+ * big enough for either state and never resizes.
  *
  * With no sessions it renders `fallbackTotal` if it was given one and nothing
  * at all otherwise.
@@ -88,7 +95,25 @@ export function FlankCluster({
   fallbackTotal,
   maxVisible = FLANK_MAX_VISIBLE,
 }: Props) {
+  const collapsedSlot = useRef<HTMLDivElement>(null)
+  const expandedSlot = useRef<HTMLDivElement>(null)
+  const [boxWidth, setBoxWidth] = useState<number | null>(null)
+
   const empty = sessions.length === 0
+  const showNames = expanded && !empty
+
+  // Size the chip to the state being morphed into. Both slots are mounted, so
+  // the target is measurable now rather than after the transition has already
+  // clipped it.
+  useLayoutEffect(() => {
+    const slot = (showNames ? expandedSlot : collapsedSlot).current
+    if (slot === null) return
+    // layoutSize, not getBoundingClientRect: the hidden slot is mid-transition
+    // and the rect would report its animating state rather than its layout.
+    setBoxWidth(layoutSize(slot).width + CHIP_PAD * 2 + CHIP_BORDER * 2)
+  }, [showNames, sessions, fallbackTotal, hoveredSessionId])
+
+  // After the hooks: a chip that renders nothing must not change their order.
   if (empty && fallbackTotal === undefined) return null
 
   const counts = countByState(sessions)
@@ -103,39 +128,51 @@ export function FlankCluster({
       data-side={side}
       data-expanded={expanded ? 'true' : 'false'}
       data-testid={`flank-${side}`}
+      style={boxWidth === null ? undefined : { width: boxWidth }}
     >
-      {empty ? (
-        // Deliberately no dot. A state count is a dot and a number, so a bare
-        // muted number cannot be misread as one — which matters here, because
-        // this chip being present no longer means anything on its own.
-        <span className="total" data-testid="total">
-          {fallbackTotal}
-        </span>
-      ) : expanded ? (
-        <>
-          {visible.map((session, index) => (
-            <SessionEntry
-              key={session.sessionId}
-              session={session}
-              separated={index > 0}
-              hovered={hoveredSessionId === session.sessionId}
-              onHover={onHoverSession}
-            />
-          ))}
-          {hidden > 0 && (
-            <span className="summary" data-testid={`overflow-${side}`}>
-              +{hidden}
-            </span>
-          )}
-        </>
-      ) : (
-        groups.map((state) => (
-          <span key={state} className="count" data-testid={`count-${state}`}>
-            <span className={`dot dot-${state}`} />
-            {counts[state]}
+      <div
+        className="flank-variant"
+        ref={collapsedSlot}
+        data-show={showNames ? 'false' : 'true'}
+        data-testid={`collapsed-${side}`}
+      >
+        {empty ? (
+          // Deliberately no dot. A state count is a dot and a number, so a bare
+          // muted number cannot be misread as one — which matters here, because
+          // this chip being present no longer means anything on its own.
+          <span className="total" data-testid="total">
+            {fallbackTotal}
           </span>
-        ))
-      )}
+        ) : (
+          groups.map((state) => (
+            <span key={state} className="count" data-testid={`count-${state}`}>
+              <span className={`dot dot-${state}`} />
+              {counts[state]}
+            </span>
+          ))
+        )}
+      </div>
+      <div
+        className="flank-variant"
+        ref={expandedSlot}
+        data-show={showNames ? 'true' : 'false'}
+        data-testid={`expanded-${side}`}
+      >
+        {visible.map((session, index) => (
+          <SessionEntry
+            key={session.sessionId}
+            session={session}
+            separated={index > 0}
+            hovered={hoveredSessionId === session.sessionId}
+            onHover={onHoverSession}
+          />
+        ))}
+        {hidden > 0 && (
+          <span className="summary" data-testid={`overflow-${side}`}>
+            +{hidden}
+          </span>
+        )}
+      </div>
     </div>
   )
 }

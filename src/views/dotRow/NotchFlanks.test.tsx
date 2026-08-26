@@ -148,6 +148,26 @@ describe('NotchFlanks', () => {
     expect(screen.queryByTestId('total')).not.toBeInTheDocument()
   })
 
+  it('fills the notch span so there is no seam beside it', async () => {
+    render(<NotchFlanks sessions={[session('a-11', 'waiting'), session('b-22', 'busy')]} />)
+    const bridge = await screen.findByTestId('notch-bridge')
+    expect(bridge.style.left).toBe('200px')
+    expect(bridge.style.width).toBe('190px')
+    expect(bridge.style.height).toBe('37px')
+  })
+
+  it('does not report the notch bridge as part of the widget', async () => {
+    // Hovering the notch must not expand the row: the bridge is decoration
+    // behind a physical cutout, not a target.
+    render(<NotchFlanks sessions={[session('a-11', 'waiting'), session('b-22', 'busy')]} />)
+    await screen.findByTestId('notch-bridge')
+    await waitFor(() => {
+      const calls = invoke.mock.calls.filter(([command]) => command === 'set_hover_rects')
+      const last = calls[calls.length - 1]![1] as { rects: unknown[] }
+      expect(last.rects).toHaveLength(2)
+    })
+  })
+
   it('places each flank so its inner edge is the notch edge', async () => {
     render(<NotchFlanks sessions={[session('a-11', 'waiting'), session('b-22', 'busy')]} />)
     await screen.findByTestId('flank-left')
@@ -199,10 +219,11 @@ describe('NotchFlanks', () => {
     await screen.findByTestId('flank-left')
 
     moveCursor({ x: 170, y: 12, inside: true })
-    expect(screen.getByText('api-service')).toBeInTheDocument()
+    expect(screen.getByTestId('expanded-left')).toHaveAttribute('data-show', 'true')
 
     moveCursor({ x: 800, y: 400, inside: false })
-    expect(screen.queryByText('api-service')).not.toBeInTheDocument()
+    expect(screen.getByTestId('collapsed-left')).toHaveAttribute('data-show', 'true')
+    expect(screen.getByTestId('expanded-left')).toHaveAttribute('data-show', 'false')
     expect(screen.getByTestId('count-waiting')).toHaveTextContent('1')
   })
 

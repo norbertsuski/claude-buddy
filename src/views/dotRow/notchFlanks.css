@@ -31,11 +31,6 @@ body.notch-mode {
   height: 100%;
 }
 
-:root {
-  /* Clear of the notch's rounded bottom corners, which curve into the space a
-     flush chip would occupy. */
-  --notch-gap: 7px;
-}
 
 /* One flank is exactly the expansion budget wide, aligned so its inner edge is
    the notch edge. That caps expansion without any clamping logic: the chip
@@ -56,57 +51,87 @@ body.notch-mode {
 }
 
 .flank-chip {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
   box-sizing: border-box;
   max-width: 100%;
-  /* Tall enough for the waiting ring, which reaches 1.6x of a box inset -2px
-     around an 8px dot — 19.2px — and would otherwise be clipped flat. */
-  height: 24px;
-  padding: 0 8px;
+  /* The flank is exactly the menu bar's height, read from safeAreaInsets, so
+     filling it makes the chip the same height as the notch. Anything less
+     leaves a seam above and below and the two stop reading as one shape. */
+  height: 100%;
+  padding: 0 10px;
   overflow: hidden;
   white-space: nowrap;
   font-size: 12px;
-  background: var(--bg);
-  border: 1px solid var(--border);
+  /* Pure black and no border, to match the notch rather than sit beside it.
+     The earlier choice was the pill's own translucent --bg, argued for because
+     black looks wrong over a light wallpaper once the chip expands out into it.
+     That tradeoff still stands and is now taken deliberately: reading as one
+     shape with the notch is the point of the feature. */
+  background: #000;
+  border: none;
   color: var(--text);
-  transition: background var(--morph) var(--ease), border-color var(--morph) var(--ease);
+  /* The box morphs between the counts and the names rather than jumping. Width
+     is set inline from the measured slot, so it is a real animatable length —
+     `auto` would not transition at all. --ease-morph is the near-symmetric one,
+     for the same reason the pill uses it: --ease is front-loaded and lurches. */
+  transition: width var(--morph) var(--ease-morph),
+    background var(--morph) var(--ease), border-color var(--morph) var(--ease);
 }
 
-/* Beside the notch, not flush with it.
+/* Flush against the notch: the edge meeting it is square and unbordered, so the
+   chip reads as one shape with the notch rather than a separate pill beside it.
 
-   Flush was the original design: square inner corner, no border on the edge
-   meeting the notch, so the chip read as growing out of it. On hardware that
-   backfired completely — --bg is near-black, and a near-black chip touching a
-   black notch with no edge between them reads as the notch being slightly
-   wider. The chip was invisible for the same reason solid black was rejected,
-   one step removed.
+   A 7pt gap was tried first, while the chips were invisible for an unrelated
+   reason — body had no height, so `overflow: hidden` clipped them away. Flush
+   was never the problem, and detached does not read as a Dynamic Island.
 
-   So: a gap, a border all the way round, and every corner rounded. The chips
-   are two pills sitting either side of the notch.
-
-   The left chip still lays out in reverse so its first child — the most urgent
-   state, or the most urgent session — sits nearest the notch, matching the right
-   chip where document order already does that. It also puts the truncation at
-   the outer end, away from the entries that carry a pulse ring. */
-.flank-chip {
-  border-radius: 7px;
-}
-
+   The left chip lays out in reverse so its first child — the most urgent state,
+   or the most urgent session — sits nearest the notch, matching the right chip
+   where document order already does that. It also puts the truncation at the
+   outer end, away from the entries that carry a pulse ring. */
+/* Rounded on the outer bottom corner only, mirroring the notch's own bottom
+   corners. The top edge is the screen edge, so it stays square, and the
+   notch-facing edge has nothing to round against. */
 .flank-chip[data-side='left'] {
-  flex-direction: row-reverse;
-  margin-right: var(--notch-gap);
+  border-radius: 0 0 0 9px;
 }
 
 .flank-chip[data-side='right'] {
-  margin-left: var(--notch-gap);
+  border-radius: 0 0 9px 0;
 }
 
-.flank-chip[data-expanded='true'] {
-  background: var(--bg-lit);
-  border-color: var(--border-lit);
+/* Both states are mounted so the one being morphed into can be measured. They
+   are taken out of flow and anchored to the notch-facing edge, so the chip
+   grows away from the notch and the inactive one does not add width. */
+.flank-variant {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  transition: opacity var(--morph) var(--ease);
 }
+
+.flank-chip[data-side='left'] .flank-variant {
+  right: 10px;
+  flex-direction: row-reverse;
+}
+
+.flank-chip[data-side='right'] .flank-variant {
+  left: 10px;
+}
+
+.flank-variant[data-show='false'] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Deliberately no lift on hover. Any lightening breaks the match with the
+   notch, and the box growing is already the feedback. */
 
 .flank-chip .total {
   color: var(--muted);
@@ -185,7 +210,19 @@ body.notch-mode {
   text-overflow: ellipsis;
 }
 
-/* Out of the bar and onto the desktop: 335 x ~100pt does not fit in 37pt. */
+/* Black behind the notch, so the two chips and the notch are one unbroken
+   shape. Invisible by itself — the notch is a physical cutout and already black
+   — but it removes any sub-pixel seam where a chip edge meets a notch edge,
+   which is what made the alignment look slightly off. Deliberately not reported
+   as a hover rect: hovering the notch is not hovering the widget. */
+.notch-bridge {
+  position: absolute;
+  top: 0;
+  background: #000;
+  pointer-events: none;
+}
+
+/* Out of the bar and onto the desktop: 335 x ~100pt does not fit in a bar. */
 .notch-popover {
   position: absolute;
 }

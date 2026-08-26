@@ -137,6 +137,16 @@ export function NotchFlanks({ sessions }: Props) {
   return (
     <div className="notch-flanks" data-testid="notch-flanks">
       <div
+        className="notch-bridge"
+        data-testid="notch-bridge"
+        aria-hidden="true"
+        style={{
+          left: layout.notchLeft,
+          width: layout.notchRight - layout.notchLeft,
+          height: layout.barHeight,
+        }}
+      />
+      <div
         className="flank flank-left"
         style={{
           left: layout.notchLeft - layout.budget,
