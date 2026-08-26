@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { formatElapsed } from '../../format'
-import type { SessionSnapshot, TranscriptDetail } from '../../types'
+import { formatCountdown, formatElapsed } from '../../format'
+import type { SessionSnapshot, TranscriptDetail, Usage } from '../../types'
 import './dotRow.css'
 
 const EMPTY: TranscriptDetail = { branch: null, model: null, effort: null, activity: null }
@@ -32,7 +32,19 @@ function dash(value: string | null | undefined): string {
   return value && value.length > 0 ? value : '—'
 }
 
-export function SessionPopover({ session }: { session: SessionSnapshot }) {
+export function SessionPopover({
+  session,
+  usage = null,
+}: {
+  session: SessionSnapshot
+  /**
+   * Five-hour limit usage. Not a property of this session — it is the whole
+   * account's — but the row's meter has room for a bar and a countdown and
+   * nothing else, so the figure behind it belongs on the one surface that can
+   * carry it. `null` whenever the meter is absent, for all the same reasons.
+   */
+  usage?: Usage | null
+}) {
   const [detail, setDetail] = useState<TranscriptDetail>(EMPTY)
   const [error, setError] = useState<string | null>(null)
   const now = useNow()
@@ -102,6 +114,17 @@ export function SessionPopover({ session }: { session: SessionSnapshot }) {
         <dd data-testid="popover-proc">
           {session.entrypoint} · pid {session.pid} · {formatElapsed(uptimeMs)}
         </dd>
+        {usage !== null && (
+          <>
+            <dt>5h limit</dt>
+            <dd
+              className={usage.severity === 'critical' ? 'hot' : undefined}
+              data-testid="popover-usage"
+            >
+              {usage.percent}% used · resets in {formatCountdown(usage.resetsAtMs - now)}
+            </dd>
+          </>
+        )}
       </dl>
       {error === null ? (
         <div className="popover-foot">click → raise this window</div>

@@ -276,7 +276,7 @@ export function DotRow({ sessions, smoothTransitions = true, usage = null }: Ses
           data-testid="popover-anchor"
           style={{ marginLeft: anchorOffset }}
         >
-          <SessionPopover session={hovered} />
+          <SessionPopover session={hovered} usage={usage} />
         </div>
       )}
     </div>

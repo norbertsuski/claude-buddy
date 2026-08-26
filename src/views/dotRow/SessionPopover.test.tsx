@@ -164,3 +164,44 @@ describe('SessionPopover hit-testing', () => {
     expect(screen.getByTestId('popover')).toHaveAttribute('data-session-id', 'id-a')
   })
 })
+
+describe('SessionPopover five-hour limit', () => {
+  /**
+   * Built per test, and half a minute past the boundary: the label floors to
+   * whole minutes, so a fixture pinned exactly on 2h41m and rendered a few
+   * milliseconds later reads as 2h40m.
+   */
+  const usage = (severity: 'normal' | 'warn' | 'critical' = 'normal') => ({
+    percent: 42,
+    resetsAtMs: Date.now() + 2 * 3_600_000 + 41 * 60_000 + 30_000,
+    severity,
+  })
+
+  it('spells out the figure the row only has room to draw as a bar', async () => {
+    render(<SessionPopover session={session} usage={usage()} />)
+
+    expect(await screen.findByTestId('popover-usage')).toHaveTextContent(
+      '42% used · resets in 2h41m',
+    )
+  })
+
+  it('marks a spent window hot, as it does a waiting session', async () => {
+    render(<SessionPopover session={session} usage={usage('critical')} />)
+
+    expect(await screen.findByTestId('popover-usage')).toHaveClass('hot')
+  })
+
+  it('omits the row when there is no figure worth trusting', async () => {
+    render(<SessionPopover session={session} usage={null} />)
+
+    await screen.findByTestId('popover-proc')
+    expect(screen.queryByTestId('popover-usage')).not.toBeInTheDocument()
+  })
+
+  it('omits the row when no usage is passed at all', async () => {
+    render(<SessionPopover session={session} />)
+
+    await screen.findByTestId('popover-proc')
+    expect(screen.queryByTestId('popover-usage')).not.toBeInTheDocument()
+  })
+})
