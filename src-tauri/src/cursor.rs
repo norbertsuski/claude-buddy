@@ -128,10 +128,10 @@ pub struct CursorPosition {
 /// The window is deliberately larger than the pill — it is sized to the widest
 /// state so that hovering never resizes it — so the window rect is no longer a
 /// usable proxy for "the cursor is on the widget".
-static HOVER_RECT: std::sync::OnceLock<std::sync::Mutex<Option<Rect>>> =
+static HOVER_RECTS: std::sync::OnceLock<std::sync::Mutex<Vec<Rect>>> =
     std::sync::OnceLock::new();
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
 pub struct Rect {
     pub x: f64,
     pub y: f64,
@@ -139,18 +139,36 @@ pub struct Rect {
     pub height: f64,
 }
 
-fn hover_rect() -> &'static std::sync::Mutex<Option<Rect>> {
-    HOVER_RECT.get_or_init(|| std::sync::Mutex::new(None))
+fn hover_rects() -> &'static std::sync::Mutex<Vec<Rect>> {
+    HOVER_RECTS.get_or_init(|| std::sync::Mutex::new(Vec::new()))
 }
 
 /// Report which part of the window is the widget itself.
 #[tauri::command]
 pub fn set_hover_rect(x: f64, y: f64, width: f64, height: f64) {
-    *hover_rect().lock().expect("hover rect poisoned") = Some(Rect { x, y, width, height });
+    *hover_rects().lock().expect("hover rects poisoned") = vec![Rect { x, y, width, height }];
+}
+
+/// Report several disjoint parts of the window as the widget.
+///
+/// Notch mode draws two chips flanking the notch, and a single bounding rect
+/// would bridge the gap between them — making the notch itself, and the empty
+/// bar either side of it, read as hovering the widget.
+#[tauri::command]
+pub fn set_hover_rects(rects: Vec<Rect>) {
+    *hover_rects().lock().expect("hover rects poisoned") = rects;
 }
 
 pub fn contains(rect: Rect, x: f64, y: f64) -> bool {
     x >= rect.x && y >= rect.y && x <= rect.x + rect.width && y <= rect.y + rect.height
+}
+
+/// Whether any of `rects` contains the point.
+///
+/// An empty slice contains nothing, which is why callers substitute the whole
+/// window before the frontend has measured itself rather than passing `&[]`.
+pub fn contains_any(rects: &[Rect], x: f64, y: f64) -> bool {
+    rects.iter().any(|rect| contains(*rect, x, y))
 }
 
 /// Convert a global cursor point into window-local coordinates.
@@ -164,18 +182,19 @@ pub fn to_window_local(
     cursor: (f64, f64),
     window_origin: (f64, f64),
     window_size: (f64, f64),
-    widget: Option<Rect>,
+    widget: &[Rect],
 ) -> CursorPosition {
     let x = cursor.0 - window_origin.0;
     let y = cursor.1 - window_origin.1;
     // Before the frontend has measured itself, the whole window stands in.
-    let bounds = widget.unwrap_or(Rect {
+    let whole = [Rect {
         x: 0.0,
         y: 0.0,
         width: window_size.0,
         height: window_size.1,
-    });
-    CursorPosition { x, y, inside: contains(bounds, x, y) }
+    }];
+    let bounds = if widget.is_empty() { &whole[..] } else { widget };
+    CursorPosition { x, y, inside: contains_any(bounds, x, y) }
 }
 
 fn global_cursor() -> Option<(f64, f64)> {
@@ -217,12 +236,12 @@ pub fn spawn_cursor_watcher(window: WebviewWindow) -> Arc<AtomicBool> {
                 let origin = pos.to_logical::<f64>(scale);
                 let dims = size.to_logical::<f64>(scale);
 
-                let widget = *hover_rect().lock().expect("hover rect poisoned");
+                let widget = hover_rects().lock().expect("hover rects poisoned").clone();
                 let next = to_window_local(
                     cursor,
                     (origin.x, origin.y),
                     (dims.width, dims.height),
-                    widget,
+                    &widget,
                 );
 
                 let mut slot = previous.lock().expect("cursor state poisoned");
@@ -309,25 +328,73 @@ mod tests {
     const SIZE: (f64, f64) = (101.0, 53.0);
 
     fn local(cursor: (f64, f64)) -> CursorPosition {
-        to_window_local(cursor, ORIGIN, SIZE, None)
+        to_window_local(cursor, ORIGIN, SIZE, &[])
     }
 
     #[test]
     fn the_widget_rect_narrows_what_counts_as_inside() {
         // The window is sized to the widest state, so most of it is empty
         // transparent margin that must not read as hovering the widget.
-        let widget = Some(Rect { x: 30.0, y: 30.0, width: 40.0, height: 20.0 });
+        let widget = [Rect { x: 30.0, y: 30.0, width: 40.0, height: 20.0 }];
         let big = (600.0, 200.0);
 
-        let on_pill = to_window_local((ORIGIN.0 + 50.0, ORIGIN.1 + 40.0), ORIGIN, big, widget);
+        let on_pill = to_window_local((ORIGIN.0 + 50.0, ORIGIN.1 + 40.0), ORIGIN, big, &widget);
         assert!(on_pill.inside);
         assert_eq!((on_pill.x, on_pill.y), (50.0, 40.0));
 
         // Well inside the window, but in the margin beside the pill.
-        let in_margin = to_window_local((ORIGIN.0 + 400.0, ORIGIN.1 + 40.0), ORIGIN, big, widget);
+        let in_margin = to_window_local((ORIGIN.0 + 400.0, ORIGIN.1 + 40.0), ORIGIN, big, &widget);
         assert!(!in_margin.inside);
         // Coordinates are still window-local, for the page's own hit-testing.
         assert_eq!((in_margin.x, in_margin.y), (400.0, 40.0));
+    }
+
+    /// Two chips flanking a 190pt notch inside a 590pt window, as notch mode
+    /// draws them: budget 200 either side, so the notch spans x 200..390.
+    fn flanking_chips() -> [Rect; 2] {
+        [
+            Rect { x: 140.0, y: 0.0, width: 60.0, height: 37.0 },
+            Rect { x: 390.0, y: 0.0, width: 60.0, height: 37.0 },
+        ]
+    }
+
+    #[test]
+    fn either_flanking_chip_counts_as_inside() {
+        let chips = flanking_chips();
+        assert!(contains_any(&chips, 170.0, 18.0));
+        assert!(contains_any(&chips, 420.0, 18.0));
+    }
+
+    #[test]
+    fn the_notch_between_two_chips_is_not_the_widget() {
+        // The reason a bounding rect will not do. A union of the two chips spans
+        // x 140..450, so the notch itself — and the bar either side of it —
+        // would read as hovering the widget and hold the row expanded.
+        let chips = flanking_chips();
+        assert!(!contains_any(&chips, 295.0, 18.0));
+        assert!(!contains_any(&chips, 100.0, 18.0));
+        assert!(!contains_any(&chips, 500.0, 18.0));
+    }
+
+    #[test]
+    fn the_popover_allowance_below_the_bar_is_not_the_widget() {
+        // The window is tall enough to hold a popover whether or not one is
+        // open. That reserved area must stay click-through, or the widget
+        // swallows clicks on the desktop under the menu bar.
+        assert!(!contains_any(&flanking_chips(), 295.0, 200.0));
+    }
+
+    #[test]
+    fn no_reported_rects_contains_nothing() {
+        assert!(!contains_any(&[], 0.0, 0.0));
+    }
+
+    #[test]
+    fn the_whole_window_stands_in_until_the_frontend_reports() {
+        // Over-eager rather than broken: better to treat the window as the
+        // widget for the first frames than to miss the hover entirely.
+        let big = (600.0, 200.0);
+        assert!(to_window_local((ORIGIN.0 + 400.0, ORIGIN.1 + 40.0), ORIGIN, big, &[]).inside);
     }
 
     #[test]
@@ -474,7 +541,7 @@ mod tests {
 
     #[test]
     fn a_window_at_the_global_origin_needs_no_translation() {
-        let p = to_window_local((40.0, 15.0), (0.0, 0.0), SIZE, None);
+        let p = to_window_local((40.0, 15.0), (0.0, 0.0), SIZE, &[]);
         assert_eq!((p.x, p.y), (40.0, 15.0));
         assert!(p.inside);
     }

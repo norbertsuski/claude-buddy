@@ -1,0 +1,126 @@
+/* Notch mode: two chips in the menu bar, flanking the notch.
+   The same tokens as the free-mode pill at a smaller multiplier. The bar is
+   37pt tall, which leaves about 24pt once the chip has any padding, against the
+   pill's 76pt — so sizes here are roughly 0.55x of dotRow.css rather than a
+   second set of values. Overrides are scoped under .notch-flanks and win on
+   specificity, so import order does not matter. */
+
+/* The chips sit flush at the top of the screen. --shadow-pad exists so the
+   free-mode pill has somewhere to drop a shadow; here it would push the chips
+   out of the menu bar entirely. NotchFlanks adds this class on mount. */
+body.notch-mode {
+  padding: 0;
+}
+
+.notch-flanks {
+  position: relative;
+  width: 100%;
+  font-size: 12px;
+}
+
+/* One flank is exactly the expansion budget wide, aligned so its inner edge is
+   the notch edge. That caps expansion without any clamping logic: the chip
+   cannot grow past its own container. */
+.flank {
+  position: absolute;
+  top: 0;
+  display: flex;
+  align-items: center;
+}
+
+.flank-left {
+  justify-content: flex-end;
+}
+
+.flank-right {
+  justify-content: flex-start;
+}
+
+.flank-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  max-width: 100%;
+  /* Tall enough for the waiting ring, which reaches 1.6x of a box inset -2px
+     around an 8px dot — 19.2px — and would otherwise be clipped flat. */
+  height: 24px;
+  padding: 0 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  transition: background var(--morph) var(--ease), border-color var(--morph) var(--ease);
+}
+
+/* Flush against the notch: the edge meeting it is square and unbordered, so the
+   chip reads as growing out of the notch rather than floating beside it.
+
+   The left chip lays out in reverse so its first child — the most urgent state,
+   or the most urgent session — sits nearest the notch, matching the right chip
+   where document order already does that. It also puts the truncation at the
+   outer end, away from the entries that carry a pulse ring. */
+.flank-chip[data-side='left'] {
+  flex-direction: row-reverse;
+  border-radius: 7px 0 0 7px;
+  border-right: none;
+}
+
+.flank-chip[data-side='right'] {
+  border-radius: 0 7px 7px 0;
+  border-left: none;
+}
+
+.flank-chip[data-expanded='true'] {
+  background: var(--bg-lit);
+  border-color: var(--border-lit);
+}
+
+.notch-flanks .count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Notch scale. The free-mode dot is 11px against 15px text; here 8 against 12. */
+.notch-flanks .dot {
+  width: 8px;
+  height: 8px;
+}
+
+.notch-flanks .dot-waiting::after {
+  inset: -2px;
+  border-width: 1.5px;
+}
+
+.notch-flanks .entry-group {
+  gap: 7px;
+}
+
+.notch-flanks .entry {
+  gap: 6px;
+}
+
+.notch-flanks .entry-name {
+  font-size: 12px;
+}
+
+.notch-flanks .entry[data-background='true'] .entry-name {
+  font-size: 11px;
+}
+
+.notch-flanks .hairline {
+  height: 12px;
+}
+
+.notch-flanks .summary {
+  font-size: 11px;
+  padding: 0 2px;
+}
+
+/* Out of the bar and onto the desktop: 335 x ~100pt does not fit in 37pt. */
+.notch-popover {
+  position: absolute;
+}

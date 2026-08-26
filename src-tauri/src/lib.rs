@@ -2,6 +2,7 @@ pub mod bridge;
 pub mod commands;
 pub mod cursor;
 pub mod config;
+pub mod notch;
 pub mod notify;
 pub mod update;
 pub mod visibility;
@@ -28,6 +29,8 @@ pub fn run() {
             window::resize_widget,
             window::list_displays,
             cursor::set_hover_rect,
+            cursor::set_hover_rects,
+            notch::notch_layout,
             bridge::transcript::session_detail,
             bridge::raise::raise_session,
             commands::get_sessions,
