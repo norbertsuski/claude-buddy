@@ -1,11 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import type { SessionSnapshot } from '../../types'
+import type { SessionSnapshot, Usage } from '../../types'
 import { centredAnchor, POPOVER_WIDTH, useCursor } from '../../useCursor'
 import { reportHoverRects, useNotchLayout, visibleRects } from '../../useNotch'
-import { CHIP_STATES, FlankCluster } from './FlankCluster'
+import { FlankChip } from './FlankChip'
+import { FlankCluster } from './FlankCluster'
 import { SessionPopover } from './SessionPopover'
+import { UsageMeter } from './UsageMeter'
 import './notchFlanks.css'
 
 /** Gap between the menu bar and the popover, matching `--gap-popover`. */
@@ -13,56 +15,23 @@ const POPOVER_GAP = 10
 
 interface Props {
   sessions: SessionSnapshot[]
+  /** The five-hour limit, or null when there is nothing trustworthy to show. */
+  usage: Usage | null
 }
 
 /**
- * Sessions divided between the two chips.
+ * The widget as two boxes either side of the notch, reading as one shape with it.
  *
- * Order within each side is preserved from the incoming list, which is already
- * sorted by urgency, so `slice` in the chip drops the least urgent.
+ * Counts on the left, the five-hour limit on the right. The two carry unrelated
+ * things, so neither has to make room for the other, and the side each lives on
+ * never changes — which is what makes the pair glanceable rather than something
+ * to read.
  *
- * A background job goes wherever its parent went, not where its own state would
- * send it. `SessionSnapshot` carries no parent field — free mode reads parentage
- * from list order, where a background entry belongs to the nearest own session
- * before it — so splitting a busy job by its own state put it on the opposite
- * chip from the waiting session it belongs to, and the continuation arrow that
- * marks it as a continuation pointed at a stranger, or vanished because the job
- * had become the first entry in its chip.
- */
-export function splitByUrgency(sessions: SessionSnapshot[]): {
-  left: SessionSnapshot[]
-  right: SessionSnapshot[]
-} {
-  const left: SessionSnapshot[] = []
-  const right: SessionSnapshot[] = []
-  const sideFor = (session: SessionSnapshot) =>
-    CHIP_STATES.left.includes(session.state) ? left : right
-
-  // The side of the most recent own session, which every job after it inherits.
-  let parentSide: SessionSnapshot[] | null = null
-
-  for (const session of sessions) {
-    if (session.background) {
-      // A job before any own session has no parent to follow, so it falls back
-      // to its own state rather than being dropped.
-      ;(parentSide ?? sideFor(session)).push(session)
-      continue
-    }
-    parentSide = sideFor(session)
-    parentSide.push(session)
-  }
-
-  return { left, right }
-}
-
-/**
- * The widget as two chips in the menu bar, flanking the notch.
- *
- * Hovering either chip expands both. One `cursor.inside` boolean already drives
+ * Hovering either box expands both. One `cursor.inside` boolean already drives
  * the whole thing, and per-side hover would need a rule for what happens as the
  * cursor crosses the notch between them.
  */
-export function NotchFlanks({ sessions }: Props) {
+export function NotchFlanks({ sessions, usage }: Props) {
   const layout = useNotchLayout()
   const cursor = useCursor()
   const expanded = cursor.inside
@@ -106,9 +75,10 @@ export function NotchFlanks({ sessions }: Props) {
     if (!cursor.inside) setHoveredSessionId(null)
   }, [cursor.inside])
 
-  // Tell Rust which parts of the window are the widget. Both chips and, when
-  // one is open, the popover — three disjoint rects, none of which may be
-  // merged into a bounding box that would swallow the notch between them.
+  // Tell Rust which parts of the window are the widget: the two chips and, when
+  // one is open, the popover. Three disjoint rects, never merged into a bounding
+  // box — that would bridge the notch and hold the row expanded whenever the
+  // cursor crossed it.
   useLayoutEffect(() => {
     reportHoverRects(
       visibleRects([
@@ -117,13 +87,12 @@ export function NotchFlanks({ sessions }: Props) {
         popoverRef.current?.getBoundingClientRect(),
       ]),
     )
-  }, [expanded, sessions, hoveredSessionId, layout])
+  }, [expanded, sessions, usage, hoveredSessionId, layout])
 
   // Every hook runs before this: a display without a notch must not change the
   // order they are called in.
   if (layout === null) return null
 
-  const { left, right } = splitByUrgency(sessions)
   const hovered = sessions.find((s) => s.sessionId === hoveredSessionId) ?? null
   const windowWidth = layout.notchRight + layout.budget
 
@@ -156,29 +125,30 @@ export function NotchFlanks({ sessions }: Props) {
       >
         <FlankCluster
           side="left"
-          sessions={left}
+          sessions={sessions}
           expanded={expanded}
           hoveredSessionId={hoveredSessionId}
           onHoverSession={onHoverSession}
           chipRef={leftRef}
-          // Always drawn, so the notch is framed on both sides whether or not
-          // anything wants attention. Colour carries the urgency instead of
-          // presence: muted total for calm, amber and red for act.
-          fallbackTotal={sessions.length}
         />
       </div>
       <div
         className="flank flank-right"
         style={{ left: layout.notchRight, width: layout.budget, height: layout.barHeight }}
       >
-        <FlankCluster
-          side="right"
-          sessions={right}
-          expanded={expanded}
-          hoveredSessionId={hoveredSessionId}
-          onHoverSession={onHoverSession}
-          chipRef={rightRef}
-        />
+        {usage !== null && (
+          <FlankChip
+            side="right"
+            showExpanded={expanded}
+            chipRef={rightRef}
+            testId="flank-usage"
+            // A share left is quicker to glance at; the countdown is the more
+            // useful of the two once the row is being looked at deliberately.
+            // UsageMeter documents the same split for the free-mode row.
+            collapsed={<UsageMeter usage={usage} show="percent" />}
+            expanded={<UsageMeter usage={usage} show="countdown" />}
+          />
+        )}
       </div>
       {expanded && hovered !== null && (
         <div

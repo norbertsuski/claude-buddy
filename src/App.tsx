@@ -42,7 +42,9 @@ function WidgetView() {
   // two separate boxes in a 37pt bar, with their own scale, their own sizing,
   // and two hover rects instead of one.
   if (config.placement === 'notch') {
-    return <NotchFlanks sessions={sessions} />
+    return (
+      <NotchFlanks sessions={sessions} usage={config.showUsage === false ? null : usage} />
+    )
   }
 
   return (

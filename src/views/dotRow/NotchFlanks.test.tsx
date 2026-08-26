@@ -24,7 +24,9 @@ vi.mock('@tauri-apps/api/event', () => ({
   }),
 }))
 
-const { NotchFlanks, splitByUrgency } = await import('./NotchFlanks')
+const { NotchFlanks } = await import('./NotchFlanks')
+
+const USAGE = { percent: 40, resetsAtMs: 0, severity: 'normal' as const }
 
 function session(name: string, state: SessionState, background = false): SessionSnapshot {
   return {
@@ -62,94 +64,55 @@ beforeEach(() => {
   } as DOMRect)
 })
 
-describe('splitByUrgency', () => {
-  it('sends what wants you left and what is merely running right', () => {
-    const { left, right } = splitByUrgency([
-      session('a-11', 'waiting'),
-      session('b-22', 'busy'),
-      session('c-33', 'dead'),
-      session('d-44', 'idle'),
-      session('e-55', 'paused'),
-    ])
-    expect(left.map((s) => s.state)).toEqual(['waiting', 'dead'])
-    expect(right.map((s) => s.state)).toEqual(['busy', 'idle', 'paused'])
-  })
-
-  it('sends a job to its parent\'s chip, not to its own state\'s', () => {
-    // A busy job belonging to a waiting session goes left with its parent. Split
-    // by its own state it would land on the opposite chip, and the continuation
-    // arrow marking it as a continuation would point at a stranger.
-    const { left, right } = splitByUrgency([
-      session('api-11', 'waiting'),
-      session('subagent', 'busy', true),
-      session('web-22', 'busy'),
-    ])
-    expect(left.map((s) => s.name)).toEqual(['api-11', 'subagent'])
-    expect(right.map((s) => s.name)).toEqual(['web-22'])
-  })
-
-  it('keeps a job adjacent to the parent it belongs to', () => {
-    // Adjacency is what the arrow is drawn from: the job must be the entry
-    // immediately after its parent, not merely on the same side.
-    const { left } = splitByUrgency([
-      session('api-11', 'waiting'),
-      session('subagent', 'busy', true),
-      session('dead-33', 'dead'),
-    ])
-    expect(left.map((s) => s.name)).toEqual(['api-11', 'subagent', 'dead-33'])
-  })
-
-  it('falls back to its own state for a job with no parent before it', () => {
-    // Nothing guarantees an own session comes first, and a job that matched no
-    // side would be dropped from both chips.
-    const { left, right } = splitByUrgency([session('orphan', 'busy', true)])
-    expect(left).toEqual([])
-    expect(right.map((s) => s.name)).toEqual(['orphan'])
-  })
-
-  it('preserves the incoming order within each side', () => {
-    // The list arrives sorted by urgency, which is what lets the chip drop the
-    // least urgent when it truncates.
-    const { left } = splitByUrgency([
-      session('first-11', 'waiting'),
-      session('second-22', 'waiting'),
-    ])
-    expect(left.map((s) => s.name)).toEqual(['first-11', 'second-22'])
-  })
-})
-
 describe('NotchFlanks', () => {
   it('renders nothing on a display with no notch', async () => {
     layout = null
-    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} />)
+    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={null} />)
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('notch_layout'))
     expect(screen.queryByTestId('notch-flanks')).not.toBeInTheDocument()
   })
 
-  it('draws a chip on each side of the notch', async () => {
-    render(<NotchFlanks sessions={[session('a-11', 'waiting'), session('b-22', 'busy')]} />)
+  it('puts the counts on the left and the limit on the right', async () => {
+    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={USAGE} />)
     expect(await screen.findByTestId('flank-left')).toBeInTheDocument()
-    expect(screen.getByTestId('flank-right')).toBeInTheDocument()
+    expect(screen.getByTestId('flank-usage')).toBeInTheDocument()
+    // The two carry unrelated things, so the side each lives on never moves.
+    expect(screen.getByTestId('count-waiting')).toBeInTheDocument()
   })
 
-  it('keeps the left chip with a total when nothing is urgent', async () => {
-    // Both sides are always framed. Colour carries urgency instead of presence.
-    render(<NotchFlanks sessions={[session('a-11', 'busy'), session('b-22', 'idle')]} />)
-    expect(await screen.findByTestId('flank-right')).toBeInTheDocument()
-    expect(screen.getByTestId('flank-left')).toBeInTheDocument()
-    expect(screen.getByTestId('total')).toHaveTextContent('2')
+  it('keeps every state on the left chip', async () => {
+    render(
+      <NotchFlanks
+        sessions={[session('a-11', 'waiting'), session('b-22', 'busy'), session('c-33', 'idle')]}
+        usage={null}
+      />,
+    )
+    await screen.findByTestId('flank-left')
+    // No split: an earlier design put urgent left and ambient right, which
+    // forced a rule to keep background jobs beside their parent.
+    expect(screen.getByTestId('count-waiting')).toBeInTheDocument()
+    expect(screen.getByTestId('count-busy')).toBeInTheDocument()
+    expect(screen.getByTestId('count-idle')).toBeInTheDocument()
   })
 
-  it('drops the right chip when there is nothing ambient to report', async () => {
-    // Only the left side holds the shape; two placeholders would be noise.
-    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} />)
+  it('draws no limit chip when there is nothing trustworthy to show', async () => {
+    // Rust sends null for a window that has already reset, and the setting can
+    // turn it off outright.
+    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={null} />)
     expect(await screen.findByTestId('flank-left')).toBeInTheDocument()
-    expect(screen.queryByTestId('flank-right')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('total')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('flank-usage')).not.toBeInTheDocument()
+  })
+
+  it('shows the share left at rest and the countdown once expanded', async () => {
+    render(<NotchFlanks sessions={[session('a-11', 'busy')]} usage={USAGE} />)
+    await screen.findByTestId('flank-usage')
+    expect(screen.getByTestId('flank-usage-collapsed')).toHaveAttribute('data-show', 'true')
+    moveCursor({ x: 170, y: 12, inside: true })
+    expect(screen.getByTestId('flank-usage-expanded')).toHaveAttribute('data-show', 'true')
   })
 
   it('fills the notch span so there is no seam beside it', async () => {
-    render(<NotchFlanks sessions={[session('a-11', 'waiting'), session('b-22', 'busy')]} />)
+    render(<NotchFlanks sessions={[session('a-11', 'waiting'), session('b-22', 'busy')]} usage={null} />)
     const bridge = await screen.findByTestId('notch-bridge')
     expect(bridge.style.left).toBe('200px')
     expect(bridge.style.width).toBe('190px')
@@ -159,7 +122,7 @@ describe('NotchFlanks', () => {
   it('does not report the notch bridge as part of the widget', async () => {
     // Hovering the notch must not expand the row: the bridge is decoration
     // behind a physical cutout, not a target.
-    render(<NotchFlanks sessions={[session('a-11', 'waiting'), session('b-22', 'busy')]} />)
+    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={USAGE} />)
     await screen.findByTestId('notch-bridge')
     await waitFor(() => {
       const calls = invoke.mock.calls.filter(([command]) => command === 'set_hover_rects')
@@ -169,10 +132,10 @@ describe('NotchFlanks', () => {
   })
 
   it('places each flank so its inner edge is the notch edge', async () => {
-    render(<NotchFlanks sessions={[session('a-11', 'waiting'), session('b-22', 'busy')]} />)
+    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={USAGE} />)
     await screen.findByTestId('flank-left')
     const left = screen.getByTestId('flank-left').parentElement!
-    const right = screen.getByTestId('flank-right').parentElement!
+    const right = screen.getByTestId('flank-usage').parentElement!
     // Left flank ends where the notch begins; right flank begins where it ends.
     expect(left.style.left).toBe('0px')
     expect(left.style.width).toBe('200px')
@@ -182,7 +145,7 @@ describe('NotchFlanks', () => {
   it('reports the two chips as separate hover rects', async () => {
     // A bounding box across both would bridge the notch, holding the row
     // expanded whenever the cursor crossed it.
-    render(<NotchFlanks sessions={[session('a-11', 'waiting'), session('b-22', 'busy')]} />)
+    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={USAGE} />)
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith('set_hover_rects', {
         rects: [
@@ -194,9 +157,8 @@ describe('NotchFlanks', () => {
   })
 
   it('reports one rect when only one side is drawn', async () => {
-    // A lone waiting session: the left chip holds it and the right has nothing
-    // ambient to report, so exactly one rect is the widget.
-    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} />)
+    // Sessions but no limit to show: the left chip is the whole widget.
+    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={null} />)
     await waitFor(() => {
       const calls = invoke.mock.calls.filter(([command]) => command === 'set_hover_rects')
       const last = calls[calls.length - 1]![1] as { rects: unknown[] }
@@ -205,25 +167,25 @@ describe('NotchFlanks', () => {
   })
 
   it('expands both chips when the cursor is on either of them', async () => {
-    render(<NotchFlanks sessions={[session('a-11', 'waiting'), session('b-22', 'busy')]} />)
+    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={USAGE} />)
     await screen.findByTestId('flank-left')
 
     expect(screen.getByTestId('flank-left')).toHaveAttribute('data-expanded', 'false')
     moveCursor({ x: 170, y: 12, inside: true })
     expect(screen.getByTestId('flank-left')).toHaveAttribute('data-expanded', 'true')
-    expect(screen.getByTestId('flank-right')).toHaveAttribute('data-expanded', 'true')
+    expect(screen.getByTestId('flank-usage')).toHaveAttribute('data-expanded', 'true')
   })
 
   it('shows names once expanded and counts again once the cursor leaves', async () => {
-    render(<NotchFlanks sessions={[session('api-service-55', 'waiting')]} />)
+    render(<NotchFlanks sessions={[session('api-service-55', 'waiting')]} usage={null} />)
     await screen.findByTestId('flank-left')
 
     moveCursor({ x: 170, y: 12, inside: true })
-    expect(screen.getByTestId('expanded-left')).toHaveAttribute('data-show', 'true')
+    expect(screen.getByTestId('flank-left-expanded')).toHaveAttribute('data-show', 'true')
 
     moveCursor({ x: 800, y: 400, inside: false })
-    expect(screen.getByTestId('collapsed-left')).toHaveAttribute('data-show', 'true')
-    expect(screen.getByTestId('expanded-left')).toHaveAttribute('data-show', 'false')
+    expect(screen.getByTestId('flank-left-collapsed')).toHaveAttribute('data-show', 'true')
+    expect(screen.getByTestId('flank-left-expanded')).toHaveAttribute('data-show', 'false')
     expect(screen.getByTestId('count-waiting')).toHaveTextContent('1')
   })
 
@@ -231,6 +193,7 @@ describe('NotchFlanks', () => {
     const { container } = render(
       <NotchFlanks
         sessions={[session('api-11', 'waiting'), session('subagent', 'busy', true)]}
+        usage={null}
       />,
     )
     await screen.findByTestId('flank-left')
@@ -244,7 +207,7 @@ describe('NotchFlanks', () => {
   })
 
   it('zeroes the shadow padding so the chips reach the top of the screen', async () => {
-    const { unmount } = render(<NotchFlanks sessions={[session('a-11', 'waiting')]} />)
+    const { unmount } = render(<NotchFlanks sessions={[session('a-11', 'waiting')]} usage={null} />)
     await screen.findByTestId('flank-left')
     expect(document.body.classList.contains('notch-mode')).toBe(true)
     unmount()
