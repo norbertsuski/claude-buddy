@@ -16,11 +16,19 @@
    out of the menu bar entirely. NotchFlanks adds this class on mount. */
 body.notch-mode {
   padding: 0;
+  /* Both of these matter, and the height is the one that is easy to miss.
+     dotRow.css sets `html, body { overflow: hidden }`. Every child of
+     .notch-flanks is absolutely positioned, so it contributes no height, so
+     body's content box is 0 tall — and overflow: hidden on a zero-height body
+     clips the chips away entirely. They lay out at the right coordinates and
+     report the right rects, and paint nowhere at all. */
+  height: 100vh;
 }
 
 .notch-flanks {
   position: relative;
   width: 100%;
+  height: 100%;
 }
 
 :root {
