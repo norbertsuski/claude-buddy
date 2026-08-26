@@ -34,11 +34,30 @@ function chip(props: Partial<Parameters<typeof FlankCluster>[0]> = {}) {
 }
 
 describe('FlankCluster', () => {
-  it('renders nothing at all when its side has no sessions', () => {
-    // A quiet machine reads as deliberately asymmetric rather than as a chip
-    // sitting in the menu bar showing zero.
+  it('renders nothing when it has no sessions and no fallback', () => {
     chip({ sessions: [] })
     expect(screen.queryByTestId('flank-left')).not.toBeInTheDocument()
+  })
+
+  it('draws the fallback total instead of vanishing', () => {
+    // The left chip is always present so the notch stays framed on both sides.
+    chip({ sessions: [], fallbackTotal: 5 })
+    expect(screen.getByTestId('flank-left')).toBeInTheDocument()
+    expect(screen.getByTestId('total')).toHaveTextContent('5')
+  })
+
+  it('shows no state dot alongside the fallback total', () => {
+    // A state count is a dot and a number. Presence no longer signals urgency,
+    // so the total must not be mistakable for one.
+    const { container } = chip({ sessions: [], fallbackTotal: 3 })
+    expect(container.querySelector('.total .dot')).toBeNull()
+    expect(screen.queryByTestId('count-idle')).not.toBeInTheDocument()
+  })
+
+  it('prefers real counts over the fallback once it has sessions', () => {
+    chip({ sessions: [session('a-11', 'waiting')], fallbackTotal: 9 })
+    expect(screen.queryByTestId('total')).not.toBeInTheDocument()
+    expect(screen.getByTestId('count-waiting')).toHaveTextContent('1')
   })
 
   it('shows one count per state it carries, collapsed', () => {

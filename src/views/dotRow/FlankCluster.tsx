@@ -55,19 +55,28 @@ interface Props {
    * beside the chip read as hovering the widget.
    */
   chipRef?: React.Ref<HTMLDivElement>
+  /**
+   * Drawn in place of nothing when this side has no sessions of its own.
+   *
+   * The left chip passes the total session count so it is always present and
+   * the notch stays framed on both sides. The right chip passes nothing and
+   * vanishes when it has nothing to say — only one side needs to hold the
+   * shape, and two placeholders either side of a quiet machine is just noise.
+   */
+  fallbackTotal?: number
   maxVisible?: number
 }
 
 /**
- * One chip, flush against its edge of the notch.
+ * One chip, beside its edge of the notch.
  *
- * Collapsed it shows a count per state it carries; expanded it shows names.
+ * Collapsed it shows a count per state it holds; expanded it shows names.
  * Either way it grows away from the notch, which is where the free space is:
  * app menu titles fill the left flank from the left edge inward and menu bar
  * extras fill the right flank from the right edge inward.
  *
- * Renders nothing at all when it has no sessions, so a quiet machine reads as
- * deliberately asymmetric rather than as a chip showing zero.
+ * With no sessions it renders `fallbackTotal` if it was given one and nothing
+ * at all otherwise.
  */
 export function FlankCluster({
   side,
@@ -76,9 +85,11 @@ export function FlankCluster({
   hoveredSessionId,
   onHoverSession,
   chipRef,
+  fallbackTotal,
   maxVisible = FLANK_MAX_VISIBLE,
 }: Props) {
-  if (sessions.length === 0) return null
+  const empty = sessions.length === 0
+  if (empty && fallbackTotal === undefined) return null
 
   const counts = countByState(sessions)
   const groups = STATE_ORDER.filter((state) => counts[state] > 0)
@@ -93,7 +104,14 @@ export function FlankCluster({
       data-expanded={expanded ? 'true' : 'false'}
       data-testid={`flank-${side}`}
     >
-      {expanded ? (
+      {empty ? (
+        // Deliberately no dot. A state count is a dot and a number, so a bare
+        // muted number cannot be misread as one — which matters here, because
+        // this chip being present no longer means anything on its own.
+        <span className="total" data-testid="total">
+          {fallbackTotal}
+        </span>
+      ) : expanded ? (
         <>
           {visible.map((session, index) => (
             <SessionEntry

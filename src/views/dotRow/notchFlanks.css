@@ -23,6 +23,12 @@ body.notch-mode {
   width: 100%;
 }
 
+:root {
+  /* Clear of the notch's rounded bottom corners, which curve into the space a
+     flush chip would occupy. */
+  --notch-gap: 7px;
+}
+
 /* One flank is exactly the expansion budget wide, aligned so its inner edge is
    the notch edge. That caps expansion without any clamping logic: the chip
    cannot grow past its own container. */
@@ -60,27 +66,43 @@ body.notch-mode {
   transition: background var(--morph) var(--ease), border-color var(--morph) var(--ease);
 }
 
-/* Flush against the notch: the edge meeting it is square and unbordered, so the
-   chip reads as growing out of the notch rather than floating beside it.
+/* Beside the notch, not flush with it.
 
-   The left chip lays out in reverse so its first child — the most urgent state,
-   or the most urgent session — sits nearest the notch, matching the right chip
-   where document order already does that. It also puts the truncation at the
-   outer end, away from the entries that carry a pulse ring. */
+   Flush was the original design: square inner corner, no border on the edge
+   meeting the notch, so the chip read as growing out of it. On hardware that
+   backfired completely — --bg is near-black, and a near-black chip touching a
+   black notch with no edge between them reads as the notch being slightly
+   wider. The chip was invisible for the same reason solid black was rejected,
+   one step removed.
+
+   So: a gap, a border all the way round, and every corner rounded. The chips
+   are two pills sitting either side of the notch.
+
+   The left chip still lays out in reverse so its first child — the most urgent
+   state, or the most urgent session — sits nearest the notch, matching the right
+   chip where document order already does that. It also puts the truncation at
+   the outer end, away from the entries that carry a pulse ring. */
+.flank-chip {
+  border-radius: 7px;
+}
+
 .flank-chip[data-side='left'] {
   flex-direction: row-reverse;
-  border-radius: 7px 0 0 7px;
-  border-right: none;
+  margin-right: var(--notch-gap);
 }
 
 .flank-chip[data-side='right'] {
-  border-radius: 0 7px 7px 0;
-  border-left: none;
+  margin-left: var(--notch-gap);
 }
 
 .flank-chip[data-expanded='true'] {
   background: var(--bg-lit);
   border-color: var(--border-lit);
+}
+
+.flank-chip .total {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .flank-chip .count {

@@ -132,10 +132,20 @@ describe('NotchFlanks', () => {
     expect(screen.getByTestId('flank-right')).toBeInTheDocument()
   })
 
-  it('draws only the side that has something on it', async () => {
-    render(<NotchFlanks sessions={[session('a-11', 'busy')]} />)
+  it('keeps the left chip with a total when nothing is urgent', async () => {
+    // Both sides are always framed. Colour carries urgency instead of presence.
+    render(<NotchFlanks sessions={[session('a-11', 'busy'), session('b-22', 'idle')]} />)
     expect(await screen.findByTestId('flank-right')).toBeInTheDocument()
-    expect(screen.queryByTestId('flank-left')).not.toBeInTheDocument()
+    expect(screen.getByTestId('flank-left')).toBeInTheDocument()
+    expect(screen.getByTestId('total')).toHaveTextContent('2')
+  })
+
+  it('drops the right chip when there is nothing ambient to report', async () => {
+    // Only the left side holds the shape; two placeholders would be noise.
+    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} />)
+    expect(await screen.findByTestId('flank-left')).toBeInTheDocument()
+    expect(screen.queryByTestId('flank-right')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('total')).not.toBeInTheDocument()
   })
 
   it('places each flank so its inner edge is the notch edge', async () => {
@@ -164,7 +174,9 @@ describe('NotchFlanks', () => {
   })
 
   it('reports one rect when only one side is drawn', async () => {
-    render(<NotchFlanks sessions={[session('a-11', 'busy')]} />)
+    // A lone waiting session: the left chip holds it and the right has nothing
+    // ambient to report, so exactly one rect is the widget.
+    render(<NotchFlanks sessions={[session('a-11', 'waiting')]} />)
     await waitFor(() => {
       const calls = invoke.mock.calls.filter(([command]) => command === 'set_hover_rects')
       const last = calls[calls.length - 1]![1] as { rects: unknown[] }

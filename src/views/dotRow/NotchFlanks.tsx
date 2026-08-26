@@ -151,6 +151,10 @@ export function NotchFlanks({ sessions }: Props) {
           hoveredSessionId={hoveredSessionId}
           onHoverSession={onHoverSession}
           chipRef={leftRef}
+          // Always drawn, so the notch is framed on both sides whether or not
+          // anything wants attention. Colour carries the urgency instead of
+          // presence: muted total for calm, amber and red for act.
+          fallbackTotal={sessions.length}
         />
       </div>
       <div

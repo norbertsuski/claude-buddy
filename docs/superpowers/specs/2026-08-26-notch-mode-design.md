@@ -130,11 +130,22 @@ cursor crossing a chip boundary can still be swallowed.
 
 ### Left/right split is by urgency
 
-Left chip: `Waiting ∪ Dead`. Right chip: `Busy ∪ Idle ∪ Paused`. Background jobs
-sort by their own state and remain subject to `show_background_jobs`.
+Left chip: `Waiting ∪ Dead`. Right chip: `Busy ∪ Idle ∪ Paused`. A background job
+follows its parent rather than its own state — `SessionSnapshot` has no parent
+field, so parentage is the nearest own session earlier in the list, exactly as
+free mode reads it. Jobs remain subject to `show_background_jobs`.
 
-A side with nothing on it renders no chip at all, so a quiet machine reads as
-deliberately asymmetric and a busy one as symmetric.
+The left chip is always drawn, carrying the total session count as muted text
+when nothing is waiting or dead. The right chip vanishes when it has nothing
+ambient to report.
+
+**Revised after testing on hardware.** The original rule was that either side
+with nothing on it rendered no chip, so a quiet machine read as deliberately
+asymmetric. In practice a single chip beside the notch does not read as a
+signal — it reads as the notch being slightly wider — so presence is no longer
+load-bearing and colour carries urgency instead: muted total for calm, amber and
+red for act. Only one side holds the shape, because two placeholders either side
+of a quiet machine is noise.
 
 ### Hovering either chip expands both
 
@@ -160,6 +171,13 @@ as long as a hover.
 ### Chips are styled as app chips, not as native menu items
 
 The chips reuse the pill's existing `--bg`, `--border` and radius, scaled down.
+
+**Revised after testing on hardware.** They were flush against the notch, with
+the notch-facing corner squared and its border removed, so the chip read as
+growing out of it. `--bg` is near-black, and a near-black chip touching a black
+notch with no edge between them is invisible — the same failure that ruled out
+solid black, one step removed. The chips now sit 7pt clear of the notch, fully
+rounded and bordered all the way round.
 
 **Why not vibrancy.** The macOS menu bar is translucent over the wallpaper, so a
 chip that wants to look native needs an `NSVisualEffectView` with the
