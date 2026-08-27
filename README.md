@@ -107,7 +107,13 @@ Notch placement takes the display choice out of your hands — the notch decides
 
 ## Install
 
-Build it and copy it into Applications:
+```bash
+brew install --cask norbertsuski/tap/claude-buddy
+```
+
+Or take the DMG from the [latest release](https://github.com/norbertsuski/claude-buddy/releases/latest) and drag the app into Applications. Apple silicon, macOS 13 or later.
+
+To build it yourself instead:
 
 ```bash
 npm install
@@ -115,7 +121,7 @@ npm run tauri build
 cp -R src-tauri/target/release/bundle/macos/claude-buddy.app /Applications/
 ```
 
-The build is unsigned, so Gatekeeper blocks the first launch. Try to open it, dismiss the warning, then go to **System Settings → Privacy & Security** and press **Open Anyway** in the block that has just appeared there. Once only. On macOS 14 and earlier, right-clicking the app and choosing **Open** does the same thing in one step. Opening it from the terminal will not get past either prompt.
+However you install it, the app is not notarised, so Gatekeeper blocks the first launch. Try to open it, dismiss the warning, then go to **System Settings → Privacy & Security** and press **Open Anyway** in the block that has just appeared there. Once only. On macOS 14 and earlier, right-clicking the app and choosing **Open** does the same thing in one step. Opening it from the terminal will not get past either prompt.
 
 For a distributable image instead, `npm run dmg` writes `dist-dmg/claude-buddy_<version>_<arch>.dmg`.
 
