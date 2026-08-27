@@ -43,19 +43,10 @@ To open one:
 3. Write the report and submit it. Nothing is public at any point in that
    sequence, so there is no moment to get wrong.
 
-One caveat, and it is the maintainer's to fix rather than yours: private
-vulnerability reporting is a per-repository setting — *Settings → Code security
-→ Private vulnerability reporting* — and the button only exists once it has been
-switched on. If it is not there, open an ordinary issue saying you have a
-security report and nothing else about it, and the maintainer can enable the
-feature and pick it up from there. An issue that says "I have found something"
-tells an attacker nothing they can use.
-
-<!-- TODO(maintainer): add a private contact address here if you want one.
-     Private vulnerability reporting needs a GitHub account and is enough on its
-     own; an email line is only worth adding if you are happy to publish an
-     address, and it is the obvious fallback while the feature is switched off. -->
-<!-- Optional private contact: <address here> -->
+If that button is ever missing — it is a per-repository setting and could be
+switched off — open an ordinary issue saying you have a security report and
+nothing else about it, and it will be picked up from there. An issue that says
+"I have found something" tells an attacker nothing they can use.
 
 ### What to include
 
