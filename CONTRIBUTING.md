@@ -5,6 +5,9 @@ the rules below are short — but they are written out with their reasons rather
 than as a list, because a contributor who knows *why* a rule exists will get the
 cases it did not anticipate right too.
 
+If you are an AI agent, there is [a section for you](#if-you-are-an-ai-agent) further down. Read the rest of this file too — it is the same standard — but that
+one covers the failure modes that are specific to working here.
+
 ## The one structural thing to know first
 
 The app is macOS-only, and not incidentally so. It reads a registry Claude Code
@@ -160,8 +163,8 @@ description; if the reasoning is already in the commit bodies, saying so is
 enough.
 
 If your change is user-visible, include the changelog prose in the description —
-see below. If it changes what a screenshot shows, regenerate the screenshot from
-a fixture run rather than from your own sessions.
+see below — and bring the README along with it, which has a section of its own
+because it is the part people forget.
 
 Security vulnerabilities do not go in a merge request or a public issue. See
 [SECURITY.md](SECURITY.md).
@@ -201,6 +204,52 @@ Write it as it should appear: the existing entries are prose that explains the
 change to someone who does not know the code, not a restatement of the commit
 subject.
 
+## Keeping the README in step
+
+`CHANGELOG.md` says what changed in a release. `README.md` says what the app
+*is*, right now, to someone who has never run it — and unlike a changelog it
+goes stale silently. Nothing fails when a setting exists that the README does
+not mention; it just quietly stops being true, and the next person to read it
+learns something wrong.
+
+So a change that alters what the app does to a user updates the README in the
+same merge request. Not afterwards, and not in a follow-up nobody opens. The
+mapping is mechanical enough to write down:
+
+| If you change | Update |
+|---|---|
+| A session state, a dot colour or a dot shape | the state table under *What you see* |
+| Anything about the five-hour meter — when it polls, where the token comes from, when it hides | *The five-hour limit* |
+| How subagents or background jobs are matched or displayed | *Sessions, subagents and jobs* |
+| Notch geometry, or when the slab shows | *Notch mode* |
+| A field in `config.json`, including a changed default | the JSON block **and** the prose under *Settings file* |
+| A tray menu item, or what one does | *Using it* |
+| When an alert fires, or what it says | *Alerts* |
+| A minimum toolchain version | *Requirements*, and `rust-version` in `Cargo.toml` if it is that one |
+| An environment override | *Tests* |
+| Something the app now can — or still cannot — do | *Limitations* |
+
+Two of those deserve emphasis. The **settings file** is documented as
+hand-editable, so its prose is a contract with people who have hand-edited it;
+adding a key and leaving the block alone leaves them with a file the README says
+is complete and is not. And **Limitations** is the section people actually read
+before filing an issue — a limitation you removed should leave it, and one you
+introduced should arrive in it rather than in a bug report six weeks later.
+
+If the change alters what a screenshot shows, regenerate the screenshot. Run
+`scripts/dev-fixtures.sh`, capture the same state the existing image shows, and
+overwrite the file in `docs/media/` under its existing name so nothing else has
+to move. Fixture runs are the only acceptable source: a capture from your own
+machine puts real project names, real branches and a real account's usage figure
+into a public repository, which is why the fixtures exist at all. The alt text
+on those images is unusually long and describes the picture in detail — keep
+that up, it is what a screen reader gets.
+
+What does *not* belong in the README is contributor detail. It is the
+user-facing document, and it has a Development section three lines long that
+points here on purpose. Setup, conventions, architecture and test strategy go in
+this file; resist growing a second copy of it inside the README.
+
 ## Code style
 
 On the Rust side **rustfmt is the arbiter** — `cargo fmt` applies it, CI runs
@@ -238,6 +287,57 @@ approach that was tried and did not work. `// increment the counter` has no
 place; `// Plain glob, not ls | head: the shell executor runs with set -eo
 pipefail` does. If a piece of code needed a paragraph of reasoning to arrive at,
 leave the paragraph.
+
+## If you are an AI agent
+
+A good deal of this repository was written with Claude Code, and contributions
+made that way are welcome on the same terms as any other. What follows is not a
+different standard — it is the set of mistakes an agent makes here specifically,
+written down so you do not have to make them first.
+
+**The working tree may be shared.** More than one agent session can be running
+against this single checkout at once, and they do not see each other. Run
+`git status` before you start and again before you stage. A file you did not
+touch showing up modified means someone else is mid-edit in it: leave it alone,
+and say so rather than reverting it or "fixing" a compile error that belongs to
+work in flight. This is not hypothetical — the rustfmt adoption in this repo
+landed across a refactor that was being written at the same moment, and only a
+status check caught it.
+
+**Stage explicit paths.** Never `git add -A`, never `git commit -a`. In a shared
+tree those sweep up whatever another session happens to have open, and the
+result is unrecoverable in the sense that matters: their half-finished change is
+now in your commit, under your message.
+
+**Do not reformat what you are not changing.** A tree-wide `cargo fmt` is a
+legitimate change and it belongs in its own commit, on its own, when nothing
+else is in flight. Folding it into a feature makes the diff unreviewable.
+
+**Verify before you assert.** Anything you write into a document — a test count,
+a file path, a claim about what a function does — should come from having run
+the command or read the source, not from what the surrounding prose implies. The
+suites are cheap: run them.
+
+**Never commit real session data.** The registry and the transcripts this app
+reads contain whatever their user was actually working on: private repository
+names, branch names, prose from their conversations, and an account's real
+spend. That is what `fixtures/` is for, and it is the only thing that should
+ever end up in a commit, an issue, or a screenshot.
+
+**Keep the scope you were given.** If you notice something else wrong — a
+clippy warning, a stale comment, a missing test — mention it rather than fixing
+it in passing. One coherent change per merge request is not a style preference
+here; it is what makes a one-maintainer review tractable.
+
+**Read before you design.** `docs/superpowers/specs/` holds the design documents
+for the features that already exist, and the reasoning in them is usually still
+load-bearing. The orientation map below is the fastest way into the code, and
+`watcher::state::snapshot` is the function to understand first — nearly every
+behaviour question in this app resolves there.
+
+**Keep the trailer.** Commits made with an assistant carry a
+`Co-Authored-By:` line, and the convention here is to keep it. Attribution
+should be accurate about how the code was written.
 
 ## Design documents
 

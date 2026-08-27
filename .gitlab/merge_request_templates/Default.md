@@ -25,6 +25,19 @@ check on a merge request.
            unsure which are yours. -->
 - [ ] New behaviour has tests, or there is a reason below why it does not
 
+## README
+
+- [ ] The README describes the app as it now behaves, or nothing it describes
+      changed
+
+<!-- Nothing fails when the README goes stale, which is exactly why it does.
+     CONTRIBUTING.md has a table mapping a kind of change to the section it
+     lands in; the two that get missed are `config.json`, whose prose is a
+     contract with people who hand-edit it, and Limitations, which is what
+     people read before filing an issue. If a screenshot no longer shows what
+     the app does, regenerate it from `scripts/dev-fixtures.sh` — never from
+     your own sessions. -->
+
 ## CHANGELOG
 
 - [ ] User-visible changes are described in the section for the next release in
