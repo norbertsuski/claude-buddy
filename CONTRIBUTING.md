@@ -295,6 +295,11 @@ made that way are welcome on the same terms as any other. What follows is not a
 different standard — it is the set of mistakes an agent makes here specifically,
 written down so you do not have to make them first.
 
+The short version lives in [AGENTS.md](AGENTS.md) at the repository root, with
+`CLAUDE.md` symlinked to it, because no harness loads a `CONTRIBUTING.md` on its
+own and a rule nothing reads is not a rule. Keep the two in step: anything load-
+bearing enough that an agent would go wrong without it belongs in both.
+
 **The working tree may be shared.** More than one agent session can be running
 against this single checkout at once, and they do not see each other. Run
 `git status` before you start and again before you stage. A file you did not
