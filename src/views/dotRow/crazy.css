@@ -15,6 +15,17 @@
   display: inline-block;
 }
 
+/* Content above every effect layer.
+   `.variant-slot` is positioned but has no z-index of its own, and a positioned
+   element at `auto` paints *below* anything carrying an explicit one — so
+   without this the cracks, the flames and the glow all sit on top of the dots
+   and the summary. The cracks made it obvious: they were drawn straight across
+   the text. Layer order inside the pill is heat 1, flames 2, sparks 3, cracks
+   4, content 5. */
+.pill .variant-slot {
+  z-index: 5;
+}
+
 /* ── Fire ─────────────────────────────────────────────────────────────
    The glow lives on its own layer rather than on the pill's background so the
    brightness pulse repaints one small element instead of the whole pill. */
