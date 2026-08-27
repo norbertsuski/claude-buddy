@@ -2,11 +2,12 @@
 # Print the release description for a tag: its CHANGELOG.md section, followed by
 # the download boilerplate every release needs.
 #
-# Used by the tag pipeline for `release:description` and by
+# Used by the tag workflow to fill in the release body and by
 # scripts/publish-release.sh, so a release reads the same either way.
 #
-# POSIX sh on purpose, and no bashisms: the release job runs on the release-cli
-# image, where /bin/sh is busybox and bash does not exist.
+# POSIX sh on purpose, and no bashisms: publish-release.sh invokes it as
+# `sh scripts/release-notes.sh` rather than executing it, and a CI job may run
+# it in a minimal image where /bin/sh is busybox and bash does not exist.
 #
 # Usage: scripts/release-notes.sh v0.4.0
 set -eu
@@ -44,7 +45,7 @@ fi
 
 if [ -z "$(printf '%s' "$section" | tr -d '[:space:]')" ]; then
   echo "no CHANGELOG.md section for $TAG" >&2
-  section="macOS build of clawde-buddy $TAG."
+  section="macOS build of claude-buddy $TAG."
 fi
 
 printf '%s\n' "$section"

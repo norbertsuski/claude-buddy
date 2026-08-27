@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 /// One `~/.claude/sessions/<pid>.json` record.
 ///
-/// Only fields clawde-buddy consumes are modelled. Unknown fields are ignored
+/// Only fields claude-buddy consumes are modelled. Unknown fields are ignored
 /// so a Claude Code upgrade that adds keys cannot break parsing.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RegistryFile {
@@ -43,7 +43,7 @@ pub fn parse_registry_file(bytes: &[u8]) -> Option<RegistryFile> {
 /// Exists so the widget can be driven from fixtures — the real directory only
 /// contains whatever sessions happen to be running, which makes states like a
 /// full row of sessions awkward to see.
-pub const REGISTRY_DIR_ENV: &str = "CLAWDE_BUDDY_REGISTRY_DIR";
+pub const REGISTRY_DIR_ENV: &str = "CLAUDE_BUDDY_REGISTRY_DIR";
 
 /// The live session registry directory.
 pub fn registry_dir() -> PathBuf {
@@ -104,11 +104,11 @@ mod tests {
     const NO_STATUS: &str = r#"{
       "pid": 99215,
       "sessionId": "a1b2c3d4-0000-4000-8000-000000000002",
-      "cwd": "/Users/n/Code/clawde-buddy",
+      "cwd": "/Users/n/Code/claude-buddy",
       "startedAt": 1787662276356,
       "procStart": "Tue Aug 25 12:51:15 2026",
       "entrypoint": "claude-desktop",
-      "name": "clawde-buddy-1f"
+      "name": "claude-buddy-1f"
     }"#;
 
     #[test]
@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn missing_directory_yields_empty_vec() {
-        let missing = std::path::Path::new("/nonexistent/clawde-buddy/registry");
+        let missing = std::path::Path::new("/nonexistent/claude-buddy/registry");
         assert!(read_registry_dir(missing).is_empty());
     }
 }

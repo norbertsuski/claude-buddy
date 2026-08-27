@@ -1,11 +1,68 @@
 # Changelog
 
 One section per tag, newest first. `scripts/release-notes.sh <tag>` reads the
-section out of this file, and the tag pipeline uses it as the release
-description — so a section that is missing here leaves that tag with nothing but
-the download boilerplate.
+section out of this file, and the release workflow uses it as the body of the
+GitHub release and as the notes in the in-app update dialog — so a section that
+is missing here leaves that tag with nothing but the download boilerplate.
 
 ## Unreleased
+
+**The app is called `claude-buddy` now, and it lives on GitHub.** The binary,
+the app bundle and the DMG all change name with it: `claude-buddy.app` and
+`claude-buddy_<version>_<arch>.dmg`. Releases, issues and the source are at
+<https://github.com/norbertsuski/claude-buddy>, and the old project is not
+being maintained alongside it.
+
+- **The bundle identifier is now `com.claude.buddy`**, which moves the settings
+  file to `~/Library/Application Support/com.claude.buddy/config.json`. You do
+  not have to move it yourself: on first launch, if there is nothing at the new
+  location, the app reads the old one and copies the file across — once, and
+  leaving the original where it is. Every setting you had comes with it.
+- **Notification permission has to be granted again.** macOS files permissions
+  under the bundle identifier, so a changed identifier is, as far as the system
+  is concerned, an application it has never met. The first alert raises the
+  permission dialog again; until you allow it the pill flashes amber instead,
+  which is what it has always done when permission is refused. If your alerts
+  go quiet after this update, that is why — it is worth checking **System
+  Settings → Notifications** rather than assuming the alerts broke.
+- **Launch at login repairs itself.** The login item macOS was holding is filed
+  under the old name and points at the old app, and nothing in the settings
+  file would have told you: the checkbox reads from your settings, so it would
+  have gone on showing as on while nothing was registered. On first launch the
+  stale login item is removed and, if you had the setting on, a new one is
+  registered under the new name. The old item is removed either way — left in
+  place it would keep launching the old app beside the new one for anyone who
+  has not thrown it away yet.
+- **The three environment overrides are renamed** to `CLAUDE_BUDDY_REGISTRY_DIR`,
+  `CLAUDE_BUDDY_PROJECTS_DIR` and `CLAUDE_BUDDY_USAGE_FILE`. The old spellings
+  are not read any more, so a script that sets them will silently aim the widget
+  at your live sessions instead of your fixtures.
+
+**Upgrading means installing the new app by hand.** There is no path across
+this rename for the in-app updater, and the honest thing is to say so rather
+than let anyone wait for a notification that is not coming:
+
+- Every release up to and including 0.4.0 shipped with an empty signing key, so
+  the updater plugin was never registered in those builds. They have never
+  checked for an update and are not going to start now.
+- Even a build with a key has its update endpoint compiled into it, and 0.4.0's
+  points at the old host's package registry, which is going away with the rest
+  of it.
+- The mechanics would not survive the rename in any case. The macOS updater
+  unpacks a new bundle over the *running* one, keeping the path and the name it
+  already has — so a successful install would leave the new app inside a bundle
+  still named for the old one, and the restart that follows would look for an
+  executable that the new bundle no longer contains.
+
+So: download the DMG from the releases page, drag it in, and drag the old app
+to the Trash. Settings come across on their own; notification permission does
+not.
+
+**This is the last install you have to do by hand.** The update channel is
+switched on from this release: a signing key is committed, releases carry a
+signed update alongside the DMG, and the endpoint is a URL that does not move
+as versions come and go. From here the app tells you when there is something
+newer and *Install update* in the tray menu does the rest.
 
 **A session running a long tool no longer reads as idle.** Claude Desktop
 sessions write no `status`, so the widget fell back to transcript modification

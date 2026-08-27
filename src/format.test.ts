@@ -42,7 +42,7 @@ function s(state: SessionState): SessionSnapshot {
 describe('shortName', () => {
   it('strips the two-character suffix Claude Code appends', () => {
     expect(shortName('api-service-55')).toBe('api-service')
-    expect(shortName('clawde-buddy-1f')).toBe('clawde-buddy')
+    expect(shortName('claude-buddy-1f')).toBe('claude-buddy')
     expect(shortName('web-app-e2')).toBe('web-app')
   })
 

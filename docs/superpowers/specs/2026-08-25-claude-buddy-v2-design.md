@@ -1,4 +1,4 @@
-# clawde-buddy v2 — correctness, reach and distribution
+# claude-buddy v2 — correctness, reach and distribution
 
 Ten changes to the shipped v1 widget: three correctness fixes, five additions,
 and two pieces of cleanup. Grouped here because several of them touch the same
@@ -218,8 +218,7 @@ config file continues to parse; it is no longer read, written or validated.
 
 `tauri-plugin-updater`, with `createUpdaterArtifacts` enabled in
 `tauri.conf.json`. The tag pipeline publishes `.app.tar.gz`, its `.sig`, and a
-generated `latest.json` to the same generic-packages path that already carries
-the DMG. The DMG remains the first-install route.
+generated `latest.json` as release assets alongside the DMG. The DMG remains the first-install route.
 
 The app checks once on launch. When a newer version exists it delivers a
 notification and adds an "Install update" tray item; the install itself is
@@ -227,7 +226,7 @@ user-initiated, never automatic.
 
 Signing is the user's step, documented in the README: generate a minisign
 keypair with `npm run tauri signer generate`, add the private key and its
-password to GitLab CI/CD variables as `TAURI_SIGNING_PRIVATE_KEY` and
+password to the repository's Actions secrets as `TAURI_SIGNING_PRIVATE_KEY` and
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and put the public key in
 `tauri.conf.json`. Until that is done the updater is inert rather than broken —
 no key means no manifest to verify against, and the check fails closed.

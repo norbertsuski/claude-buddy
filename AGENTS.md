@@ -1,4 +1,4 @@
-# Working on clawde-buddy
+# Working on claude-buddy
 
 A macOS menu-bar widget that watches local Claude Code sessions. Rust
 (Tauri v2) in `src-tauri/`, React 19 and TypeScript in `src/`. macOS only —

@@ -8,7 +8,7 @@
 # dead, and a background job under the first — and this points the three
 # override variables at them.
 #
-# `CLAWDE_BUDDY_USAGE_FILE` also suppresses the live `GET /api/oauth/usage`
+# `CLAUDE_BUDDY_USAGE_FILE` also suppresses the live `GET /api/oauth/usage`
 # call, which is the point of it: without the override the widget would fetch
 # the real figure with the real token and put your own account's spend back on
 # screen, in the screenshot you were about to publish.
@@ -21,16 +21,16 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FIXTURES="$ROOT/fixtures"
-BUNDLE="$ROOT/src-tauri/target/release/bundle/macos/clawde-buddy.app/Contents/MacOS/clawde-buddy"
+BUNDLE="$ROOT/src-tauri/target/release/bundle/macos/claude-buddy.app/Contents/MacOS/claude-buddy"
 
 # Fresh every run. Session states are derived from elapsed time and from process
 # liveness, so a registry stamped an hour ago reads as a row of paused, dead
 # sessions — see fixtures/generate.sh.
 "$FIXTURES/generate.sh"
 
-export CLAWDE_BUDDY_REGISTRY_DIR="$FIXTURES/sessions"
-export CLAWDE_BUDDY_PROJECTS_DIR="$FIXTURES/projects"
-export CLAWDE_BUDDY_USAGE_FILE="$FIXTURES/usage.json"
+export CLAUDE_BUDDY_REGISTRY_DIR="$FIXTURES/sessions"
+export CLAUDE_BUDDY_PROJECTS_DIR="$FIXTURES/projects"
+export CLAUDE_BUDDY_USAGE_FILE="$FIXTURES/usage.json"
 
 # infra-tools is only shown for five minutes after the widget first sees it dead
 # (`DEAD_RETENTION_MS`): a crash is worth showing once, not forever. Take the

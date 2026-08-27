@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for looking. clawde-buddy is a small project with one maintainer, so
+Thank you for looking. claude-buddy is a small project with one maintainer, so
 the rules below are short — but they are written out with their reasons rather
 than as a list, because a contributor who knows *why* a rule exists will get the
 cases it did not anticipate right too.
@@ -25,7 +25,7 @@ it, but you cannot run it or its Rust suite.
 - **Node 20 or later.**
 - **Rust 1.77 or later**, via [rustup](https://rustup.rs). That floor is
   `rust-version` in `src-tauri/Cargo.toml`; it is the real minimum rather than a
-  guess, so if you raise it in a merge request, raise it there too.
+  guess, so if you raise it in a pull request, raise it there too.
 
 Then:
 
@@ -49,8 +49,8 @@ stylesheet.
 scripts/dev-fixtures.sh
 ```
 
-That points `CLAWDE_BUDDY_REGISTRY_DIR`, `CLAWDE_BUDDY_PROJECTS_DIR` and
-`CLAWDE_BUDDY_USAGE_FILE` at the committed data under `fixtures/` and launches
+That points `CLAUDE_BUDDY_REGISTRY_DIR`, `CLAUDE_BUDDY_PROJECTS_DIR` and
+`CLAUDE_BUDDY_USAGE_FILE` at the committed data under `fixtures/` and launches
 the built app against it, so `npm run tauri build` has to have run at least
 once. The fixtures reproduce the six sessions in the README screenshots, which
 is how those screenshots were made, so a UI change can be eyeballed against
@@ -73,7 +73,7 @@ npm test
 cd src-tauri && cargo test -- --test-threads=1
 ```
 
-At the time of writing that is 191 frontend tests and 277 Rust tests, and both
+At the time of writing that is 191 frontend tests and 289 Rust tests, and both
 suites are green on `main`. `npm run typecheck` is the third thing CI will look
 at and costs a couple of seconds.
 
@@ -107,34 +107,35 @@ pure arithmetic on top), for the same reason.
 
 ## What CI will and will not do for you
 
-Stated plainly, because finding this out from a green pipeline that did not
-actually test your change is worse.
+Stated plainly, because finding this out from a green run that did not actually
+test your change is worse.
 
-A merge request runs a `test` stage on GitLab's free Linux runners:
-`test:frontend` (`npm run typecheck` and `npm test`) and `test:rustfmt`
-(`cargo fmt --check`). Those run for forks. The format check runs on Linux even
-though the crate does not build there, because rustfmt only parses and re-prints
-the source and never touches the dependency graph.
+**A pull request gets the whole suite, and a pull request from a fork gets the
+same whole suite.** *Frontend* runs `npm run typecheck` and `npm test`; *Rust*
+runs `cargo clippy` and `cargo test -- --test-threads=1`, on macOS, because the
+crate pulls in AppKit and Core Graphics and does not compile anywhere else; and
+*rustfmt* runs `cargo fmt --check`. That last one runs on Linux even though the
+crate does not build there, because rustfmt only parses and re-prints the source
+and never touches the dependency graph — so it is cheap, and there is no reason
+to spend a macOS runner on it.
 
-`test:rust` runs `cargo clippy` and `cargo test`, and that one needs macOS — the
-crate pulls in AppKit and Core Graphics and does not compile anywhere else.
-Clippy is not currently blocking there: `main` carries about twenty warnings, of
-which seven are deprecations inside a re-exported `cocoa` binding that is not
-ours to fix. Compile errors still fail the job. See the note under Code style
-about what is expected of a merge request in the meantime.
+That the macOS job runs for forks at all is new, and it is the largest thing
+this project got out of moving hosts. The runner is a machine GitHub creates for
+the job and destroys afterwards, so running a stranger's `build.rs` on it costs
+nothing anyone cares about. It used to be the maintainer's own laptop, which is
+why the Rust suite was withheld from forks and why a green run on a fork used to
+mean less than it looked like it meant. That gap is closed: a green run now
+means the same thing on your branch as on `main`.
 
-The project's macOS runner is the maintainer's own laptop, registered as a
-project runner with the **shell executor**. A shell executor runs job commands
-unsandboxed, as the logged-in user, directly on that machine. Running it for a
-fork merge request would mean executing a stranger's code — including whatever a
-`build.rs` or an `npm` lifecycle script felt like doing — on a personal computer
-with the maintainer's own credentials on it. So it does not run for forks, and
-that is not going to change without a disposable runner to change it to.
+Clippy is not blocking. `main` carries about twenty warnings, of which seven are
+deprecations inside a re-exported `cocoa` binding that is not ours to fix.
+Compile errors still fail the job. See the note under Code style about what is
+expected of a pull request in the meantime.
 
-What this means for you: **run both suites locally before you open the merge
-request.** That is the only thing that closes the gap. The maintainer runs the
-Rust suite and clippy before merging, and a failure found there is a round trip
-that a `cargo test` on your machine would have saved.
+None of that is a reason to skip running the suites yourself. CI is a check on
+your work, not a substitute for having done it, and a round trip through a
+queued macOS runner is slower than `cargo test` on the machine you are already
+sitting at.
 
 ## Commits
 
@@ -156,9 +157,9 @@ the commit log is the only place some of these decisions are recorded, and
 "fixed the bug" records nothing. Look at `git log` for the house style; several
 of the larger commits are effectively short design notes.
 
-## Merge requests
+## Pull requests
 
-One coherent change per merge request. Describe what changed and why in the
+One coherent change per pull request. Describe what changed and why in the
 description; if the reasoning is already in the commit bodies, saying so is
 enough.
 
@@ -166,15 +167,15 @@ If your change is user-visible, include the changelog prose in the description �
 see below — and bring the README along with it, which has a section of its own
 because it is the part people forget.
 
-Security vulnerabilities do not go in a merge request or a public issue. See
+Security vulnerabilities do not go in a pull request or a public issue. See
 [SECURITY.md](SECURITY.md).
 
 ## CHANGELOG.md
 
 `CHANGELOG.md` has one section per tag, and `scripts/release-notes.sh <tag>`
-extracts that tag's section verbatim. The tag pipeline uses the result as the
-GitLab release description *and* as the `notes` field in the updater manifest,
-so it is what the in-app update dialog shows people. A tag with no section still
+extracts that tag's section verbatim. The release workflow uses the result as
+the GitHub release body *and* as the `notes` field in the updater manifest, so
+it is what the in-app update dialog shows people. A tag with no section still
 releases — the script deliberately does not fail over a forgotten entry — but it
 releases with nothing in it except the download boilerplate.
 
@@ -196,9 +197,9 @@ The borderline cases, so you do not have to guess:
 - **README and docs changes** are not user-visible in this sense. `docs:`
   commits do not need entries.
 
-Sections are named for a tag that does not exist yet when you open a merge
+Sections are named for a tag that does not exist yet when you open a pull
 request, so unless the top section is for a version that has not been tagged,
-put the prose in your merge request description under a `Changelog` heading and
+put the prose in your pull request description under a `Changelog` heading and
 the maintainer will fold it into the section for whichever release carries it.
 Write it as it should appear: the existing entries are prose that explains the
 change to someone who does not know the code, not a restatement of the commit
@@ -213,7 +214,7 @@ not mention; it just quietly stops being true, and the next person to read it
 learns something wrong.
 
 So a change that alters what the app does to a user updates the README in the
-same merge request. Not afterwards, and not in a follow-up nobody opens. The
+same pull request. Not afterwards, and not in a follow-up nobody opens. The
 mapping is mechanical enough to write down:
 
 | If you change | Update |
@@ -257,7 +258,7 @@ On the Rust side **rustfmt is the arbiter** — `cargo fmt` applies it, CI runs
 commit. `src-tauri/rustfmt.toml` is worth a look once: every key in it is
 stable rustfmt's own default, written down rather than changed, because
 defaults have shifted between editions before and a contributor whose toolchain
-quietly disagrees with CI's finds out by having the pipeline reformat their
+quietly disagrees with CI's finds out by having the format job reject their
 diff.
 
 `cargo clippy` is a softer gate, honestly stated: the build is not
@@ -278,7 +279,7 @@ Beyond that, be honest about the state of things: **the frontend has no
 automated formatter configured.** No Prettier, no ESLint. The standing
 instruction is therefore to match the surrounding file. Read what is already
 there and write like it; do not reformat a file you are editing for one line,
-and do not introduce a formatter in the same merge request as a behaviour
+and do not introduce a formatter in the same pull request as a behaviour
 change.
 
 The comments deserve a word of their own. This codebase comments the *why*, not
@@ -331,7 +332,7 @@ ever end up in a commit, an issue, or a screenshot.
 
 **Keep the scope you were given.** If you notice something else wrong — a
 clippy warning, a stale comment, a missing test — mention it rather than fixing
-it in passing. One coherent change per merge request is not a style preference
+it in passing. One coherent change per pull request is not a style preference
 here; it is what makes a one-maintainer review tractable.
 
 **Read before you design.** `docs/superpowers/specs/` holds the design documents
@@ -362,7 +363,7 @@ function and the frontend derives nothing, and both of those properties would
 have been lost by the third feature had they been decided one commit at a time.
 
 Open an issue before starting anything large. It is a small project and a
-rejected merge request is a waste of your afternoon, not just the maintainer's.
+rejected pull request is a waste of your afternoon, not just the maintainer's.
 
 ## Orientation map
 
@@ -409,6 +410,6 @@ belongs in `watcher/state.rs` instead.
 
 ## License
 
-clawde-buddy is MIT licensed — see [LICENSE](LICENSE). Contributions are
-accepted under the same license; opening a merge request means you are offering
+claude-buddy is MIT licensed — see [LICENSE](LICENSE). Contributions are
+accepted under the same license; opening a pull request means you are offering
 your work on those terms.

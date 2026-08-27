@@ -1,4 +1,4 @@
-# clawde-buddy — design
+# claude-buddy — design
 
 **Date:** 2026-08-25
 **Status:** approved, ready for implementation planning
@@ -197,7 +197,7 @@ If a walk terminates without reaching a `.app` bundle, surface a quiet error in 
 
 ## Settings
 
-`~/Library/Application Support/com.clawde.buddy/config.json`. Plain JSON, hand-editable.
+`~/Library/Application Support/com.claude.buddy/config.json`. Plain JSON, hand-editable.
 
 Keys: view mode, paused threshold (default 10 min), per-event alert toggles, sound on/off, positions keyed by display ID, launch at login, `muteUntil` timestamp backing the Mute alerts 1h menu item.
 

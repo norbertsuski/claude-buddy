@@ -1,5 +1,5 @@
 [package]
-name = "clawde-buddy"
+name = "claude-buddy"
 # Not the shipped version, and deliberately not kept in step with one. The
 # version users see comes from tauri.conf.json, which is what `chore: bump`
 # moves along with package.json; no code reads CARGO_PKG_VERSION.
@@ -9,10 +9,10 @@ rust-version = "1.77"
 description = "A floating always-on-top macOS widget for local Claude Code sessions."
 authors = ["Norbert Suski"]
 license = "MIT"
-repository = "https://gitlab.com/norbert.suski/clawde-buddy"
+repository = "https://github.com/norbertsuski/claude-buddy"
 
 [lib]
-name = "clawde_buddy_lib"
+name = "claude_buddy_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

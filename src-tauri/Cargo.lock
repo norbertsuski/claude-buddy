@@ -390,7 +390,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "clawde-buddy"
+name = "claude-buddy"
 version = "0.1.0"
 dependencies = [
  "anyhow",

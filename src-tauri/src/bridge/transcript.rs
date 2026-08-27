@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 /// How much of a transcript to read. Transcripts reach megabytes; the fields
-/// clawde-buddy wants are always in the last few records.
+/// claude-buddy wants are always in the last few records.
 pub const TAIL_BYTES: u64 = 65_536;
 
 /// Longest activity string the popover will show on one line.
@@ -288,9 +288,9 @@ pub fn project_slug(cwd: &str) -> String {
 }
 
 /// Environment variable pointing at a different transcripts directory, matching
-/// `CLAWDE_BUDDY_REGISTRY_DIR`. Lets the widget be driven entirely from
+/// `CLAUDE_BUDDY_REGISTRY_DIR`. Lets the widget be driven entirely from
 /// fixtures — for tests, and for the screenshots in the README.
-pub const PROJECTS_DIR_ENV: &str = "CLAWDE_BUDDY_PROJECTS_DIR";
+pub const PROJECTS_DIR_ENV: &str = "CLAUDE_BUDDY_PROJECTS_DIR";
 
 pub fn projects_dir() -> PathBuf {
     if let Some(override_dir) = std::env::var_os(PROJECTS_DIR_ENV) {
@@ -620,8 +620,8 @@ mod tests {
     #[test]
     fn slug_replaces_separators_with_dashes() {
         assert_eq!(
-            project_slug("/Users/dev/Documents/Code/clawde-buddy"),
-            "-Users-dev-Documents-Code-clawde-buddy"
+            project_slug("/Users/dev/Documents/Code/claude-buddy"),
+            "-Users-dev-Documents-Code-claude-buddy"
         );
     }
 

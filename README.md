@@ -1,4 +1,4 @@
-# clawde-buddy
+# claude-buddy
 
 A floating always-on-top macOS widget that shows what every local Claude Code session is doing, and tells you when one is waiting on you.
 
@@ -10,7 +10,7 @@ A floating always-on-top macOS widget that shows what every local Claude Code se
 
 Run more than one Claude Code session and you lose track of them. A session that finishes, or blocks on a question or a permission prompt, does so silently in a window you are not looking at — and sits there until you happen to check. A menu-bar dot is no help: it is only visible when the menu bar is, and it collapses every session into one glyph.
 
-clawde-buddy reads the session registry Claude Code already maintains and puts it somewhere you cannot miss.
+claude-buddy reads the session registry Claude Code already maintains and puts it somewhere you cannot miss.
 
 ## What you see
 
@@ -90,12 +90,12 @@ Build it and copy it into Applications:
 ```bash
 npm install
 npm run tauri build
-cp -R src-tauri/target/release/bundle/macos/clawde-buddy.app /Applications/
+cp -R src-tauri/target/release/bundle/macos/claude-buddy.app /Applications/
 ```
 
 The build is unsigned, so Gatekeeper blocks the first launch. Try to open it, dismiss the warning, then go to **System Settings → Privacy & Security** and press **Open Anyway** in the block that has just appeared there. Once only. On macOS 14 and earlier, right-clicking the app and choosing **Open** does the same thing in one step. Opening it from the terminal will not get past either prompt.
 
-For a distributable image instead, `npm run dmg` writes `dist-dmg/clawde-buddy_<version>_<arch>.dmg`.
+For a distributable image instead, `npm run dmg` writes `dist-dmg/claude-buddy_<version>_<arch>.dmg`.
 
 ### Development
 
@@ -103,7 +103,7 @@ For a distributable image instead, `npm run dmg` writes `dist-dmg/clawde-buddy_<
 npm run tauri dev
 ```
 
-The frontend hot-reloads; Rust changes trigger a rebuild. [CONTRIBUTING.md](CONTRIBUTING.md) has the fuller version — the layer boundaries the code is expected to keep, the test commands, and what CI will say about a merge request.
+The frontend hot-reloads; Rust changes trigger a rebuild. [CONTRIBUTING.md](CONTRIBUTING.md) has the fuller version — the layer boundaries the code is expected to keep, the test commands, and what CI will say about a pull request.
 
 ## Using it
 
@@ -112,7 +112,7 @@ There is **no Dock icon and no Cmd-Tab entry** — it is a menu-bar app. The tra
 - **Settings…** — opens a normal window: when to hide the widget, which display to use, whether to sit in the notch, the sound and its three alert events, the 5h limit, background jobs, launch at login
 - **Mute alerts 1h**
 - **Install update** — installs a newer release if one is available and the updater is configured; otherwise it does nothing
-- **Quit clawde-buddy**
+- **Quit claude-buddy**
 
 It starts at the top centre of the primary display. Pick a different screen under Settings → *Show on display*, or drag the pill anywhere; positions are remembered per display, so docking and undocking a monitor puts it back where you left it rather than off-screen.
 
@@ -138,7 +138,7 @@ Clicking any notification raises that session's window, the same as clicking its
 
 ### Settings file
 
-`~/Library/Application Support/com.clawde.buddy/config.json` — plain JSON, hand-editable, every key optional:
+`~/Library/Application Support/com.claude.buddy/config.json` — plain JSON, hand-editable, every key optional:
 
 ```json
 {
@@ -166,7 +166,7 @@ A corrupt or half-written file falls back to defaults rather than refusing to st
 
 Three layers with enforced boundaries: a Rust watcher that owns the data, a Rust bridge for the two things a webview cannot do, and a React frontend that renders precomputed snapshots and derives nothing.
 
-The data source is `~/.claude/sessions/<pid>.json`, the registry Claude Code maintains, plus the session transcript for fields the registry does not carry. clawde-buddy is **strictly read-only** against `~/.claude` — it never writes, moves or deletes anything there.
+The data source is `~/.claude/sessions/<pid>.json`, the registry Claude Code maintains, plus the session transcript for fields the registry does not carry. claude-buddy is **strictly read-only** against `~/.claude` — it never writes, moves or deletes anything there.
 
 A few details that are less obvious than they look:
 
@@ -199,11 +199,11 @@ npm test
 cd src-tauri && cargo test -- --test-threads=1
 ```
 
-277 Rust tests and 191 frontend tests. The Rust suite is weighted toward `watcher::state`, where every session state and transition is derived — that function is pure, with the clock, pid liveness and transcript activity all injected, so the whole state machine is tested without touching a filesystem. The watcher-loop tests use real files and real time, hence `--test-threads=1`.
+289 Rust tests and 191 frontend tests. The Rust suite is weighted toward `watcher::state`, where every session state and transition is derived — that function is pure, with the clock, pid liveness and transcript activity all injected, so the whole state machine is tested without touching a filesystem. The watcher-loop tests use real files and real time, hence `--test-threads=1`.
 
-Three environment variables point the widget at fixtures instead of live data, which is how the screenshots on this page were made — the third because the real usage file carries what the account has actually spent, which is neither reproducible nor anyone else's business. Setting `CLAWDE_BUDDY_USAGE_FILE` also stops the live call, which would otherwise put the real figure straight back on screen.
+Three environment variables point the widget at fixtures instead of live data, which is how the screenshots on this page were made — the third because the real usage file carries what the account has actually spent, which is neither reproducible nor anyone else's business. Setting `CLAUDE_BUDDY_USAGE_FILE` also stops the live call, which would otherwise put the real figure straight back on screen.
 
-The fixture data is committed under `fixtures/`, and `scripts/dev-fixtures.sh` points `CLAWDE_BUDDY_REGISTRY_DIR`, `CLAWDE_BUDDY_PROJECTS_DIR` and `CLAWDE_BUDDY_USAGE_FILE` at it and launches the widget, so the screenshots above reproduce in one command:
+The fixture data is committed under `fixtures/`, and `scripts/dev-fixtures.sh` points `CLAUDE_BUDDY_REGISTRY_DIR`, `CLAUDE_BUDDY_PROJECTS_DIR` and `CLAUDE_BUDDY_USAGE_FILE` at it and launches the widget, so the screenshots above reproduce in one command:
 
 ```bash
 scripts/dev-fixtures.sh        # npm run tauri dev
@@ -216,9 +216,10 @@ Set the three by hand instead if you would rather aim the widget at a registry o
 
 ## Releasing
 
-Tag and push; the pipeline builds the DMG, uploads it and creates the release.
+Tag and push; the release workflow builds the DMG on macOS, attaches it to a
+GitHub release and publishes it.
 
-The release description is the tag's own section of [CHANGELOG.md](CHANGELOG.md),
+The release body is the tag's own section of [CHANGELOG.md](CHANGELOG.md),
 extracted by `scripts/release-notes.sh` — the same notes go into the updater's
 `latest.json`, so the in-app update dialog says what changed too. Write the
 section before tagging: a tag with no section still releases, but with nothing
@@ -234,21 +235,11 @@ scripts/release-notes.sh v0.4.0
 
 ### The macOS runner
 
-`.gitlab-ci.yml` builds and publishes on a tag: it runs the build, uploads the DMG to the Generic Packages registry and attaches it to a Release. A `.app` cannot be cross-compiled from Linux, so that job needs a macOS runner, and there are two ways to have one:
+A `.app` cannot be cross-compiled from Linux, so the release job needs a Mac. GitHub gives public repositories `macos-latest` runners at no cost, so there is nothing to arrange: the workflow asks for one and gets a clean machine with Xcode, Node and Rust already on it. Nothing to register, nothing to keep running, and nothing that has to be the maintainer's own laptop.
 
-- **Your own Mac as a project runner** — free, and it already has the toolchain. This is what `MACOS_RUNNER_TAG: macos` in the shipped config expects:
+That the runner is disposable is what makes the rest of CI honest — see [Contributing](#contributing).
 
-  ```bash
-  brew install gitlab-runner
-  gitlab-runner register --url https://gitlab.com --executor shell --tag-list macos
-  brew services start gitlab-runner
-  ```
-
-  Create the runner first under *Settings → CI/CD → Runners → New project runner* with the tag `macos`, then register with the token it gives you. A shell executor ignores `MACOS_IMAGE`, and the job puts Volta, Cargo and Homebrew on `PATH` itself, because a shell executor inherits almost none.
-
-- **GitLab's hosted macOS runners** — Premium or Ultimate only; there is no free tier. Set `MACOS_RUNNER_TAG` to `saas-macos-medium-m1` and keep `MACOS_IMAGE`.
-
-Without any runner, build locally and run `GITLAB_TOKEN=... scripts/publish-release.sh v0.1.0`, which performs the same upload and release creation over the API.
+If you ever need to publish without the workflow, build locally and run `GITHUB_TOKEN=... scripts/publish-release.sh v0.1.0`, which creates the release and attaches the DMG over the API.
 
 ### Signing updates
 
@@ -259,18 +250,20 @@ separate from Apple code signing — it secures the update channel, not
 Gatekeeper.
 
 ```bash
-npm run tauri signer generate -- -w ~/.tauri/clawde-buddy.key
+npm run tauri signer generate -- -w ~/.tauri/claude-buddy.key
 ```
 
 Put the printed public key in `src-tauri/tauri.conf.json` under
 `plugins.updater.pubkey`, which ships empty, and add the private key and its
-password to GitLab under *Settings → CI/CD → Variables*, both masked:
+password to the repository under *Settings → Secrets and variables → Actions*,
+both as repository secrets:
 
-- `TAURI_SIGNING_PRIVATE_KEY` — the contents of `~/.tauri/clawde-buddy.key`
+- `TAURI_SIGNING_PRIVATE_KEY` — the contents of `~/.tauri/claude-buddy.key`
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — the password you chose
 
-`plugins.updater.endpoints` already points at this project's package registry,
-addressed by path rather than by numeric id, so it needs no editing.
+`plugins.updater.endpoints` already points at the `latest.json` attached to
+this project's newest release — a URL that stays the same as versions come and
+go — so it needs no editing.
 
 **No key is committed, so as shipped the updater is switched off**: with an
 empty `pubkey` the plugin is never registered, so the launch check and the
@@ -280,13 +273,13 @@ the version you installed.
 That keylessness is also why `bundle.createUpdaterArtifacts` is `false` here.
 `tauri build` refuses to bundle an update tarball for a public key it cannot
 also sign, so leaving it on would break `npm run tauri build` for anyone
-without the private key. The tag pipeline turns it on for itself when
-`TAURI_SIGNING_PRIVATE_KEY` is set, publishing `clawde-buddy.app.tar.gz`, its
-`.sig` and a `latest.json` manifest alongside the DMG; without the variables it
+without the private key. The release workflow turns it on for itself when
+`TAURI_SIGNING_PRIVATE_KEY` is set, publishing `claude-buddy.app.tar.gz`, its
+`.sig` and a `latest.json` manifest alongside the DMG; without the secrets it
 skips all three and releases the DMG alone. To bundle a signed tarball by hand:
 
 ```bash
-TAURI_SIGNING_PRIVATE_KEY=$(cat ~/.tauri/clawde-buddy.key) \
+TAURI_SIGNING_PRIVATE_KEY=$(cat ~/.tauri/claude-buddy.key) \
   npm run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":true}}'
 ```
 
@@ -294,15 +287,15 @@ TAURI_SIGNING_PRIVATE_KEY=$(cat ~/.tauri/clawde-buddy.key) \
 
 The spec and implementation plans this was built from are kept in the repo:
 
-- [Design spec](docs/superpowers/specs/2026-08-25-clawde-buddy-design.md), and the [v2 design](docs/superpowers/specs/2026-08-25-clawde-buddy-v2-design.md) that followed it
+- [Design spec](docs/superpowers/specs/2026-08-25-claude-buddy-design.md), and the [v2 design](docs/superpowers/specs/2026-08-25-claude-buddy-v2-design.md) that followed it
 - [Notch mode design](docs/superpowers/specs/2026-08-26-notch-mode-design.md)
-- Implementation plans, [v1](docs/superpowers/plans/2026-08-25-clawde-buddy-v1.md) and [v2](docs/superpowers/plans/2026-08-25-clawde-buddy-v2.md)
+- Implementation plans, [v1](docs/superpowers/plans/2026-08-25-claude-buddy-v1.md) and [v2](docs/superpowers/plans/2026-08-25-claude-buddy-v2.md)
 
 ## Contributing
 
-Contributions are welcome, under the same MIT terms as everything else here. [CONTRIBUTING.md](CONTRIBUTING.md) carries the setup and the conventions — how the three layers are meant to stay apart, and what a merge request is expected to arrive with. Anything that looks like a security problem goes the way [SECURITY.md](SECURITY.md) describes rather than into a public issue, so that a fix can land before the details do.
+Contributions are welcome, under the same MIT terms as everything else here. [CONTRIBUTING.md](CONTRIBUTING.md) carries the setup and the conventions — how the three layers are meant to stay apart, and what a pull request is expected to arrive with. Anything that looks like a security problem goes the way [SECURITY.md](SECURITY.md) describes rather than into a public issue, so that a fix can land before the details do.
 
-One thing about the pipeline is worth knowing in advance: the Rust suite needs macOS, and a fork has no macOS runner. A merge request from a fork therefore gets the frontend tests, the typecheck and a format check, and nothing else — the maintainer runs `cargo test` on a Mac before merging. A green pipeline on your fork is most of the story, not all of it.
+One thing about CI is worth knowing in advance, because it is the part people expect to be worse than it is: **every pull request runs the whole suite, forks included.** The Rust tests and clippy need macOS, and each run gets a fresh, disposable macOS runner, so there is no reason to hold them back from a branch nobody has read yet. A green run says what it looks like it says.
 
 ## License
 

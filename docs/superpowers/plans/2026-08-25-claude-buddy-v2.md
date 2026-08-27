@@ -1,4 +1,4 @@
-# clawde-buddy v2 Implementation Plan
+# claude-buddy v2 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - macOS only. Minimum system version 13.0.
-- clawde-buddy is strictly read-only against `~/.claude`. Never write, move or unlink anything there.
+- claude-buddy is strictly read-only against `~/.claude`. Never write, move or unlink anything there.
 - Rust tests run with `--test-threads=1` because the watcher-loop tests use real files and real time.
 - `cargo` is not on the default `PATH` in this environment. Prefix Rust commands with `PATH="$HOME/.cargo/bin:$PATH"`.
 - Rust serializes `camelCase`; `src/types.ts` mirrors the Rust structs and the names must match exactly.
@@ -452,7 +452,7 @@ Two existing tests assert the old retention behaviour and must be rewritten, bec
 
     #[test]
     fn a_long_dead_session_drops_off_the_list() {
-        // Claude Code prunes stale registry files itself; clawde-buddy never
+        // Claude Code prunes stale registry files itself; claude-buddy never
         // unlinks them, so it stops showing them instead.
         let f = file(1, "cli");
         let seen = HashMap::from([("session-1".to_string(), NOW - DEAD_RETENTION_MS - 1)]);
@@ -845,7 +845,7 @@ Expected: PASS.
 - [ ] **Step 9: Verify the app still builds and launches**
 
 Run: `npm run tauri build 2>&1 | tail -5`
-Expected: a bundled `clawde-buddy.app`. Launch it and confirm the widget appears.
+Expected: a bundled `claude-buddy.app`. Launch it and confirm the widget appears.
 
 - [ ] **Step 10: Commit**
 
@@ -1115,7 +1115,7 @@ Expected: PASS.
 
 - [ ] **Step 9: Check it visually**
 
-Run: `npm run tauri build 2>&1 | tail -3 && open src-tauri/target/release/bundle/macos/clawde-buddy.app`
+Run: `npm run tauri build 2>&1 | tail -3 && open src-tauri/target/release/bundle/macos/claude-buddy.app`
 Hover a session and confirm the popover shows a `doing` line. Confirm the popover has not changed width and the row has not shifted.
 
 - [ ] **Step 10: Commit**
@@ -1769,14 +1769,14 @@ Expected: PASS.
 
 - [ ] **Step 5: Check it visually — this is the point of the task**
 
-Run: `npm run tauri build 2>&1 | tail -3 && open src-tauri/target/release/bundle/macos/clawde-buddy.app`
+Run: `npm run tauri build 2>&1 | tail -3 && open src-tauri/target/release/bundle/macos/claude-buddy.app`
 
 Drive it from fixtures so all five states are on screen at once:
 
 ```bash
-CLAWDE_BUDDY_REGISTRY_DIR=/path/to/fixture/sessions \
-CLAWDE_BUDDY_PROJECTS_DIR=/path/to/fixture/projects \
-  src-tauri/target/release/bundle/macos/clawde-buddy.app/Contents/MacOS/clawde-buddy
+CLAUDE_BUDDY_REGISTRY_DIR=/path/to/fixture/sessions \
+CLAUDE_BUDDY_PROJECTS_DIR=/path/to/fixture/projects \
+  src-tauri/target/release/bundle/macos/claude-buddy.app/Contents/MacOS/claude-buddy
 ```
 
 Confirm: five distinguishable silhouettes; the pill width has not changed; the waiting ring still animates; the demoted background-job dots still render smaller without losing their shape.
@@ -2070,7 +2070,7 @@ Expected: PASS.
 
 - [ ] **Step 11: Check it visually**
 
-Run: `npm run tauri build 2>&1 | tail -3 && open src-tauri/target/release/bundle/macos/clawde-buddy.app`
+Run: `npm run tauri build 2>&1 | tail -3 && open src-tauri/target/release/bundle/macos/claude-buddy.app`
 
 With no Claude Code sessions running, confirm the widget is absent and the tray icon is present. Start a session and confirm it reappears at its saved position. Open Settings and confirm the view-mode dropdown is gone and the tray menu has no View mode submenu.
 
@@ -2093,7 +2093,7 @@ git commit -m "feat: hide the widget when there is nothing to report"
 - Modify: `src-tauri/src/lib.rs`
 - Create: `src-tauri/src/update.rs`
 - Modify: `src-tauri/src/window.rs`
-- Modify: `.gitlab-ci.yml`
+- Modify: the release workflow
 - Modify: `README.md`
 
 **Interfaces:**
@@ -2124,14 +2124,14 @@ In `src-tauri/tauri.conf.json`, add `"createUpdaterArtifacts": true` inside `bun
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://gitlab.com/api/v4/projects/PROJECT_ID/packages/generic/clawde-buddy/latest/latest.json"
+        "https://github.com/norbertsuski/claude-buddy/releases/latest/download/latest.json"
       ],
       "pubkey": ""
     }
   }
 ```
 
-Replace `PROJECT_ID` with the numeric project id from the GitLab project page. Leave `pubkey` empty until the keypair exists — the check then fails closed rather than accepting an unverified update.
+The endpoint is the `latest.json` asset attached to the newest release, so it is a fixed URL and needs no editing once the owner and repository are right. Leave `pubkey` empty until the keypair exists — the check then fails closed rather than accepting an unverified update.
 
 In `src-tauri/capabilities/default.json`, add `"updater:default"` to `permissions`.
 
@@ -2163,7 +2163,7 @@ pub fn check_on_launch(app: AppHandle) {
                     let mut options = mac_notification_sys::Notification::new();
                     options.wait_for_click(false);
                     let _ = mac_notification_sys::send_notification(
-                        "clawde-buddy update available",
+                        "claude-buddy update available",
                         None,
                         &format!("version {version} — install it from the tray menu"),
                         Some(&options),
@@ -2213,39 +2213,34 @@ Include `&update` in `Menu::with_items` between the mute item and the separator,
 
 - [ ] **Step 5: Publish the manifest from CI**
 
-In `.gitlab-ci.yml`, inside `build:dmg`'s `script`, after the DMG upload, add:
+In the release workflow, after the DMG upload, attach the updater's own
+artefacts to the same release:
 
 ```yaml
-    # The updater consumes a tarball and its signature, not the DMG.
-    - |
-      BUNDLE=src-tauri/target/release/bundle/macos
-      TARBALL=$(ls "$BUNDLE"/*.app.tar.gz)
-      SIG=$(cat "$BUNDLE"/*.app.tar.gz.sig)
-      BASE="$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/$PACKAGE_NAME"
-      for FILE in "$TARBALL" "$TARBALL.sig"; do
-        curl --fail --silent --show-error \
-          --header "JOB-TOKEN: $CI_JOB_TOKEN" \
-          --upload-file "$FILE" \
-          "$BASE/$CI_COMMIT_TAG/$(basename "$FILE")"
-      done
-      cat > latest.json <<EOF
-      {
-        "version": "${CI_COMMIT_TAG#v}",
-        "notes": "clawde-buddy $CI_COMMIT_TAG",
-        "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-        "platforms": {
-          "darwin-aarch64": {
-            "signature": "$SIG",
-            "url": "$BASE/$CI_COMMIT_TAG/$(basename "$TARBALL")"
+      # The updater consumes a tarball and its signature, not the DMG.
+      - name: Publish the update manifest
+        run: |
+          BUNDLE=src-tauri/target/release/bundle/macos
+          TARBALL=$(ls "$BUNDLE"/*.app.tar.gz)
+          SIG=$(cat "$BUNDLE"/*.app.tar.gz.sig)
+          TAG="$GITHUB_REF_NAME"
+          REPO="$GITHUB_REPOSITORY"
+          cat > latest.json <<EOF
+          {
+            "version": "${TAG#v}",
+            "notes": "claude-buddy $TAG",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "darwin-aarch64": {
+                "signature": "$SIG",
+                "url": "https://github.com/$REPO/releases/download/$TAG/$(basename "$TARBALL")"
+              }
+            }
           }
-        }
-      }
-      EOF
-      # Published under a fixed `latest` version so the endpoint URL is stable.
-      curl --fail --silent --show-error \
-        --header "JOB-TOKEN: $CI_JOB_TOKEN" \
-        --upload-file latest.json \
-        "$BASE/latest/latest.json"
+          EOF
+          # Attached to the release itself, which is what makes
+          # /releases/latest/download/latest.json a stable endpoint.
+          gh release upload "$TAG" "$TARBALL" "$TARBALL.sig" latest.json
 ```
 
 - [ ] **Step 6: Document the signing step**
@@ -2260,25 +2255,25 @@ keypair. This is separate from Apple code signing — it secures the update
 channel, not Gatekeeper.
 
 ```bash
-npm run tauri signer generate -- -w ~/.tauri/clawde-buddy.key
+npm run tauri signer generate -- -w ~/.tauri/claude-buddy.key
 ```
 
 Put the printed public key in `src-tauri/tauri.conf.json` under
-`plugins.updater.pubkey`, and add the private key and its password to GitLab
-under *Settings → CI/CD → Variables*, both masked:
+`plugins.updater.pubkey`, and add the private key and its password to the
+repository under *Settings → Secrets and variables → Actions*, as secrets:
 
-- `TAURI_SIGNING_PRIVATE_KEY` — the contents of `~/.tauri/clawde-buddy.key`
+- `TAURI_SIGNING_PRIVATE_KEY` — the contents of `~/.tauri/claude-buddy.key`
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — the password you chose
 
 Until the public key is set the updater is inert: the check fails closed and
-the app stays on the installed version. Set `plugins.updater.endpoints` to your
-project's numeric id.
+the app stays on the installed version. Point `plugins.updater.endpoints` at
+your own repository if you are running a fork.
 ```
 
 - [ ] **Step 7: Build and confirm the artifacts exist**
 
 Run: `npm run tauri build 2>&1 | tail -5 && ls src-tauri/target/release/bundle/macos/`
-Expected: `clawde-buddy.app`, `clawde-buddy.app.tar.gz`, and — once the signing key is configured — `clawde-buddy.app.tar.gz.sig`. Without a key the tarball is produced and the `.sig` is not; that is the expected inert state.
+Expected: `claude-buddy.app`, `claude-buddy.app.tar.gz`, and — once the signing key is configured — `claude-buddy.app.tar.gz.sig`. Without a key the tarball is produced and the `.sig` is not; that is the expected inert state.
 
 - [ ] **Step 8: Run both suites**
 
@@ -2288,7 +2283,7 @@ Expected: PASS.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src-tauri/Cargo.toml src-tauri/Cargo.lock package.json package-lock.json src-tauri/tauri.conf.json src-tauri/capabilities/default.json src-tauri/src/update.rs src-tauri/src/lib.rs src-tauri/src/window.rs .gitlab-ci.yml README.md
+git add src-tauri/Cargo.toml src-tauri/Cargo.lock package.json package-lock.json src-tauri/tauri.conf.json src-tauri/capabilities/default.json src-tauri/src/update.rs src-tauri/src/lib.rs src-tauri/src/window.rs .github/workflows/ci.yml README.md
 git commit -m "feat: check for and install updates from the tag pipeline"
 ```
 

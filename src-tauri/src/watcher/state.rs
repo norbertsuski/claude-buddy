@@ -16,7 +16,7 @@ pub const PAUSED_THRESHOLD_MS: i64 = 10 * 60 * 1000;
 pub const BUSY_WINDOW_MS: i64 = 30 * 1000;
 
 /// How long a crashed session stays on the list. Its registry file lingers with
-/// a dead pid, and clawde-buddy never unlinks anything under `~/.claude`, so the
+/// a dead pid, and claude-buddy never unlinks anything under `~/.claude`, so the
 /// entry ages out of the display instead.
 pub const DEAD_RETENTION_MS: i64 = 5 * 60 * 1000;
 
@@ -1491,7 +1491,7 @@ mod tests {
 
     #[test]
     fn a_long_dead_session_drops_off_the_list() {
-        // Claude Code prunes stale registry files itself; clawde-buddy never
+        // Claude Code prunes stale registry files itself; claude-buddy never
         // unlinks them, so it stops showing them instead.
         let f = file(1, "cli");
         let seen = HashMap::from([("session-1".to_string(), NOW - DEAD_RETENTION_MS - 1)]);

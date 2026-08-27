@@ -1,4 +1,4 @@
-# clawde-buddy v1 Implementation Plan
+# claude-buddy v1 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -18,7 +18,7 @@
 - Transcript reads: last 64KB only (`65536` bytes). Never read a whole transcript.
 - Liveness: `kill(pid, 0)` **and** a `procStart` match. Never pid alone.
 - Alerts are edge-triggered on transitions, never on states. The first snapshot after launch fires nothing.
-- Bundle identifier: `com.clawde.buddy`. Config path: `~/Library/Application Support/com.clawde.buddy/config.json`.
+- Bundle identifier: `com.claude.buddy`. Config path: `~/Library/Application Support/com.claude.buddy/config.json`.
 - All Rust external effects (process tree, app activation, pid liveness, clock) sit behind traits so tests never touch the real system.
 - Serialize Rust types to the frontend as `camelCase`.
 
@@ -85,7 +85,7 @@ Split by responsibility, not layer: each watcher submodule owns one decision and
 
 ```json
 {
-  "name": "clawde-buddy",
+  "name": "claude-buddy",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -177,7 +177,7 @@ import '@testing-library/jest-dom/vitest'
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>clawde-buddy</title>
+    <title>claude-buddy</title>
   </head>
   <body>
     <div id="root"></div>
@@ -273,13 +273,13 @@ Expected: PASS — 4 tests.
 
 ```toml
 [package]
-name = "clawde-buddy"
+name = "claude-buddy"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.77"
 
 [lib]
-name = "clawde_buddy_lib"
+name = "claude_buddy_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -312,9 +312,9 @@ fn main() {
 ```json
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "clawde-buddy",
+  "productName": "claude-buddy",
   "version": "0.1.0",
-  "identifier": "com.clawde.buddy",
+  "identifier": "com.claude.buddy",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
@@ -373,7 +373,7 @@ Tauri merges a sibling `Info.plist` into the generated bundle plist automaticall
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    clawde_buddy_lib::run()
+    claude_buddy_lib::run()
 }
 ```
 
@@ -386,7 +386,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .run(tauri::generate_context!())
-        .expect("error while running clawde-buddy");
+        .expect("error while running claude-buddy");
 }
 ```
 
@@ -471,11 +471,11 @@ mod tests {
     const NO_STATUS: &str = r#"{
       "pid": 99215,
       "sessionId": "a1b2c3d4-0000-4000-8000-000000000002",
-      "cwd": "/Users/n/Code/clawde-buddy",
+      "cwd": "/Users/n/Code/claude-buddy",
       "startedAt": 1787662276356,
       "procStart": "Tue Aug 25 12:51:15 2026",
       "entrypoint": "claude-desktop",
-      "name": "clawde-buddy-1f"
+      "name": "claude-buddy-1f"
     }"#;
 
     #[test]
@@ -532,7 +532,7 @@ mod tests {
 
     #[test]
     fn missing_directory_yields_empty_vec() {
-        let missing = std::path::Path::new("/nonexistent/clawde-buddy/registry");
+        let missing = std::path::Path::new("/nonexistent/claude-buddy/registry");
         assert!(read_registry_dir(missing).is_empty());
     }
 }
@@ -557,7 +557,7 @@ use serde::Deserialize;
 
 /// One `~/.claude/sessions/<pid>.json` record.
 ///
-/// Only fields clawde-buddy consumes are modelled. Unknown fields are ignored
+/// Only fields claude-buddy consumes are modelled. Unknown fields are ignored
 /// so a Claude Code upgrade that adds keys cannot break parsing.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RegistryFile {
@@ -1111,7 +1111,7 @@ mod tests {
 
     #[test]
     fn a_long_dead_session_drops_off_the_list() {
-        // Claude Code prunes stale registry files itself; clawde-buddy never
+        // Claude Code prunes stale registry files itself; claude-buddy never
         // unlinks them, so it stops showing them instead.
         let mut f = file(1, "cli");
         f.status_updated_at = Some(NOW - DEAD_RETENTION_MS - 1);
@@ -1168,7 +1168,7 @@ use crate::watcher::registry::RegistryFile;
 pub const PAUSED_THRESHOLD_MS: i64 = 10 * 60 * 1000;
 
 /// How long a crashed session stays on the list. Its registry file lingers with
-/// a dead pid, and clawde-buddy never unlinks anything under `~/.claude`, so the
+/// a dead pid, and claude-buddy never unlinks anything under `~/.claude`, so the
 /// entry ages out of the display instead.
 pub const DEAD_RETENTION_MS: i64 = 5 * 60 * 1000;
 
@@ -1710,7 +1710,7 @@ mod tests {
     #[test]
     fn config_path_lands_under_the_bundle_identifier() {
         let p = config_path();
-        assert!(p.ends_with("com.clawde.buddy/config.json"), "got {p:?}");
+        assert!(p.ends_with("com.claude.buddy/config.json"), "got {p:?}");
     }
 }
 ```
@@ -1780,7 +1780,7 @@ pub fn config_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/"))
         .join("Library")
         .join("Application Support")
-        .join("com.clawde.buddy")
+        .join("com.claude.buddy")
         .join("config.json")
 }
 
@@ -2231,7 +2231,7 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running clawde-buddy");
+        .expect("error while running claude-buddy");
 }
 ```
 
@@ -2313,7 +2313,7 @@ pub fn configure_panel(window: &WebviewWindow) -> Result<(), String> {
 
     panel.set_level(PANEL_LEVEL);
 
-    // NonactivatingPanel: clicking the widget does not make clawde-buddy the
+    // NonactivatingPanel: clicking the widget does not make claude-buddy the
     // active application, so the user's editor keeps focus and keyboard input.
     panel.set_style_mask(NSWindowStyleMask::NSNonactivatingPanelMask.bits() as i32);
 
@@ -2348,7 +2348,7 @@ pub fn build_tray_menu(app: &AppHandle) -> tauri::Result<()> {
         &[&dot_row, &card_stack, &buddy, &invisible],
     )?;
 
-    let quit = MenuItem::with_id(app, "quit", "Quit clawde-buddy", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit claude-buddy", true, None::<&str>)?;
 
     let menu = Menu::with_items(
         app,
@@ -2659,7 +2659,7 @@ Drag the widget somewhere distinctive, quit via the tray menu, relaunch.
 Expected: it returns to where you left it. Then confirm the config file:
 
 ```bash
-cat ~/Library/Application\ Support/com.clawde.buddy/config.json
+cat ~/Library/Application\ Support/com.claude.buddy/config.json
 ```
 
 Expected: a `positions` entry keyed like `"Built-in Retina Display@3024x1964"`.
@@ -2954,7 +2954,7 @@ function s(state: SessionState): SessionSnapshot {
 describe('shortName', () => {
   it('strips the two-character suffix Claude Code appends', () => {
     expect(shortName('api-service-55')).toBe('api-service')
-    expect(shortName('clawde-buddy-1f')).toBe('clawde-buddy')
+    expect(shortName('claude-buddy-1f')).toBe('claude-buddy')
     expect(shortName('web-app-e2')).toBe('web-app')
   })
 
@@ -3770,8 +3770,8 @@ mod tests {
     #[test]
     fn slug_replaces_separators_with_dashes() {
         assert_eq!(
-            project_slug("/Users/dev/Documents/Code/clawde-buddy"),
-            "-Users-dev-Documents-Code-clawde-buddy"
+            project_slug("/Users/dev/Documents/Code/claude-buddy"),
+            "-Users-dev-Documents-Code-claude-buddy"
         );
     }
 
@@ -3863,7 +3863,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 /// How much of a transcript to read. Transcripts reach megabytes; the fields
-/// clawde-buddy wants are always in the last few records.
+/// claude-buddy wants are always in the last few records.
 pub const TAIL_BYTES: u64 = 65_536;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -5612,7 +5612,7 @@ Right-click the tray icon, choose Mute alerts 1h, then let a session block.
 Expected: the pill updates, no notification. Confirm the file:
 
 ```bash
-grep muteUntilMs ~/Library/Application\ Support/com.clawde.buddy/config.json
+grep muteUntilMs ~/Library/Application\ Support/com.claude.buddy/config.json
 ```
 
 Expected: a timestamp roughly one hour ahead.

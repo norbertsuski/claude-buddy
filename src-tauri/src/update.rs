@@ -40,7 +40,7 @@ pub fn check_on_launch(app: AppHandle) {
                     let mut options = mac_notification_sys::Notification::new();
                     options.wait_for_click(false);
                     let _ = mac_notification_sys::send_notification(
-                        "clawde-buddy update available",
+                        "claude-buddy update available",
                         None,
                         &format!("version {version} — install it from the tray menu"),
                         Some(&options),

@@ -30,7 +30,7 @@ pub fn configure_panel(window: &WebviewWindow) -> Result<(), String> {
 
     panel.set_level(PANEL_LEVEL);
 
-    // NonactivatingPanel: clicking the widget does not make clawde-buddy the
+    // NonactivatingPanel: clicking the widget does not make claude-buddy the
     // active application, so the user's editor keeps focus and keyboard input.
     panel.set_style_mask(NONACTIVATING_PANEL_MASK);
 
@@ -61,7 +61,7 @@ pub fn build_tray_menu(app: &AppHandle) -> tauri::Result<()> {
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let mute = MenuItem::with_id(app, "mute", "Mute alerts 1h", true, None::<&str>)?;
     let update = MenuItem::with_id(app, "update", "Install update", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit clawde-buddy", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit claude-buddy", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
 
     // Omitted rather than greyed out when there is no signing key. With the
@@ -148,7 +148,7 @@ pub fn open_settings(app: &AppHandle) {
         SETTINGS_LABEL,
         WebviewUrl::App("index.html#settings".into()),
     )
-    .title("clawde-buddy Settings")
+    .title("claude-buddy Settings")
     // Measured: the form is 451px tall, and at 420 the Done button sat below
     // the bottom edge with no way to reach it. The panel scrolls now too, so a
     // window shrunk past its content — or a setting added later — cannot put a

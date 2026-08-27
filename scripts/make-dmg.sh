@@ -8,10 +8,10 @@
 # background image or icon placement.
 set -euo pipefail
 
-APP="src-tauri/target/release/bundle/macos/clawde-buddy.app"
+APP="src-tauri/target/release/bundle/macos/claude-buddy.app"
 VERSION="$(node -p "require('./package.json').version")"
 ARCH="$(uname -m)"
-OUT="dist-dmg/clawde-buddy_${VERSION}_${ARCH}.dmg"
+OUT="dist-dmg/claude-buddy_${VERSION}_${ARCH}.dmg"
 
 [ -d "$APP" ] || { echo "no app bundle at $APP — run 'npm run tauri build' first" >&2; exit 1; }
 
@@ -27,15 +27,15 @@ cp -R "$APP" "$STAGE/"
 # right-click-Open escape. An explicit ad-hoc signature over the whole bundle
 # leaves it unsigned as far as notarisation goes, but valid, which downgrades
 # that to the ordinary unidentified-developer prompt.
-codesign --force --deep --sign - "$STAGE/clawde-buddy.app"
-codesign --verify --deep --strict "$STAGE/clawde-buddy.app"
+codesign --force --deep --sign - "$STAGE/claude-buddy.app"
+codesign --verify --deep --strict "$STAGE/claude-buddy.app"
 
 ln -s /Applications "$STAGE/Applications"
 
 mkdir -p dist-dmg
 rm -f "$OUT"
 hdiutil create \
-  -volname "clawde-buddy" \
+  -volname "claude-buddy" \
   -srcfolder "$STAGE" \
   -ov -format UDZO \
   "$OUT" >/dev/null

@@ -1,6 +1,6 @@
 # Security policy
 
-clawde-buddy sits next to Claude Code and reads the things Claude Code leaves on
+claude-buddy sits next to Claude Code and reads the things Claude Code leaves on
 disk: the session registry, the session transcripts, and the OAuth token Claude
 Code holds. That is a genuinely sensitive neighbourhood to be standing in, so
 this page says exactly what the app touches, what counts as a vulnerability
@@ -25,29 +25,36 @@ imply a support window that does not exist.
 ## Reporting a vulnerability
 
 **Please do not open a public issue for a security problem**, and please do not
-open a merge request that fixes one, since the diff describes the bug to
+open a pull request that fixes one, since the diff describes the bug to
 everyone watching the project before anyone has a build that closes it.
 
-Use a **confidential issue** instead. A confidential issue on GitLab is visible
-only to project members at Reporter level and above — the maintainer sees it,
-the public does not, and it stays a normal issue in every other respect, so the
-whole conversation and its eventual fix live in one place.
+Use GitHub's **private vulnerability reporting** instead. It is a form attached
+to the repository itself: what you write is visible to you and the maintainer
+and to nobody else, the thread that follows stays private for as long as it
+needs to, and the draft advisory it opens is the thing that eventually gets
+published once a fix is out — so the report, the conversation and the public
+record are one object rather than three.
 
 To open one:
 
-1. Go to
-   [Issues → New issue](https://gitlab.com/norbert.suski/clawde-buddy/-/issues/new).
-2. Write the report.
-3. Before pressing **Create issue**, tick **This issue is confidential**. It is
-   a checkbox below the description field. Confidential issues carry a padlock
-   in the issue list, which is how you can tell it took.
+1. Go to the repository's
+   [Security tab](https://github.com/norbertsuski/claude-buddy/security).
+2. Press **Report a vulnerability**.
+3. Write the report and submit it. Nothing is public at any point in that
+   sequence, so there is no moment to get wrong.
 
-If you tick the box after the fact the issue was still public in the meantime,
-so tick it before submitting.
+One caveat, and it is the maintainer's to fix rather than yours: private
+vulnerability reporting is a per-repository setting — *Settings → Code security
+→ Private vulnerability reporting* — and the button only exists once it has been
+switched on. If it is not there, open an ordinary issue saying you have a
+security report and nothing else about it, and the maintainer can enable the
+feature and pick it up from there. An issue that says "I have found something"
+tells an attacker nothing they can use.
 
-<!-- TODO(maintainer): add a private contact address here if you want one. A
-     confidential issue needs a GitLab account and is enough on its own; an
-     email line is only worth adding if you are happy to publish an address. -->
+<!-- TODO(maintainer): add a private contact address here if you want one.
+     Private vulnerability reporting needs a GitHub account and is enough on its
+     own; an email line is only worth adding if you are happy to publish an
+     address, and it is the obvious fallback while the feature is switched off. -->
 <!-- Optional private contact: <address here> -->
 
 ### What to include
@@ -65,11 +72,11 @@ This is a side project with one maintainer, so the timings below are what is
 realistic rather than what sounds impressive:
 
 - An acknowledgement within about a week. If a fortnight goes by with nothing,
-  assume the notification was missed and ping the confidential issue again.
+  assume the notification was missed and post in the advisory thread again.
 - An assessment — whether it reproduces, and whether it is a vulnerability or a
   bug — in the same thread, in the open with you.
-- A fix in the next release if it is a real one, and the confidential issue made
-  public once that release is out, so the fix has a public record.
+- A fix in the next release if it is a real one, and the advisory published once
+  that release is out, so the fix has a public record.
 - Credit in [CHANGELOG.md](CHANGELOG.md) under the release that fixes it, unless
   you would rather not be named. Say which you prefer.
 
@@ -124,9 +131,12 @@ if the system is configured to show notification content there. Nothing is sent
 anywhere off the machine, but "on screen" and "in Notification Center" are a
 wider audience than "in a terminal window you had to go and look at".
 
-Reads only. clawde-buddy is strictly read-only against `~/.claude` — it never
+Reads only. claude-buddy is strictly read-only against `~/.claude` — it never
 writes, moves or deletes anything under it. The only file the app writes at all
-is its own `~/Library/Application Support/com.clawde.buddy/config.json`.
+is its own `~/Library/Application Support/com.claude.buddy/config.json`. The one
+other thing it reads outside `~/.claude` is the settings file left behind by the
+pre-rename bundle identifier, once, to copy it across on first launch; that file
+is read and never modified or removed.
 
 ### Keychain reads
 
@@ -160,7 +170,7 @@ a running menu-bar app under someone without asking is exactly the kind of
 surprise this widget exists to avoid.
 
 If you can get the updater to install something the key did not sign, that is a
-vulnerability and a serious one. Report it confidentially.
+vulnerability and a serious one. Report it privately, as above.
 
 ### What the frontend can invoke
 
@@ -197,7 +207,7 @@ written down rather than left to a reply in a thread.
 
 ## Scope
 
-This policy covers clawde-buddy itself — the Rust in `src-tauri/`, the frontend
+This policy covers claude-buddy itself — the Rust in `src-tauri/`, the frontend
 in `src/`, the build and release scripts, and the CI configuration. It does not
 cover Claude Code, the Anthropic API, or macOS, all of which have their own
 reporting channels and none of which this project can fix.

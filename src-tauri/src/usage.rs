@@ -17,7 +17,7 @@
 //! Claude Code caches its own copy in `~/.claude.json`, and the widget used to
 //! read it. It no longer does: that cache is refreshed only when Claude Code
 //! fetches usage itself, so it ran hours behind — 5% against the API's 13% in
-//! one measurement. The file is read now only when `CLAWDE_BUDDY_USAGE_FILE`
+//! one measurement. The file is read now only when `CLAUDE_BUDDY_USAGE_FILE`
 //! points at a fixture, which is how the documentation screenshots are taken.
 
 use serde::Serialize;
@@ -64,7 +64,7 @@ fn severity_for(percent: u8) -> Severity {
 /// which is neither reproducible nor anyone else's business, so the
 /// documentation screenshots cannot be taken against it. Set, it also stops the
 /// live fetch, which would otherwise put the real figure straight back.
-pub const USAGE_FILE_ENV: &str = "CLAWDE_BUDDY_USAGE_FILE";
+pub const USAGE_FILE_ENV: &str = "CLAUDE_BUDDY_USAGE_FILE";
 
 /// Usage from the fixture file, or `None` when there is no fixture.
 ///

@@ -1,3 +1,4 @@
+pub mod autostart;
 pub mod bridge;
 pub mod commands;
 pub mod config;
@@ -20,6 +21,12 @@ use crate::watcher::registry::registry_dir;
 use crate::watcher::watch::{spawn_watcher, UPDATE_EVENT};
 
 pub fn run() {
+    // Before the builder, and so before anything at all can read or write
+    // settings. The bundle identifier changed with the rename and macOS keys
+    // Application Support by it, so an upgrading user's settings still sit
+    // under the old one until this runs. See `config::migrate_config`.
+    crate::config::migrate_legacy_config();
+
     tauri::Builder::default()
         .plugin(tauri_nspanel::init())
         .plugin(tauri_plugin_autostart::init(
@@ -70,6 +77,15 @@ pub fn run() {
 
             window::restore_position(&widget);
             window::build_tray_menu(app.handle())?;
+
+            // After the settings migration and before anything can save over
+            // it: the rename moved the LaunchAgent's name, so an upgrading
+            // user's login item still points at the old bundle while the
+            // renamed build has none of its own. See `autostart::reconcile`.
+            crate::autostart::reconcile(
+                app.handle(),
+                config::load(&config::config_path()).launch_at_login,
+            );
 
             // A non-activating panel gets no mousemove in its webview, so the
             // cursor is sampled here and pushed to the page instead.
@@ -126,5 +142,5 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running clawde-buddy");
+        .expect("error while running claude-buddy");
 }
