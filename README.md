@@ -6,6 +6,28 @@ A floating always-on-top macOS widget that shows what every local Claude Code se
 
 *All screenshots on this page use mocked session data.*
 
+## What leaves your machine
+
+Nothing about your sessions. The widget reads Claude Code's own session
+registry and transcripts from disk, read-only, and never sends any of it
+anywhere — not the prose, not the project names, not the branches. The only
+file it writes is its own settings file.
+
+It makes two network requests, both to say what they are:
+
+- **Anthropic's usage endpoint**, for the five-hour meter, every five minutes
+  while that meter is switched on. It borrows the OAuth token Claude Code
+  already holds and never writes one back; turn the meter off with `showUsage`
+  and the requests stop with it. See [The five-hour limit](#the-five-hour-limit).
+- **GitHub**, on launch, to ask whether there is a newer release. Nothing is
+  installed without you choosing it from the tray menu.
+
+One thing worth knowing rather than discovering: an alert about a session
+waiting on you carries that session's actual pending question into macOS
+Notification Center, so it can appear on a locked screen depending on your
+notification settings. That is local to your Mac, but it is your work on
+screen. [SECURITY.md](SECURITY.md) covers the rest of the picture.
+
 ## Why
 
 Run more than one Claude Code session and you lose track of them. A session that finishes, or blocks on a question or a permission prompt, does so silently in a window you are not looking at — and sits there until you happen to check. A menu-bar dot is no help: it is only visible when the menu bar is, and it collapses every session into one glyph.
