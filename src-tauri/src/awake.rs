@@ -40,7 +40,9 @@ const ASSERTION_NAME: &str = "claude-buddy: agent working";
 /// The live assertion, or `None` while the display is free to sleep.
 static ASSERTION: Mutex<Option<u32>> = Mutex::new(None);
 
-/// Engage or release the display-sleep assertion, to match `want`.
+/// Engage or release the display-sleep assertion, to match `want`. Returns
+/// whether that changed anything, so the caller knows when the menu label has
+/// gone stale.
 ///
 /// Idempotent: creates only on `false -> true`, releases only on
 /// `true -> false`. That is what makes it safe to call on every watcher tick —
@@ -49,22 +51,52 @@ static ASSERTION: Mutex<Option<u32>> = Mutex::new(None);
 /// There is no release-on-quit counterpart. The kernel drops assertions held by
 /// a process that exits, which is also the reason this is an in-process call
 /// rather than a spawned `caffeinate`: nothing survives us to leak.
-pub fn apply(want: bool) {
+pub fn apply(want: bool) -> bool {
     let mut held = ASSERTION.lock().expect("awake assertion poisoned");
     match (want, *held) {
-        (true, None) => {
-            if let Some(id) = create() {
+        (true, None) => match create() {
+            Some(id) => {
                 *held = Some(id);
+                true
             }
-        }
+            // Nothing changed, and the menu must not say otherwise.
+            None => false,
+        },
         (false, Some(id)) => {
             // Cleared either way. A release that failed leaves an assertion
             // this process can no longer name, and retrying it every tick for
             // the rest of the session would not fix that.
             unsafe { IOPMAssertionRelease(id) };
             *held = None;
+            true
         }
-        _ => {}
+        _ => false,
+    }
+}
+
+/// Whether the display is being held on at this moment.
+///
+/// The real assertion, not the setting and not the policy's answer — so a
+/// creation that failed cannot make the menu claim a hold that does not exist.
+pub fn is_holding() -> bool {
+    ASSERTION
+        .lock()
+        .expect("awake assertion poisoned")
+        .is_some()
+}
+
+/// What the tray item should read.
+///
+/// Two labels rather than one, for the same reason the mute submenu has two:
+/// the tick says the setting is on, which leaves "is it doing anything right
+/// now" unanswered — and this setting does nothing at all on an idle machine.
+/// The static half names the condition, so the item is not read as "keep the
+/// screen awake, always".
+pub fn menu_label(holding: bool) -> &'static str {
+    if holding {
+        "Keeping screen awake now"
+    } else {
+        "Keep screen awake while agents work"
     }
 }
 
@@ -148,6 +180,12 @@ mod tests {
     #[test]
     fn no_sessions_lets_the_display_sleep() {
         assert!(!should_stay_awake(&[], true));
+    }
+
+    #[test]
+    fn the_label_names_the_condition_while_idle_and_the_fact_while_holding() {
+        assert_eq!(menu_label(false), "Keep screen awake while agents work");
+        assert_eq!(menu_label(true), "Keeping screen awake now");
     }
 
     #[test]

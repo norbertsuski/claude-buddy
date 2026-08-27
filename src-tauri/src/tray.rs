@@ -74,10 +74,16 @@ fn menu_for(app: &AppHandle, config: &Config) -> tauri::Result<Menu<Wry>> {
     // Beside "Hide widget" rather than in Settings: both are decisions about
     // what the machine does while the user is looking somewhere else, and this
     // one is taken per-run — "not this time, it matters".
+    //
+    // The label comes from whether the display is actually being held, not from
+    // the setting: a tick alone reads as "keep the screen awake, always", and
+    // this setting does nothing whatsoever on an idle machine. Kept honest by
+    // `lib.rs` rebuilding the menu whenever the hold starts or stops, so the
+    // wording cannot go stale the way a baked-in deadline would.
     let keep_awake = CheckMenuItem::with_id(
         app,
         "keepawake",
-        "Keep screen awake",
+        crate::awake::menu_label(crate::awake::is_holding()),
         true,
         config.keep_awake,
         None::<&str>,
@@ -179,7 +185,12 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
             // Same reason "hide" calls straight into visibility: the watcher
             // re-evaluates only when a session changes, so ticking this
             // mid-run would otherwise do nothing until the run ended.
-            apply_keep_awake(app);
+            //
+            // Rebuilt again afterwards because `edit` rebuilt the menu before
+            // the hold existed, leaving the label a step behind the tick.
+            if apply_keep_awake(app) {
+                refresh(app);
+            }
         }
         "mute:hour" => mute_for(app, MuteFor::Hour),
         "mute:eight" => mute_for(app, MuteFor::EightHours),
@@ -197,12 +208,21 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
 }
 
 /// Engage or release the display-sleep hold against the sessions as they stand.
-fn apply_keep_awake(app: &AppHandle) {
-    let sessions = app.state::<crate::watcher::watch::SnapshotStore>().get();
+/// Returns whether the hold changed, and so whether the menu needs rebuilding.
+///
+/// `try_state` rather than `state`: the tray is built before the watcher's
+/// snapshot store is managed, and a panic during setup would take the whole app
+/// with it. No store yet means no sessions, which is the right answer that early
+/// anyway.
+fn apply_keep_awake(app: &AppHandle) -> bool {
+    let sessions = app
+        .try_state::<crate::watcher::watch::SnapshotStore>()
+        .map(|store| store.get())
+        .unwrap_or_default();
     crate::awake::apply(crate::awake::should_stay_awake(
         &sessions,
         config::cached().keep_awake,
-    ));
+    ))
 }
 
 fn mute_for(app: &AppHandle, choice: MuteFor) {

@@ -7,9 +7,12 @@ is missing here leaves that tag with nothing but the download boilerplate.
 
 ## Unreleased
 
-- **Keep screen awake** in the tray menu. A tick that holds the display on for
-  as long as a session is working or waiting on you, and releases it the moment
-  nothing is. Off unless you turn it on. A long run is exactly when nobody is
+- **Keep screen awake while agents work** in the tray menu. A tick that holds
+  the display on for as long as a session is working or waiting on you, and
+  releases it the moment nothing is. Off unless you turn it on. The label names
+  the condition rather than just the effect, and flips to *Keeping screen awake
+  now* while the hold is real — a tick on its own reads as "always", and this
+  setting does nothing whatsoever on an idle machine. A long run is exactly when nobody is
   touching the keyboard, so the display sleeps on its idle timer and the answer
   — or the permission question that stopped the run — ends up behind a dark,
   locked screen. Note that while it is holding, the Mac will not auto-lock. It

@@ -126,10 +126,18 @@ pub fn run() {
                     // Stays on the watcher thread, unlike the visibility call
                     // below: a power assertion is thread-safe and there is no
                     // AppKit call to marshal.
-                    crate::awake::apply(crate::awake::should_stay_awake(
+                    if crate::awake::apply(crate::awake::should_stay_awake(
                         &update.sessions,
                         crate::config::cached().keep_awake,
-                    ));
+                    )) {
+                        // The tray item reads "Keeping screen awake now" only
+                        // while the hold is real, so a hold starting or ending
+                        // is exactly when that label goes stale. Menu rebuilds
+                        // are AppKit calls, unlike the assertion itself.
+                        let label_handle = handle.clone();
+                        let _ =
+                            handle.run_on_main_thread(move || crate::tray::refresh(&label_handle));
+                    }
 
                     let visibility_handle = handle.clone();
                     // Panel calls must run on the main thread; the watcher is
