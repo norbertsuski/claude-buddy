@@ -10,7 +10,7 @@ here, and how to tell someone about one without telling everyone at once.
 
 The latest release, and only the latest release.
 
-The project is at 0.7.0 and pre-1.0, and there are no maintenance branches
+The project is at 0.7.1 and pre-1.0, and there are no maintenance branches
 behind it. There is no supported-version table to consult because there is no
 second supported version: a fix lands on `main` and goes out in the next tag.
 If you are running something older, the answer to "is this fixed in my version"

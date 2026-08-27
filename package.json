@@ -1,7 +1,7 @@
 {
   "name": "claude-buddy",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "A floating always-on-top macOS widget that shows what every local Claude Code session is doing, and tells you when one is waiting on you.",
   "license": "MIT",
   "author": "Norbert Suski",

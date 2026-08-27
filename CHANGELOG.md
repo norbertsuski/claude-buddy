@@ -5,7 +5,7 @@ section out of this file, and the release workflow uses it as the body of the
 GitHub release and as the notes in the in-app update dialog — so a section that
 is missing here leaves that tag with nothing but the download boilerplate.
 
-## Unreleased
+## v0.7.1 — 2026-08-27
 
 - **The tray menu is in three groups.** What the app is — *About* and the
   update item — sits at the top, where a Mac app menu would put it. The
