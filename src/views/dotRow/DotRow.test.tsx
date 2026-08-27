@@ -65,6 +65,31 @@ describe('crazy mode', () => {
     expect(container.querySelector('.crazy-shake')).toBeNull()
   })
 
+  it('shakes harder the longer a session has waited', () => {
+    const waited = makeSession({ sessionId: 'a', state: 'waiting', elapsedMs: 300_000 })
+    const { container } = render(<DotRow sessions={[waited]} crazy="ember" />)
+    const shake = container.querySelector<HTMLElement>('.crazy-shake')
+
+    expect(shake?.getAttribute('data-shake')).toBe('true')
+    expect(shake?.style.getPropertyValue('--crazy-amp')).toBe('1.4')
+  })
+
+  it('does not shake for a session that has only just asked', () => {
+    const fresh = makeSession({ sessionId: 'a', state: 'waiting', elapsedMs: 1_000 })
+    const { container } = render(<DotRow sessions={[fresh]} crazy="ember" />)
+    // Nothing else is happening either, so the wrapper is not even classed —
+    // querying the attribute directly is what says the shake is absent.
+    expect(container.querySelector('[data-shake]')).toBeNull()
+  })
+
+  it('shudders only at critical usage', () => {
+    const usage = { percent: 96, resetsAtMs: 0, severity: 'critical' as const }
+    const { container } = render(
+      <DotRow sessions={[makeSession({ sessionId: 'a' })]} usage={usage} crazy="ember" />,
+    )
+    expect(container.querySelector('.crazy-shudder')?.getAttribute('data-shudder')).toBe('true')
+  })
+
   it('burns at the level the busy count calls for', () => {
     const { container } = render(
       <DotRow

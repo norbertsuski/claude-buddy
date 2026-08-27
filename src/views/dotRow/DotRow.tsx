@@ -100,6 +100,16 @@ export function DotRow({
   const cursor = useCursor()
   const expanded = cursor.inside
 
+  // The shake stops while the pointer is over the widget. Entries have hover
+  // states and open popovers, and a pill shaking under the cursor makes hovering
+  // a moving target — by the time you are pointing at it, it has done its job.
+  //
+  // `cursor.inside`, not CSS :hover: the widget is a non-activating NSPanel, so
+  // it never becomes the key window and WKWebView never delivers mouse events to
+  // the page. :hover would simply never fire.
+  const shaking = lit && heat.jitter > 0 && !cursor.inside
+  const shuddering = lit && heat.strain === 2 && !cursor.inside
+
   useEffect(() => {
     let stop: (() => void) | undefined
     listen('ui://flash', () => setFlashing(true)).then((unlisten) => {
@@ -348,8 +358,15 @@ export function DotRow({
           rules, so jitter and shudder cannot live there. Both are rendered
           unconditionally so the pill is never remounted as heat comes and
           goes; a remount would restart the box morph mid-flight. */}
-      <div className={lit ? 'crazy-shake' : undefined}>
-        <div className={lit ? 'crazy-shudder' : undefined}>
+      <div
+        className={lit ? 'crazy-shake' : undefined}
+        data-shake={shaking ? 'true' : undefined}
+        style={shaking ? ({ '--crazy-amp': heat.jitter * 1.4 } as CSSProperties) : undefined}
+      >
+        <div
+          className={lit ? 'crazy-shudder' : undefined}
+          data-shudder={shuddering ? 'true' : undefined}
+        >
           <div
             ref={pillRef}
             className="pill"

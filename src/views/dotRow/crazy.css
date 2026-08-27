@@ -162,3 +162,46 @@
     opacity: 0;
   }
 }
+
+/* ── Jitter ───────────────────────────────────────────────────────────
+   Peak displacement is --crazy-amp px, which tops out at 1.4. --shadow-pad is
+   30px, so the shake stays far inside the window: no resize, no clipping, and
+   useWidgetSize needs no changes at all. */
+.crazy-shake[data-shake='true'] {
+  animation: crazy-shake 0.22s linear infinite;
+}
+
+@keyframes crazy-shake {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  20% {
+    transform: translate(calc(var(--crazy-amp, 0) * -1px), calc(var(--crazy-amp, 0) * 0.4px));
+  }
+  40% {
+    transform: translate(calc(var(--crazy-amp, 0) * 0.8px), calc(var(--crazy-amp, 0) * -0.5px));
+  }
+  60% {
+    transform: translate(calc(var(--crazy-amp, 0) * -0.6px), calc(var(--crazy-amp, 0) * -0.3px));
+  }
+  80% {
+    transform: translate(calc(var(--crazy-amp, 0) * 0.7px), calc(var(--crazy-amp, 0) * 0.5px));
+  }
+}
+
+/* Slower and smaller than the shake, so strain reads as something giving way
+   rather than as the fast agitation of a session waiting on you. */
+.crazy-shudder[data-shudder='true'] {
+  animation: crazy-shudder 3s ease-in-out infinite;
+}
+
+@keyframes crazy-shudder {
+  48%,
+  52% {
+    transform: translateX(0.6px);
+  }
+  50% {
+    transform: translateX(-0.6px);
+  }
+}
