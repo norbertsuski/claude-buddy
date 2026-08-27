@@ -232,28 +232,19 @@ describe('DotRow window resizing', () => {
   })
 })
 
-describe('DotRow smooth transitions setting', () => {
-  it('marks the row so the chips animate with it', async () => {
-    render(<DotRow sessions={sessions} smoothTransitions={true} />)
-    await waitFor(() => expect(eventHandlers.has('ui://cursor')).toBe(true))
-
-    expect(screen.getByTestId('dot-row')).toHaveAttribute('data-smooth', 'true')
-  })
-
-  it('marks the row when the setting is off, so nothing animates on its own', async () => {
-    render(<DotRow sessions={sessions} smoothTransitions={false} />)
-    await waitFor(() => expect(eventHandlers.has('ui://cursor')).toBe(true))
-
-    expect(screen.getByTestId('dot-row')).toHaveAttribute('data-smooth', 'false')
-  })
-
-  it('holds the box at the full morph when the setting is off', async () => {
-    render(<DotRow sessions={sessions} smoothTransitions={false} />)
+describe('DotRow morph timing', () => {
+  it('times the box to the distance it covers, not to the widest morph', async () => {
+    render(<DotRow sessions={sessions} />)
     await waitFor(() => expect(eventHandlers.has('ui://cursor')).toBe(true))
     await act(() => new Promise((resolve) => setTimeout(resolve, MORPH_MS + 50)))
 
+    // There is no setting behind this any more: every change is timed to its
+    // own distance, so the duration is a real one and at most the full morph.
     const pill = screen.getByTestId('dot-row').querySelector<HTMLElement>('.pill')
-    expect(pill?.style.getPropertyValue('--morph')).toBe(`${MORPH_MS}ms`)
+    const morph = pill?.style.getPropertyValue('--morph') ?? ''
+    const ms = Number(morph.replace('ms', ''))
+    expect(ms).toBeGreaterThan(0)
+    expect(ms).toBeLessThanOrEqual(MORPH_MS)
   })
 })
 

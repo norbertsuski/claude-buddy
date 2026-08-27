@@ -10,15 +10,13 @@ const { SettingsPanel } = await import('./SettingsPanel')
 
 const config: AppConfig = {
   hideWhen: 'noSessions',
-  pausedThresholdMs: 600_000,
   alertNeedsInput: true,
   alertDied: true,
   alertFinished: false,
-  sound: false,
+  sound: true,
   muteUntilMs: 0,
   launchAtLogin: false,
   showBackgroundJobs: true,
-  smoothStatusChanges: true,
   showUsage: true,
   placement: 'free',
   preferredDisplay: null,
@@ -77,36 +75,81 @@ describe('SettingsPanel', () => {
   it('loads current settings into the form', async () => {
     render(<SettingsPanel onClose={vi.fn()} />)
 
-    await waitFor(() =>
-      expect(screen.getByLabelText('Alert when a session needs input')).toBeChecked(),
-    )
-    expect(screen.getByLabelText('Paused after (minutes)')).toHaveValue(10)
+    await waitFor(() => expect(screen.getByLabelText('when a session needs input')).toBeChecked())
+    expect(screen.getByLabelText('when a session finishes its turn')).not.toBeChecked()
   })
 
-  it('saves a toggled alert setting', async () => {
+  it('silences every alert when the sound goes off', async () => {
     render(<SettingsPanel onClose={vi.fn()} />)
-    await waitFor(() => expect(screen.getByLabelText('Play a sound')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByLabelText('Play a sound')).toBeChecked())
 
     await userEvent.click(screen.getByLabelText('Play a sound'))
 
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith('set_config', {
-        config: expect.objectContaining({ sound: true }),
+        config: expect.objectContaining({
+          sound: false,
+          alertNeedsInput: false,
+          alertDied: false,
+          alertFinished: false,
+        }),
       }),
     )
   })
 
-  it('turns smooth transitions off', async () => {
+  it('disables the alert events while the sound is off', async () => {
+    invoke.mockImplementation((cmd: string) => {
+      // Armed events under a silent parent: what an older config file, or a
+      // hand-edited one, actually looks like.
+      if (cmd === 'get_config') return Promise.resolve({ ...config, sound: false })
+      if (cmd === 'list_displays') return Promise.resolve(displays)
+      return Promise.resolve()
+    })
     render(<SettingsPanel onClose={vi.fn()} />)
 
-    const box = await screen.findByLabelText('Smooth transitions when a status changes')
-    expect(box).toBeChecked()
+    // Disabled *and* unchecked: delivery ignores them while the sound is off,
+    // so the form must not show them armed.
+    await waitFor(() =>
+      expect(screen.getByLabelText('when a session needs input')).toBeDisabled(),
+    )
+    for (const label of [
+      'when a session needs input',
+      'when a session dies',
+      'when a session finishes its turn',
+    ]) {
+      expect(screen.getByLabelText(label)).toBeDisabled()
+      expect(screen.getByLabelText(label)).not.toBeChecked()
+    }
+  })
 
-    await userEvent.click(box)
+  it('restores the default alerts when the sound comes back on', async () => {
+    invoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_config') {
+        return Promise.resolve({
+          ...config,
+          sound: false,
+          alertNeedsInput: false,
+          alertDied: false,
+          alertFinished: false,
+        })
+      }
+      if (cmd === 'list_displays') return Promise.resolve(displays)
+      return Promise.resolve()
+    })
+    render(<SettingsPanel onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText('Play a sound')).not.toBeChecked())
 
+    await userEvent.click(screen.getByLabelText('Play a sound'))
+
+    // Switching the group on and getting nothing would read as a broken toggle.
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith('set_config', {
-        config: expect.objectContaining({ smoothStatusChanges: false }),
+        config: expect.objectContaining({
+          sound: true,
+          alertNeedsInput: true,
+          alertDied: true,
+          alertFinished: false,
+        }),
       }),
     )
   })
@@ -129,7 +172,7 @@ describe('SettingsPanel', () => {
   it('toggles the finished alert', async () => {
     render(<SettingsPanel onClose={vi.fn()} />)
 
-    const box = await screen.findByLabelText('Alert when a session finishes its turn')
+    const box = await screen.findByLabelText('when a session finishes its turn')
     expect(box).not.toBeChecked()
 
     await userEvent.click(box)
@@ -141,18 +184,11 @@ describe('SettingsPanel', () => {
     )
   })
 
-  it('converts the paused threshold from minutes to milliseconds', async () => {
+  it('has no paused-after control', async () => {
     render(<SettingsPanel onClose={vi.fn()} />)
-    const field = await screen.findByLabelText('Paused after (minutes)')
 
-    await userEvent.clear(field)
-    await userEvent.type(field, '25')
-
-    await waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith('set_config', {
-        config: expect.objectContaining({ pausedThresholdMs: 1_500_000 }),
-      }),
-    )
+    await screen.findByTestId('settings')
+    expect(screen.queryByLabelText('Paused after (minutes)')).toBeNull()
   })
 
   it('has no view mode control', async () => {
@@ -179,16 +215,16 @@ describe('SettingsPanel', () => {
     invoke.mockImplementation((cmd: string) => {
       if (cmd === 'get_config') return Promise.resolve({ ...config })
       if (cmd === 'list_displays') return Promise.resolve(displays)
-      return Promise.reject(new Error('paused threshold must be greater than zero'))
+      return Promise.reject(new Error('unknown hide mode: sometimes'))
     })
     render(<SettingsPanel onClose={vi.fn()} />)
-    const field = await screen.findByLabelText('Paused after (minutes)')
 
-    await userEvent.clear(field)
-    await userEvent.type(field, '0')
+    // Any save will do: what is under test is that a rejection from Rust
+    // reaches the form rather than leaving the change looking accepted.
+    await userEvent.click(await screen.findByLabelText('Play a sound'))
 
     await waitFor(() =>
-      expect(screen.getByTestId('settings-error')).toHaveTextContent('greater than zero'),
+      expect(screen.getByTestId('settings-error')).toHaveTextContent('unknown hide mode'),
     )
   })
 

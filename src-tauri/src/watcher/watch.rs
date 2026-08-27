@@ -33,11 +33,13 @@ pub struct Update {
     pub usage: Option<crate::usage::Usage>,
 }
 
-/// How often the usage cache is re-read.
+/// How often the fetched usage figure is picked up.
 ///
-/// Deliberately slower than `TICK`: it is a whole file parsed for one field,
-/// the field behind it is refreshed rarely, and the countdown the widget draws
-/// from it runs off an absolute timestamp rather than needing to be re-sent.
+/// Deliberately slower than `TICK`, and unrelated to how often the figure is
+/// fetched: this only reads what the refresher thread has published, the figure
+/// behind it changes every five minutes at most, and the countdown the widget
+/// draws from it runs off an absolute timestamp rather than needing to be
+/// re-sent.
 pub const USAGE_POLL: Duration = Duration::from_secs(15);
 
 pub fn now_ms() -> i64 {
@@ -139,7 +141,7 @@ pub fn spawn_watcher(
                 activity.as_ref(),
                 blocked.as_ref(),
                 now,
-                settings.paused_threshold_ms,
+                crate::watcher::state::PAUSED_THRESHOLD_MS,
                 settings.show_background_jobs,
                 &first_seen_dead,
             );
@@ -157,7 +159,7 @@ pub fn spawn_watcher(
 
             if now - usage_read_at >= USAGE_POLL.as_millis() as i64 {
                 usage_read_at = now;
-                usage = crate::usage::read(now);
+                usage = crate::usage_api::latest(now);
             }
             // Lapsing is checked every tick even between reads: the window can
             // run out mid-interval, and holding a spent figure on screen for up

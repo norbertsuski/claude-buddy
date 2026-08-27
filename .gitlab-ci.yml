@@ -79,19 +79,20 @@ build:dmg:
             --upload-file "$FILE" \
             "$BASE/$CI_COMMIT_TAG/$(basename "$FILE")"
         done
-        cat > latest.json <<EOF
-      {
-        "version": "${CI_COMMIT_TAG#v}",
-        "notes": "clawde-buddy $CI_COMMIT_TAG",
-        "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-        "platforms": {
-          "darwin-aarch64": {
-            "signature": "$SIG",
-            "url": "$BASE/$CI_COMMIT_TAG/$(basename "$TARBALL")"
-          }
-        }
-      }
-      EOF
+        # The updater shows `notes` in its own dialog, so it gets the real
+        # changelog section. Built by python3 rather than a heredoc: the notes
+        # are multi-line prose and have to be JSON-escaped, not pasted.
+        scripts/release-notes.sh "$CI_COMMIT_TAG" > release-notes.md
+        VERSION="${CI_COMMIT_TAG#v}" SIG="$SIG" \
+        URL="$BASE/$CI_COMMIT_TAG/$(basename "$TARBALL")" \
+        PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        python3 -c 'import json, os; print(json.dumps({
+          "version": os.environ["VERSION"],
+          "notes": open("release-notes.md").read().strip(),
+          "pub_date": os.environ["PUB_DATE"],
+          "platforms": {"darwin-aarch64": {
+            "signature": os.environ["SIG"], "url": os.environ["URL"]}},
+        }, indent=2))' > latest.json
         # Published under a fixed `latest` version so the endpoint URL is stable.
         curl --fail --silent --show-error \
           --header "JOB-TOKEN: $CI_JOB_TOKEN" \
@@ -118,15 +119,15 @@ release:dmg:
     - if: $CI_COMMIT_TAG
   script:
     - echo "attaching $DMG_NAME to release $CI_COMMIT_TAG"
+    # `description` below is a path, not text: release-cli reads the file. That
+    # is the only way to get the tag's own changelog section in, since the
+    # `release:` keyword is not shell-evaluated.
+    - sh scripts/release-notes.sh "$CI_COMMIT_TAG" > release-notes.md
+    - cat release-notes.md
   release:
     tag_name: $CI_COMMIT_TAG
     name: $CI_COMMIT_TAG
-    description: |
-      macOS build of clawde-buddy $CI_COMMIT_TAG.
-
-      The app is unsigned. After downloading, right-click it in Finder and
-      choose Open, then confirm — a downloaded copy carries the quarantine
-      flag, so double-clicking will refuse.
+    description: release-notes.md
     assets:
       links:
         - name: $DMG_NAME

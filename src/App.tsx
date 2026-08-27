@@ -50,7 +50,6 @@ function WidgetView() {
   return (
     <DotRow
       sessions={sessions}
-      smoothTransitions={config.smoothStatusChanges}
       // Gated here rather than inside the row: "turned off" and "nothing worth
       // showing" render identically, so the row needs only the one case.
       usage={config.showUsage === false ? null : usage}

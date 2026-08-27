@@ -3,6 +3,25 @@ import { invoke } from '@tauri-apps/api/core'
 import { HIDE_MODES, type AppConfig, type DisplayInfo } from '../types'
 import './settings.css'
 
+/**
+ * What the three alert checkboxes become when the sound is switched off: all
+ * off, and disabled with it. They are the events that raise a notification, and
+ * the notification is the sound, so leaving one armed under a silent parent
+ * would be a setting with nothing behind it.
+ */
+function soundOff(): Partial<AppConfig> {
+  return { sound: false, alertNeedsInput: false, alertDied: false, alertFinished: false }
+}
+
+/**
+ * And what they become when it is switched back on: the defaults, rather than
+ * the all-off state the parent just wrote. Switching the group on and getting
+ * nothing would read as a broken toggle.
+ */
+function soundOn(): Partial<AppConfig> {
+  return { sound: true, alertNeedsInput: true, alertDied: true, alertFinished: false }
+}
+
 export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [displays, setDisplays] = useState<DisplayInfo[]>([])
@@ -89,50 +108,51 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
         ))}
       </select>
 
-      <label htmlFor="paused-after">Paused after (minutes)</label>
-      <input
-        id="paused-after"
-        type="number"
-        min={1}
-        value={Math.round(config.pausedThresholdMs / 60_000)}
-        onChange={(e) => update({ pausedThresholdMs: Number(e.target.value) * 60_000 })}
-      />
-
-      <label>
-        <input
-          type="checkbox"
-          checked={config.alertNeedsInput}
-          onChange={(e) => update({ alertNeedsInput: e.target.checked })}
-        />
-        Alert when a session needs input
-      </label>
-
-      <label>
-        <input
-          type="checkbox"
-          checked={config.alertDied}
-          onChange={(e) => update({ alertDied: e.target.checked })}
-        />
-        Alert when a session dies
-      </label>
-
-      <label>
-        <input
-          type="checkbox"
-          checked={config.alertFinished}
-          onChange={(e) => update({ alertFinished: e.target.checked })}
-        />
-        Alert when a session finishes its turn
-      </label>
-
       <label>
         <input
           type="checkbox"
           checked={config.sound}
-          onChange={(e) => update({ sound: e.target.checked })}
+          onChange={(e) => update(e.target.checked ? soundOn() : soundOff())}
         />
         Play a sound
       </label>
+
+      {/* Each event reads as off while the sound is off, whatever the file says.
+          The parent zeroes them on its way off, but a config hand-edited — or
+          written by a version that had no parent here — can still arrive with
+          one armed, and delivery already ignores it: `notify::should_deliver`
+          gates on the sound. The form has to say the same thing. */}
+      <div className="settings-group">
+        <label>
+          <input
+            type="checkbox"
+            checked={config.sound && config.alertNeedsInput}
+            disabled={!config.sound}
+            onChange={(e) => update({ alertNeedsInput: e.target.checked })}
+          />
+          when a session needs input
+        </label>
+
+        <label>
+          <input
+            type="checkbox"
+            checked={config.sound && config.alertDied}
+            disabled={!config.sound}
+            onChange={(e) => update({ alertDied: e.target.checked })}
+          />
+          when a session dies
+        </label>
+
+        <label>
+          <input
+            type="checkbox"
+            checked={config.sound && config.alertFinished}
+            disabled={!config.sound}
+            onChange={(e) => update({ alertFinished: e.target.checked })}
+          />
+          when a session finishes its turn
+        </label>
+      </div>
 
       <label>
         <input
@@ -141,15 +161,6 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
           onChange={(e) => update({ showBackgroundJobs: e.target.checked })}
         />
         Show background jobs and subagents
-      </label>
-
-      <label>
-        <input
-          type="checkbox"
-          checked={config.smoothStatusChanges}
-          onChange={(e) => update({ smoothStatusChanges: e.target.checked })}
-        />
-        Smooth transitions when a status changes
       </label>
 
       <label>

@@ -9,11 +9,7 @@ use crate::config::{self, Config};
 pub const CONFIG_EVENT: &str = "config://update";
 
 /// Reject settings that would break the widget rather than writing them.
-/// A zero paused threshold would mark every session paused instantly.
 pub fn validate(config: &Config) -> Result<(), String> {
-    if config.paused_threshold_ms <= 0 {
-        return Err("paused threshold must be greater than zero".into());
-    }
     if !crate::visibility::HIDE_MODES.contains(&config.hide_when.as_str()) {
         return Err(format!("unknown hide mode: {}", config.hide_when));
     }
@@ -41,7 +37,7 @@ pub fn get_sessions(
 /// `get_sessions`.
 #[tauri::command]
 pub fn get_usage() -> Option<crate::usage::Usage> {
-    crate::usage::read(crate::watcher::watch::now_ms())
+    crate::usage_api::latest(crate::watcher::watch::now_ms())
 }
 
 #[tauri::command]
@@ -83,22 +79,11 @@ mod tests {
         let path = std::env::temp_dir().join(format!("cb-cmd-{}.json", std::process::id()));
         let mut config = Config::default();
         config.sound = true;
-        config.paused_threshold_ms = 5 * 60 * 1000;
 
         persist(&path, &config).unwrap();
 
         assert_eq!(crate::config::load(&path), config);
         std::fs::remove_file(&path).unwrap();
-    }
-
-    #[test]
-    fn rejects_a_nonsensical_paused_threshold() {
-        let mut config = Config::default();
-        config.paused_threshold_ms = 0;
-        assert!(validate(&config).is_err());
-
-        config.paused_threshold_ms = -1;
-        assert!(validate(&config).is_err());
     }
 
     #[test]

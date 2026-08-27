@@ -1,17 +1,24 @@
 //! How much of the rolling five-hour limit is spent.
 //!
-//! Read from `~/.claude.json`, where Claude Code caches what the API told it
-//! under `cachedUsageUtilization`. Nothing local can derive this: the limit is
-//! enforced server-side and is not a token count, so the transcripts — which
-//! carry per-message `usage` and nothing else — cannot be summed into it.
+//! The figure comes from the API — see `crate::usage_api`, which fetches it.
+//! This module is the shape of it, the rules about when it may be shown, and
+//! the parsing of the object the API answers with.
 //!
-//! It is a cache, and Claude Code only refreshes it when it actually fetches
-//! usage, so it can be hours behind while the file around it is rewritten
-//! constantly. `resets_at` is what makes that safe to work with: once the
+//! Nothing local can derive the figure: the limit is enforced server-side and is
+//! not a token count, so the transcripts — which carry per-message `usage` and
+//! nothing else — cannot be summed into it.
+//!
+//! `resets_at` is what makes it safe to hold on to between fetches. Once the
 //! window it describes has passed, the figure belongs to a window that is over
-//! and is not shown at all. Within a live window a stale figure is still a
-//! lower bound on what has been spent, which is the best available and is not
-//! misleading in the way a lapsed one would be.
+//! and is not shown at all. Within a live window a figure a few minutes old is
+//! still a lower bound on what has been spent, which is the best available and
+//! is not misleading in the way a lapsed one would be.
+//!
+//! Claude Code caches its own copy in `~/.claude.json`, and the widget used to
+//! read it. It no longer does: that cache is refreshed only when Claude Code
+//! fetches usage itself, so it ran hours behind — 5% against the API's 13% in
+//! one measurement. The file is read now only when `CLAWDE_BUDDY_USAGE_FILE`
+//! points at a fixture, which is how the documentation screenshots are taken.
 
 use serde::Serialize;
 
@@ -50,30 +57,26 @@ fn severity_for(percent: u8) -> Severity {
     }
 }
 
-/// Environment variable pointing the meter at a different state file.
+/// Environment variable pointing the meter at a fixture file.
 ///
 /// The companion of `REGISTRY_DIR_ENV` and `PROJECTS_DIR_ENV`, and there for
-/// the same reason: the real file carries whatever the account has actually
-/// spent, which is neither reproducible nor anyone else's business, so the
-/// documentation screenshots cannot be taken against it.
+/// the same reason: the real figure is whatever the account has actually spent,
+/// which is neither reproducible nor anyone else's business, so the
+/// documentation screenshots cannot be taken against it. Set, it also stops the
+/// live fetch, which would otherwise put the real figure straight back.
 pub const USAGE_FILE_ENV: &str = "CLAWDE_BUDDY_USAGE_FILE";
 
-/// Where Claude Code keeps its global state.
-pub fn usage_path() -> std::path::PathBuf {
-    if let Some(override_path) = std::env::var_os(USAGE_FILE_ENV) {
-        return std::path::PathBuf::from(override_path);
-    }
-    dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("/"))
-        .join(".claude.json")
+/// Usage from the fixture file, or `None` when there is no fixture.
+///
+/// The only remaining reader of a file in the shape of `~/.claude.json`. There
+/// is no fallback to the real one: a stale figure shown as if it were current is
+/// worse than no meter, and the API is the only thing that knows the answer.
+pub fn fixture(now_ms: i64) -> Option<Usage> {
+    let path = std::env::var_os(USAGE_FILE_ENV)?;
+    parse(&std::fs::read(path).ok()?, now_ms)
 }
 
-/// Current usage, or `None` if it is missing, unreadable or lapsed.
-pub fn read(now_ms: i64) -> Option<Usage> {
-    parse(&std::fs::read(usage_path()).ok()?, now_ms)
-}
-
-/// Parse usage out of the raw file.
+/// Parse usage out of a file in the shape of `~/.claude.json`.
 ///
 /// Every step is fallible and every failure is `None`: this reads an
 /// undocumented field of a file owned by another program, so a shape that is
@@ -81,10 +84,17 @@ pub fn read(now_ms: i64) -> Option<Usage> {
 /// taking anything down.
 pub fn parse(bytes: &[u8], now_ms: i64) -> Option<Usage> {
     let root: serde_json::Value = serde_json::from_slice(bytes).ok()?;
-    let five_hour = root
-        .get("cachedUsageUtilization")?
-        .get("utilization")?
-        .get("five_hour")?;
+    let utilization = root.get("cachedUsageUtilization")?.get("utilization")?;
+    parse_utilization(utilization, now_ms)
+}
+
+/// Parse usage out of a utilization object — the value the API returns and the
+/// value the file caches verbatim under `cachedUsageUtilization.utilization`.
+///
+/// Shared so the live fetch in `crate::usage_api` and the cache read here agree
+/// on every rule, the lapsed-window one included.
+pub fn parse_utilization(utilization: &serde_json::Value, now_ms: i64) -> Option<Usage> {
+    let five_hour = utilization.get("five_hour")?;
 
     let percent = five_hour.get("utilization")?.as_f64()?;
     // NaN would survive `as u8` as 0 and read as a fresh window.
@@ -210,6 +220,14 @@ mod tests {
 
     const NOON: i64 = 1_787_745_600_000; // 2026-08-26T12:00:00Z
     const LATER: &str = "2026-08-26T14:41:00.070318+00:00";
+
+    #[test]
+    fn no_fixture_means_no_meter() {
+        // Unset is the normal case, and it must not fall back to the real file:
+        // `usage_api` is the only source now.
+        std::env::remove_var(USAGE_FILE_ENV);
+        assert_eq!(fixture(NOON), None);
+    }
 
     #[test]
     fn reads_the_five_hour_window() {

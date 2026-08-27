@@ -30,8 +30,14 @@ pub fn should_wait_for_click(outstanding: usize) -> bool {
 }
 
 /// Whether this alert reaches the user, given their settings.
+///
+/// The sound is the parent of the three event switches in Settings, so it gates
+/// them here too rather than only in the form: an alert is delivered as a
+/// notification with a sound, and turning the sound off turns the group off. A
+/// config file hand-edited to leave an event armed under a silent parent is
+/// answered the same way the form would answer it.
 pub fn should_deliver(alert: &Alert, config: &Config, now_ms: i64) -> bool {
-    if config.alerts_muted(now_ms) {
+    if !config.sound || config.alerts_muted(now_ms) {
         return false;
     }
     match alert.kind {

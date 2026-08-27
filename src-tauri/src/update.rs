@@ -9,7 +9,10 @@ use tauri_plugin_updater::UpdaterExt;
 /// refuses to bundle updater artifacts for a non-empty key it cannot also
 /// sign. An empty key could never verify a download anyway, so rather than
 /// checking against a server that will never be trusted, the plugin is simply
-/// not registered: `app.updater()` fails and every path here returns quietly.
+/// not registered. Both entry points below check this first, because
+/// `app.updater()` does not fail quietly when the plugin is missing — it panics
+/// on `state()` for a state nobody managed, which on a spawned task is a panic
+/// nobody sees.
 pub fn is_configured(updater_config: Option<&Value>) -> bool {
     updater_config
         .and_then(|config| config.get("pubkey"))
@@ -23,6 +26,9 @@ pub fn is_configured(updater_config: Option<&Value>) -> bool {
 /// without asking is the kind of surprise this widget exists to avoid. The
 /// check only notifies; installing is a menu item.
 pub fn check_on_launch(app: AppHandle) {
+    if !is_configured(app.config().plugins.0.get("updater")) {
+        return;
+    }
     tauri::async_runtime::spawn(async move {
         let Ok(updater) = app.updater() else { return };
         match updater.check().await {
@@ -51,6 +57,9 @@ pub fn check_on_launch(app: AppHandle) {
 
 /// Download and install, then restart.
 pub fn install(app: AppHandle) {
+    if !is_configured(app.config().plugins.0.get("updater")) {
+        return;
+    }
     tauri::async_runtime::spawn(async move {
         let Ok(updater) = app.updater() else { return };
         if let Ok(Some(update)) = updater.check().await {

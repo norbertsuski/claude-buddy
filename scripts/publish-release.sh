@@ -21,23 +21,28 @@ curl --fail --silent --show-error \
   --upload-file "$DMG" \
   "$API/packages/generic/clawde-buddy/$TAG/$NAME" >/dev/null
 
+# The same notes the tag pipeline would have used, so a locally published
+# release does not read differently from a CI one.
+NOTES="$(dirname "$0")/release-notes.sh"
+sh "$NOTES" "$TAG" > release-notes.md
+
 echo "creating release $TAG"
-curl --fail --silent --show-error --request POST \
+# Built by python3, not a heredoc: the notes are multi-line prose and have to be
+# JSON-escaped rather than pasted.
+TAG="$TAG" NAME="$NAME" \
+URL="$API/packages/generic/clawde-buddy/$TAG/$NAME" \
+python3 -c 'import json, os; print(json.dumps({
+  "name": os.environ["TAG"],
+  "tag_name": os.environ["TAG"],
+  "description": open("release-notes.md").read().strip(),
+  "assets": {"links": [{
+    "name": os.environ["NAME"] + " (Apple Silicon)",
+    "url": os.environ["URL"],
+    "link_type": "package",
+  }]},
+}))' | curl --fail --silent --show-error --request POST \
   --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
   --header 'Content-Type: application/json' \
-  --data @- "$API/releases" <<JSON >/dev/null
-{
-  "name": "$TAG",
-  "tag_name": "$TAG",
-  "description": "macOS build of clawde-buddy $TAG.\n\nThe app is unsigned: after downloading, right-click it in Finder and choose Open, then confirm.",
-  "assets": {
-    "links": [{
-      "name": "$NAME (Apple Silicon)",
-      "url": "$API/packages/generic/clawde-buddy/$TAG/$NAME",
-      "link_type": "package"
-    }]
-  }
-}
-JSON
+  --data @- "$API/releases" >/dev/null
 
 echo "done: https://gitlab.com/norbert.suski/clawde-buddy/-/releases/$TAG"

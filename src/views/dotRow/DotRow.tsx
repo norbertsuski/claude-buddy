@@ -32,7 +32,7 @@ export const HOVER_GRACE_MS = 180
 /** Gap between the pill and the popover, matching `--gap-popover`. */
 const POPOVER_GAP = 10
 
-export function DotRow({ sessions, smoothTransitions = true, usage = null }: SessionViewProps) {
+export function DotRow({ sessions, usage = null }: SessionViewProps) {
   const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null)
   const [hoveredUsage, setHoveredUsage] = useState(false)
   const [anchorOffset, setAnchorOffset] = useState(0)
@@ -202,7 +202,7 @@ export function DotRow({ sessions, smoothTransitions = true, usage = null }: Ses
     // How far the pill itself has to travel, which is not how far the window
     // does: the window is held at the widest state and mostly does not move at
     // all while the pill morphs beneath it.
-    const duration = smoothTransitions ? morphDuration(appliedPill.current, target) : MORPH_MS
+    const duration = morphDuration(appliedPill.current, target)
     const movePill = () => {
       appliedPill.current = target
       setMorphMs(duration)
@@ -251,7 +251,7 @@ export function DotRow({ sessions, smoothTransitions = true, usage = null }: Ses
       applyWidgetSize(next.width, next.height)
       shrinkTimer.current = null
     }, duration)
-  }, [showNamed, sessions, smoothTransitions])
+  }, [showNamed, sessions])
 
   // The usage popover counts down, and nothing else in this component needs a
   // clock, so it only runs while that popover is open.
@@ -305,7 +305,6 @@ export function DotRow({ sessions, smoothTransitions = true, usage = null }: Ses
       className="dot-row"
       data-testid="dot-row"
       data-flashing={flashing ? 'true' : 'false'}
-      data-smooth={smoothTransitions ? 'true' : 'false'}
       style={rowWidth === null ? undefined : { width: rowWidth }}
     >
       <div

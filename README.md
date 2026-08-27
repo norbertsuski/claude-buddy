@@ -28,7 +28,13 @@ Hover a name and a popover opens centred beneath it, with the state and how long
 
 ### The five-hour limit
 
-The end of the row is Claude Code's own five-hour usage window: a bar of how much is left, and the share as a number. It is read from the same file Claude Code caches it in, so it is whatever the CLI last saw rather than a fresh call, and it disappears entirely when that file says nothing usable — a lapsed window, a shape the field does not have any more, no file at all. The bar warms to amber and then red as the window fills, and hovering it opens a popover with the reset time. Turn it off with `showUsage`.
+The end of the row is Claude Code's own five-hour usage window: a bar of how much is left, and the share as a number. The bar warms to amber and then red as the window fills, and hovering it opens a popover with the reset time. Turn it off with `showUsage`.
+
+The figure comes from the API, and only from there: the widget asks for it every five minutes with the same `GET /api/oauth/usage` Claude Code makes, using the OAuth token Claude Code already holds — read from `CLAUDE_CODE_OAUTH_TOKEN`, `~/.claude/.credentials.json` or the login Keychain. `showUsage` governs both halves; hide the meter and the requests stop with it.
+
+There is no fallback to Claude Code's own cache of the figure in `~/.claude.json`. The widget used to read it and nothing else, which is why this changed: that cache is refreshed only when Claude Code fetches usage itself — in practice when someone opens its `/usage` panel — so it ran hours behind. Measured mid-session it said 5% where the API said 13%. A stale figure shown as though it were current is worse than no meter, so a failed call leaves no meter: the endpoint is private and undocumented, and every step of it is allowed to fail quietly. It also means the meter takes a few seconds to appear after launch, and never appears if no token can be read.
+
+The token is borrowed, never managed: an expired one is a reason to skip a poll, not to run the refresh flow behind Claude Code's back. Nothing is written anywhere, and the first Keychain read may raise the system's own permission dialog. The meter disappears when the answer is not usable — a window that has already reset, a shape the response does not have any more, no token to ask with.
 
 Every state carries a shape as well as a hue, because colour alone is unreadable to a red-green colourblind user and these five dots are the widget's whole vocabulary. The box stays 11px in each case, so nothing shifts as a session changes state.
 
@@ -37,7 +43,7 @@ Every state carries a shape as well as a hue, because colour alone is unreadable
 | amber | triangle, inside a pulsing ring | waiting on you — carries the reason, e.g. `input needed` |
 | green | filled circle with a glow | working |
 | grey | hollow ring | idle |
-| dim grey | two-bar pause glyph | paused — quiet past the threshold, 10 minutes by default |
+| dim grey | two-bar pause glyph | paused — quiet for ten minutes |
 | red | cross | died — the process is gone |
 
 ### Sessions, subagents and jobs
@@ -103,7 +109,7 @@ The frontend hot-reloads; Rust changes trigger a rebuild.
 
 There is **no Dock icon and no Cmd-Tab entry** — it is a menu-bar app. The tray icon is the only way in and the only way out:
 
-- **Settings…** — opens a normal window: when to hide the widget, which display to use, whether to sit in the notch, paused threshold, the three alert toggles, sound, background jobs, launch at login
+- **Settings…** — opens a normal window: when to hide the widget, which display to use, whether to sit in the notch, the sound and its three alert events, the 5h limit, background jobs, launch at login
 - **Mute alerts 1h**
 - **Install update** — installs a newer release if one is available and the updater is configured; otherwise it does nothing
 - **Quit clawde-buddy**
@@ -119,6 +125,8 @@ Settings → *Hide the widget* takes it off screen when there is nothing to watc
 macOS asks for notification permission on the first alert. Decline it and the pill flashes amber until you look at it instead — the signal is not lost.
 
 **Alerts fire on transitions, not states.** A session that is already waiting when the widget starts stays silent, because the first reading is a baseline. Without that, every launch would open with a burst of alerts about things you already knew.
+
+*Play a sound* is the switch for all of this, and the three transitions below sit under it in Settings. An alert is a notification with a sound, so silence means no alert: turning it off writes all three off and greys them out, and turning it back on restores the defaults. `notify::should_deliver` gates on it too, so a config file hand-edited to arm an event under a silent parent still delivers nothing.
 
 Three transitions can interrupt you:
 
@@ -136,15 +144,13 @@ Clicking any notification raises that session's window, the same as clicking its
 {
   "viewMode": "dotRow",
   "placement": "free",
-  "pausedThresholdMs": 600000,
   "alertNeedsInput": true,
   "alertDied": true,
   "alertFinished": false,
-  "sound": false,
+  "sound": true,
   "muteUntilMs": 0,
   "launchAtLogin": false,
   "showBackgroundJobs": true,
-  "smoothStatusChanges": true,
   "showUsage": true,
   "hideWhen": "noSessions",
   "preferredDisplay": null,
@@ -183,6 +189,20 @@ Jumping to a session walks the process tree to the first executable inside a `.a
 - **Multi-display placement follows the primary display** by default; pick another in Settings if that is not the one you watch.
 - **Notch mode assumes the menu bar is where the menu bar is.** A fullscreen app, or *automatically hide and show the menu bar*, leaves the slab at the top edge over the app's own content. It also needs the notched built-in display: close the lid and the widget has nothing to sit in.
 
+## Releasing
+
+Tag and push; the pipeline builds the DMG, uploads it and creates the release.
+
+The release description is the tag's own section of [CHANGELOG.md](CHANGELOG.md),
+extracted by `scripts/release-notes.sh` — the same notes go into the updater's
+`latest.json`, so the in-app update dialog says what changed too. Write the
+section before tagging: a tag with no section still releases, but with nothing
+but the download boilerplate in it.
+
+```bash
+scripts/release-notes.sh v0.4.0
+```
+
 ## Tests
 
 ```bash
@@ -193,9 +213,9 @@ npm test
 cd src-tauri && cargo test -- --test-threads=1
 ```
 
-257 Rust tests and 192 frontend tests. The Rust suite is weighted toward `watcher::state`, where every session state and transition is derived — that function is pure, with the clock, pid liveness and transcript activity all injected, so the whole state machine is tested without touching a filesystem. The watcher-loop tests use real files and real time, hence `--test-threads=1`.
+262 Rust tests and 191 frontend tests. The Rust suite is weighted toward `watcher::state`, where every session state and transition is derived — that function is pure, with the clock, pid liveness and transcript activity all injected, so the whole state machine is tested without touching a filesystem. The watcher-loop tests use real files and real time, hence `--test-threads=1`.
 
-Three environment variables point the widget at fixtures instead of live data, which is how the screenshots on this page were made — the third because the real usage file carries what the account has actually spent, which is neither reproducible nor anyone else's business:
+Three environment variables point the widget at fixtures instead of live data, which is how the screenshots on this page were made — the third because the real usage file carries what the account has actually spent, which is neither reproducible nor anyone else's business. Setting `CLAWDE_BUDDY_USAGE_FILE` also stops the live call, which would otherwise put the real figure straight back on screen:
 
 ```bash
 CLAWDE_BUDDY_REGISTRY_DIR=/path/to/sessions CLAWDE_BUDDY_PROJECTS_DIR=/path/to/projects CLAWDE_BUDDY_USAGE_FILE=/path/to/usage.json src-tauri/target/release/bundle/macos/clawde-buddy.app/Contents/MacOS/clawde-buddy

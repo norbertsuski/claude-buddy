@@ -6,6 +6,7 @@ pub mod notch;
 pub mod notify;
 pub mod update;
 pub mod usage;
+pub mod usage_api;
 pub mod visibility;
 pub mod watcher;
 pub mod window;
@@ -71,6 +72,11 @@ pub fn run() {
             // A non-activating panel gets no mousemove in its webview, so the
             // cursor is sampled here and pushed to the page instead.
             crate::cursor::spawn_cursor_watcher(widget.clone());
+
+            // Asks the API for the five-hour window on its own schedule, so
+            // the meter is not limited to what Claude Code last cached. Its own
+            // thread: reading the token can block on a Keychain dialog.
+            crate::usage_api::start();
 
             app.manage(crate::watcher::watch::SnapshotStore::default());
             let handle = app.handle().clone();

@@ -71,7 +71,6 @@ export const CONFIG_EVENT = 'config://update'
 
 // Mirrors src-tauri/src/config.rs.
 export interface AppConfig {
-  pausedThresholdMs: number
   alertNeedsInput: boolean
   alertDied: boolean
   alertFinished: boolean
@@ -79,8 +78,6 @@ export interface AppConfig {
   muteUntilMs: number
   launchAtLogin: boolean
   showBackgroundJobs: boolean
-  /** Time animations to the distance they cover, and fade chips in and out. */
-  smoothStatusChanges: boolean
   /** Show the five-hour limit meter at the end of the collapsed row. */
   showUsage: boolean
   /** When the widget takes itself off screen; mirrors visibility::HIDE_MODES. */

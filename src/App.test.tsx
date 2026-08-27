@@ -44,7 +44,7 @@ describe('App routing', () => {
   it('renders the notch chips instead of the row when placement is notch', async () => {
     window.location.hash = ''
     invoke.mockImplementation(async (command: string) => {
-      if (command === 'get_config') return { placement: 'notch', smoothStatusChanges: true }
+      if (command === 'get_config') return { placement: 'notch' }
       if (command === 'notch_layout') {
         return { notchLeft: 240, notchRight: 430, barHeight: 37, budget: 240 }
       }
@@ -61,7 +61,6 @@ describe('App routing', () => {
     window.location.hash = '#settings'
     const config = {
       hideWhen: 'noSessions',
-      pausedThresholdMs: 600_000,
       alertNeedsInput: true,
       alertDied: true,
       alertFinished: false,

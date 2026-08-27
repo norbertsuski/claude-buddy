@@ -281,7 +281,7 @@ body {
    it appears in a single frame while the pill it sits in takes the whole morph
    to make room for it — the content arrives, then the box catches up. Fading it
    in over roughly the morph's own length puts the two back together. */
-.dot-row[data-smooth='true'] .chip {
+.dot-row .chip {
   animation: chip-in 160ms var(--ease) both;
 }
 

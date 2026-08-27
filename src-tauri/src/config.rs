@@ -3,8 +3,6 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::watcher::state::PAUSED_THRESHOLD_MS;
-
 /// User settings. Hand-editable JSON: every field has a default so a
 /// half-written file still loads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -14,12 +12,15 @@ pub struct Config {
     /// field is kept so an existing config file still parses and is not silently
     /// rewritten without it.
     pub view_mode: String,
-    pub paused_threshold_ms: i64,
     pub alert_needs_input: bool,
     pub alert_died: bool,
     /// Whether finishing a turn interrupts you. Off by default: a finished turn
     /// is the common case, and alerting on it is the noisy choice.
     pub alert_finished: bool,
+    /// Whether alerts are delivered at all, and the sound they arrive with. The
+    /// parent of the three switches above, in the form and in
+    /// `notify::should_deliver` alike: an alert *is* a sound here, so silence
+    /// means no alert.
     pub sound: bool,
     /// Epoch millis until which alerts stay suppressed. Backs "Mute alerts 1h".
     pub mute_until_ms: i64,
@@ -28,11 +29,6 @@ pub struct Config {
     /// demoted when enabled, since they belong to a session rather than being
     /// one.
     pub show_background_jobs: bool,
-    /// Whether the widget times each animation to the distance it covers and
-    /// fades chips in as they appear, rather than giving every change the one
-    /// duration tuned for the widest morph. On by default; off restores the
-    /// fixed timing for anyone who prefers it.
-    pub smooth_status_changes: bool,
     /// Whether the five-hour limit meter appears at the end of the collapsed
     /// row. On by default, but worth being able to turn off: the figure behind
     /// it is a cache Claude Code refreshes only when it fetches usage, so the
@@ -58,15 +54,13 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             view_mode: "dotRow".into(),
-            paused_threshold_ms: PAUSED_THRESHOLD_MS,
             alert_needs_input: true,
             alert_died: true,
             alert_finished: false,
-            sound: false,
+            sound: true,
             mute_until_ms: 0,
             launch_at_login: false,
             show_background_jobs: true,
-            smooth_status_changes: true,
             show_usage: true,
             hide_when: "noSessions".into(),
             placement: "free".into(),
@@ -176,15 +170,13 @@ mod tests {
     fn defaults_are_sane() {
         let c = Config::default();
         assert_eq!(c.view_mode, "dotRow");
-        assert_eq!(c.paused_threshold_ms, crate::watcher::state::PAUSED_THRESHOLD_MS);
         assert!(c.alert_needs_input);
         assert!(c.alert_died);
         assert!(!c.alert_finished);
-        assert!(!c.sound);
+        assert!(c.sound);
         assert_eq!(c.mute_until_ms, 0);
         assert!(!c.launch_at_login);
         assert!(c.show_background_jobs);
-        assert!(c.smooth_status_changes);
         assert!(c.show_usage);
         assert_eq!(c.hide_when, "noSessions");
         assert_eq!(c.placement, "free");
@@ -217,7 +209,6 @@ mod tests {
 
         assert!(c.sound);
         assert_eq!(c.view_mode, "dotRow");
-        assert_eq!(c.paused_threshold_ms, crate::watcher::state::PAUSED_THRESHOLD_MS);
         std::fs::remove_file(&path).unwrap();
     }
 
