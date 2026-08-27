@@ -246,6 +246,12 @@ into a public repository, which is why the fixtures exist at all. The alt text
 on those images is unusually long and describes the picture in detail — keep
 that up, it is what a screen reader gets.
 
+Crazy mode needs more than the default cast has — its fire tops out at three
+working sessions and it only fractures once the five-hour limit is critical — so
+those images are taken under `CB_FIXTURE_HOT=1 scripts/dev-fixtures.sh`, which
+adds two working sessions and spends the limit down to 94%. `fixtures/README.md`
+describes it.
+
 What does *not* belong in the README is contributor detail. It is the
 user-facing document, and it has a Development section three lines long that
 points here on purpose. Setup, conventions, architecture and test strategy go in

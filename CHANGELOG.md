@@ -17,6 +17,12 @@ is missing here leaves that tag with nothing but the download boilerplate.
   only that something is. Nothing animates while nothing is happening, and if
   your Mac is set to reduce motion the colours and cracks still ramp while
   everything that moves stays still. Not drawn in notch mode.
+- **The settings window looks like a macOS window.** Its background is AppKit's
+  own material rather than a colour painted by the page, so it takes the tint of
+  what is behind it and goes flat when the window is not frontmost. Labels are
+  flush right against the controls they name, the controls are the system's own
+  rather than styled rectangles, and the whole form follows light and dark
+  appearance instead of being permanently dark.
 
 ## v0.7.1 — 2026-08-27
 
