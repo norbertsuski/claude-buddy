@@ -132,6 +132,11 @@ states and open popovers; a pill shaking under the cursor makes hovering a
 moving target. By the time you are pointing at it you have already noticed the
 thing that is waiting, so the shake has done its job.
 
+Not CSS `:hover`. The widget is a non-activating `NSPanel`, so it never becomes
+the key window and WKWebView never delivers mouse events to the page — `:hover`
+would simply never fire. `useCursor`'s `inside`, which already comes from Rust
+for exactly this reason, is what suppresses it.
+
 ### Strain
 
 `strain` maps `usage.severity`: `normal` → 0, `warn` → 1, `critical` → 2. When
@@ -184,9 +189,11 @@ from competing:
    at that point; the cracks stay legible without fighting it.
 2. **`strain >= 1` shortens flames by 4px.** Cracks read better with less
    blur behind them.
-3. **Hovering the widget stops both the shake and the shudder.** As above.
+3. **Hovering the widget stops both the shake and the shudder.** As above, off
+   `useCursor`'s `inside` rather than `:hover`.
 
-Three CSS selectors and two multipliers. No new machinery.
+Two CSS selectors, two multipliers and one boolean already in the component.
+No new machinery.
 
 ### Where the animations live
 
