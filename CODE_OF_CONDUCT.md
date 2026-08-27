@@ -76,9 +76,10 @@ in-repository channel for a conduct report. Saying so plainly is better than
 implying one that does not exist: the repository's private reporting form is for
 **security vulnerabilities**, it files a draft security advisory, and it is not
 the place for this. So if a report cannot reasonably be made in the open — and
-most cannot — use the private contact below if one is listed. If none is listed,
-open an issue saying only that you have a conduct report to make, naming nobody
-and describing nothing, and wait to be contacted.
+most cannot — open an issue saying only that you have a conduct report to make,
+naming nobody and describing nothing, and wait to be contacted. That first
+issue is a request for a private conversation, not the report itself, and it
+should be treated as one.
 
 Behaviour that breaks GitHub's own rules — harassment through the platform,
 threats, spam — can also be reported to GitHub directly at
@@ -87,12 +88,6 @@ project, and it can act on an account in ways a maintainer cannot.
 
 All complaints will be reviewed and investigated promptly and fairly.
 
-<!-- TODO(maintainer): add a private contact address here if you want one.
-     GitHub has no confidential-issue equivalent, so without an address the only
-     private route is for a reporter to ask in public to be contacted — a real
-     barrier for exactly the reports that most need privacy. An email line is
-     worth adding here if you are happy to publish an address. -->
-<!-- Optional private contact: <address here> -->
 
 All community leaders are obligated to respect the privacy and security of the
 reporter of any incident.
