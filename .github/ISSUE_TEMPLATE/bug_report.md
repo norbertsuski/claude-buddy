@@ -1,3 +1,11 @@
+---
+name: Bug report
+about: Something the widget does that it should not, or does not do that it should
+title: ''
+labels: bug
+assignees: ''
+---
+
 <!--
 The questions below are the ones that would otherwise be asked in the first
 reply. Most of this widget's behaviour depends on the machine it is running on —
@@ -37,7 +45,7 @@ and that text is whatever you were working on. Describe the shape of it instead
 
 ## Environment
 
-- **clawde-buddy version:**
+- **claude-buddy version:**
 - **Installed by:** <!-- built locally with `npm run tauri build`, or the DMG -->
 - **macOS version:**
 - **Mac model and chip:** <!-- e.g. MacBook Pro 14", M3 Pro — or Intel -->
@@ -59,7 +67,7 @@ and that text is whatever you were working on. Describe the shape of it instead
 
 ## Settings
 
-<!-- Paste `~/Library/Application Support/com.clawde.buddy/config.json`. It
+<!-- Paste `~/Library/Application Support/com.claude.buddy/config.json`. It
      carries no session data — just the switches and remembered positions —
      and it is usually the fastest way to see which of them is in play. -->
 

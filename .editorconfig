@@ -42,8 +42,8 @@ indent_size = 2
 [*.json]
 indent_size = 2
 
-# .gitlab-ci.yml. YAML cannot be indented with tabs at all, so indent_style
-# matters more here than the width does.
+# The Actions workflows. YAML cannot be indented with tabs at all, so
+# indent_style matters more here than the width does.
 [*.{yml,yaml}]
 indent_size = 2
 

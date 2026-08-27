@@ -1,0 +1,227 @@
+# Check every pull request, and every push to the default branch so that `main`
+# is never left unchecked between merges. Building and publishing the DMG is a
+# separate workflow, release.yml, which runs on a pushed tag; the two triggers
+# are disjoint by construction, so no commit is ever both tested and released by
+# the same run.
+#
+# NO FORK GATE, AND THAT IS THE POINT
+# -----------------------------------
+# This project used to live on GitLab, where the macOS job was closed to forks.
+# That was not caution for its own sake: the only macOS runner was the
+# maintainer's own laptop, registered with GitLab's *shell* executor, which does
+# not containerise anything — it clones the branch into a directory on that
+# machine and runs the job as the logged-in user, with that user's files,
+# keychain, SSH keys and network. `cargo test` and `cargo clippy` both execute
+# code out of the branch (build scripts, proc macros, the tests themselves), so
+# running them for a fork's merge request meant running a stranger's code
+# unsandboxed on a personal Mac. Hence a rule comparing the merge request's
+# source project id against the project's own.
+#
+# On GitHub that constraint is simply gone. Public repositories get free
+# `macos-latest` runners: disposable VMs, thrown away after the job, on Apple
+# silicon — which happens to be the only platform this app ships
+# (`darwin-aarch64` in the updater manifest). So the Rust job below runs for
+# *every* pull request, forks included, and there is deliberately no equivalent
+# of that gate anywhere in this file. If you came looking for one, this comment
+# is the answer: it was translated into nothing on purpose.
+#
+# What still holds is the ordinary GitHub Actions discipline that makes fork PRs
+# safe: this workflow triggers on `pull_request`, never `pull_request_target`.
+# `pull_request` checks out the fork's code with a read-only `GITHUB_TOKEN` and
+# no access to repository secrets. `pull_request_target` would run the same
+# untrusted code with a writable token and the secrets attached, which is the
+# one way to reintroduce the old problem on disposable runners. Do not switch it.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# One in-flight run per branch. A pull request that is pushed to twice in a
+# minute does not need the first run finished; a push to `main` does, since that
+# result is the record of whether `main` is green, so those are left to complete.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Nothing here writes to the repository. Narrowed explicitly rather than left to
+# the org default, which may well be read/write.
+permissions:
+  contents: read
+
+# `bash` by name, not the implicit default: a `run:` with no `shell:` gets
+# `bash -e {0}`, which is `errexit` without `pipefail`. Nothing in this file
+# pipes today, but release.yml does and the two should not disagree about what a
+# step runs under.
+defaults:
+  run:
+    shell: bash
+
+env:
+  # Node 22 is the current LTS and clears the "Node 20 or later" the README asks
+  # for. Pinned to a major rather than floating on `latest`: a toolchain that
+  # moves under the pipeline turns an unrelated pull request red.
+  NODE_VERSION: "22"
+  # The rustfmt everyone's diff is compared against, pinned to the maintainer's
+  # own toolchain. This one really does need a pin: `cargo fmt` reformats
+  # differently between releases, so a floating toolchain shows up as a
+  # formatting failure on a diff that touched nothing of the sort. Bump it when
+  # the maintainer bumps theirs.
+  RUSTFMT_TOOLCHAIN: "1.98.0"
+
+jobs:
+  # Typecheck and the Vitest suite. Neither needs macOS, so this runs on Linux —
+  # see the note on the runner split above `rustfmt` below.
+  frontend:
+    name: Frontend (typecheck + vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          # Caches the npm *download* cache keyed on package-lock.json. This is
+          # the cheap half of the caching story and needs no extra action.
+          cache: npm
+
+      - run: node --version && npm --version
+
+      # `ci`, not `install`: it installs exactly what package-lock.json pins and
+      # fails if the lockfile and package.json have drifted apart, which is a
+      # thing worth failing on rather than papering over.
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+  # Formatting for the Rust half, on Linux — which looks wrong at first glance,
+  # because this crate cannot be compiled anywhere but macOS: it pulls in Tauri's
+  # NSPanel bindings, the Keychain and CoreGraphics, none of which exist here.
+  #
+  # It works because `cargo fmt` does not compile anything. It parses each file
+  # and prints it back out, and `--check` diffs the two; it never resolves a
+  # `use`, never touches the crate's dependencies, and never learns that
+  # `tauri_nspanel` is unbuildable on this machine. A macOS-only crate is
+  # therefore perfectly format-checkable on Linux.
+  #
+  # THE RUNNER SPLIT, AND WHY IT SURVIVED THE MOVE
+  # ----------------------------------------------
+  # On GitLab this job and `frontend` were on Linux for a reason that no longer
+  # exists: they were the only two jobs a fork's merge request could run, so
+  # between them they were the entire signal an outside contributor could get.
+  # Forks now get the macOS job too, so that argument is dead and the honest
+  # question is whether to fold everything onto `macos-latest` and have one
+  # runner type to think about.
+  #
+  # Kept split, on cost and latency. macOS runners are the scarce, expensive
+  # kind — billed at ten times the Linux multiplier on private repositories, and
+  # even where the minutes are free on a public one they are a smaller pool with
+  # longer queues and a slower VM boot. `npm ci` and `cargo fmt` have no more
+  # business waiting for a Mac than they have running on one. Splitting also
+  # means the three jobs run concurrently on two different pools, so a formatting
+  # slip or a failing Vitest test comes back in about a minute instead of behind
+  # a Tauri crate graph.
+  #
+  # The cost of the split is one more moving part and a second Rust toolchain to
+  # keep in step. That is a real cost, and it is the reason to revisit this if
+  # the workflow ever grows a fourth job: at that point a single macOS job doing
+  # everything in sequence may well be the simpler thing to maintain.
+  rustfmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runner image ships a stable Rust with rustfmt already, but it is
+      # whatever stable happened to be current when the image was cut — which is
+      # exactly the floating toolchain RUSTFMT_TOOLCHAIN exists to avoid. So
+      # install the pinned one explicitly and name it on the command line below.
+      #
+      # `--profile minimal` leaves rustfmt out (this is the same trap the
+      # official Rust Docker images set), hence the explicit `--component`.
+      # rustup is preinstalled on every GitHub-hosted runner; installing a
+      # toolchain that is already present is a no-op.
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUSTFMT_TOOLCHAIN" --profile minimal --component rustfmt
+          cargo "+$RUSTFMT_TOOLCHAIN" fmt --version
+
+      # No dependency cache on this job on purpose: rustfmt never resolves a
+      # dependency, so there is nothing to cache and a cache restore would cost
+      # more than the job.
+      #
+      # The settings this enforces are written down in src-tauri/rustfmt.toml.
+      - name: cargo fmt --check
+        working-directory: src-tauri
+        run: cargo "+$RUSTFMT_TOOLCHAIN" fmt --check
+
+  # Clippy and the Rust test suite. Unlike the two above, these do have to build
+  # the crate, so they need the macOS SDK and a real toolchain.
+  #
+  # `macos-latest` is Apple silicon, which is the same architecture the release
+  # DMG is built for, so what this job compiles is what ships.
+  #
+  # This job does not build the frontend first, and does not need to: the
+  # `generate_context!()` expansion was confirmed not to require `dist/` to
+  # exist, so `npm ci && npm run build` would be a couple of minutes spent on
+  # nothing.
+  rust:
+    name: Rust (clippy + tests)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runner image ships stable Rust. Deliberately not pinned the way
+      # rustfmt is: this job compiles the crate, and the toolchain it should be
+      # compiled with is a current stable, not a frozen one — a new stable that
+      # breaks the build is something to find out about here rather than at
+      # release time. Clippy findings shifting between releases is tolerable
+      # precisely because clippy is not blocking; see below.
+      #
+      # `rustup component add` is a no-op when the component is already there,
+      # so this stays correct whichever profile the image was built with.
+      - name: Ensure clippy is present
+        run: |
+          rustup component add clippy
+          rustc --version && cargo clippy --version
+
+      # The one place Actions clearly beats the old setup: a Tauri crate graph
+      # is slow to build from scratch, and the maintainer's laptop never had to,
+      # having built it once already. `workspaces` points the action at the
+      # crate, which is not at the repository root. The cache key includes the
+      # lockfile and the compiler version, so a dependency bump or a toolchain
+      # bump invalidates it rather than silently reusing stale artefacts.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # TODO: make this `cargo clippy --all-targets -- -D warnings` once the
+      # existing findings are cleared. As of v0.4.0 the tree has 20 of them and
+      # `-D warnings` would fail this job on every pull request, including ones
+      # that touched no Rust at all — a gate that is red before anybody has done
+      # anything is a gate people learn to ignore. They fall into three groups:
+      # eleven `clippy::field_reassign_with_default` in test modules, seven
+      # `deprecated` on tauri-nspanel's re-exported `cocoa` bindings (upstream's
+      # to fix, not ours — the replacement is the objc2-app-kit crate), and one
+      # each of `clippy::collapsible_match` and `clippy::single_match`. Without
+      # `-D warnings` clippy still fails the job on an actual compile error,
+      # which is most of what this is here for; the warnings are printed in the
+      # job log so a contributor can see the ones they added.
+      - name: cargo clippy --all-targets
+        working-directory: src-tauri
+        run: cargo clippy --all-targets
+
+      # Single-threaded on purpose. Most of the suite is pure and would run in
+      # any order, but the watcher-loop tests are not: they write real files into
+      # a temp directory, wait on FSEvents and measure real elapsed time to
+      # decide whether a session has gone quiet. Run in parallel they contend for
+      # the machine and the timing assertions start failing at random. This is
+      # not superstition and it is not negotiable — a shared CI runner is a
+      # busier machine than a laptop, so if anything the constraint bites harder
+      # here.
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test -- --test-threads=1

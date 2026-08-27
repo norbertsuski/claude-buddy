@@ -1,0 +1,16 @@
+# Both templates carry prose that the issue is worse without — most of all the
+# note asking reporters not to paste transcript content, which is whatever they
+# happened to be working on at the time. A blank issue is the one route that
+# reaches nobody with that note, so it is switched off: the two templates
+# between them cover everything the tracker is for, and either can be emptied
+# out by anyone who finds the questions do not apply.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/norbertsuski/claude-buddy/security/policy
+    about: >-
+      Please do not open a public issue for a security problem — the issue
+      describes the bug to everyone watching the project before anyone has a
+      build that closes it. SECURITY.md says what counts as a vulnerability
+      here and how to report one privately.

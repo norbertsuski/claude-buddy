@@ -1,3 +1,11 @@
+---
+name: Feature request
+about: Something the widget should do, or should do differently
+title: ''
+labels: enhancement
+assignees: ''
+---
+
 <!--
 Problem first, please. A proposal is much easier to judge against the thing it
 is meant to fix than on its own, and a well-described problem sometimes has a

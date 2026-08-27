@@ -1,0 +1,199 @@
+# Build the macOS DMG when a tag is pushed, and publish it as a GitHub release.
+#
+# Building a .app needs macOS — there is no cross-compiling it from Linux, since
+# it needs the macOS SDK and the bundler — so the whole thing runs on
+# `macos-latest`, which is Apple silicon and therefore produces exactly the
+# `darwin-aarch64` build the updater manifest advertises.
+#
+# NO TESTS RUN HERE, ON PURPOSE
+# -----------------------------
+# ci.yml triggers on pull requests and pushes to `main`; this one triggers on
+# tags. The two sets are disjoint, so a tag build does not re-run the suites. A
+# tag is placed on a commit that already went through `main` green, and the
+# thing a release build can still get wrong — bundling, signing, uploading — is
+# not something `cargo test` was ever going to catch. If you want the belt and
+# braces, run the suites locally before tagging, which CONTRIBUTING.md asks for
+# anyway.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+# Creating the release and uploading its assets both write to the repository, so
+# this workflow needs more than the read-only default. Nothing else does.
+permissions:
+  contents: write
+
+# Naming the shell explicitly is not redundant. A `run:` block with no `shell:`
+# runs under `bash -e {0}` — `errexit` but *not* `pipefail` — whereas asking for
+# `bash` by name gets `bash --noprofile --norc -eo pipefail {0}`. Two steps below
+# depend on the difference: the DMG filename is read through a pipe, where
+# without `pipefail` a failed build would be masked by a successful `tail`, and
+# the tarball glob's comment reasons about `-e` being in force.
+defaults:
+  run:
+    shell: bash
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  release:
+    name: Build and publish the DMG
+    runs-on: macos-latest
+    steps:
+      # Shallow is fine: scripts/release-notes.sh reads CHANGELOG.md out of the
+      # working tree at the tagged commit, not out of the history.
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # A Tauri crate graph is slow to build from scratch. The release build is
+      # `--release` and so shares nothing with the debug artefacts ci.yml caches
+      # — hence the distinct `key`, which keeps the two from evicting each other.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: release
+
+      - run: node --version && npm --version && rustc --version
+
+      - run: npm ci
+
+      # Updater artifacts are only bundled when they can be signed: `tauri build`
+      # fails outright on a non-empty `plugins.updater.pubkey` it has no private
+      # key for, so the signing secrets are what switch the update channel on.
+      # In the shipped keyless state this takes the second branch and produces a
+      # perfectly good DMG release with no update channel attached; that is not a
+      # degraded mode to be fixed, it is the default.
+      #
+      # The secret is read in the shell rather than in an `if:` on the step. That
+      # is not stylistic: the `secrets` context is not available to a step's
+      # `if:` expression, so testing it there would quietly evaluate to empty and
+      # take the same branch forever. Mapping it into `env:` and testing `-n` in
+      # the shell is both the supported way and a literal port of what the
+      # GitLab job did.
+      - name: Build the app bundle
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "signing key present — bundling updater artifacts"
+            npm run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":true}}'
+          else
+            echo "no signing key — building without updater artifacts"
+            npm run tauri build
+          fi
+
+      # scripts/make-dmg.sh prints the path it wrote and owns the naming, so the
+      # filename is read back off stdout rather than reconstructed here. That
+      # matters: the name carries the version and the architecture, and a
+      # hard-coded copy of it in this file would be one more thing to forget to
+      # update. `tail -n 1` because the script logs on the way past; the path is
+      # always the last line.
+      - name: Build the DMG
+        id: dmg
+        run: |
+          DMG="$(npm run --silent dmg | tail -n 1)"
+          [ -f "$DMG" ] || { echo "make-dmg.sh printed '$DMG', which is not a file" >&2; exit 1; }
+          echo "built $DMG"
+          echo "path=$DMG" >> "$GITHUB_OUTPUT"
+
+      # The release body. `release-notes.sh` lifts the tag's own section straight
+      # out of CHANGELOG.md and appends the download boilerplate, so the release
+      # page and the in-app update dialog say the same thing. A tag with no
+      # section still releases — the script deliberately does not fail over a
+      # forgotten entry.
+      - name: Render the release notes
+        run: |
+          sh scripts/release-notes.sh "$GITHUB_REF_NAME" > release-notes.md
+          cat release-notes.md
+
+      # Everything that should end up attached to the release is staged into one
+      # directory, so the upload step below can take a single glob and stay
+      # ignorant of which of the optional artefacts exist. Filenames are
+      # preserved by the copy, which is what keeps `latest.json` named exactly
+      # `latest.json` — the updater endpoint asks for that name and nothing else.
+      - name: Stage the release assets
+        env:
+          DMG: ${{ steps.dmg.outputs.path }}
+        run: |
+          mkdir -p release-assets
+          cp "$DMG" release-assets/
+
+          # The updater consumes a tarball and its signature, not the DMG. Both
+          # only exist once `plugins.updater.pubkey` and the signing secrets are
+          # set; in the keyless case there is nothing to publish, and the DMG
+          # release must not fail over an update channel that is switched off.
+          BUNDLE=src-tauri/target/release/bundle/macos
+
+          # Plain glob, not `ls ... | head`: these steps run under
+          # `bash -eo pipefail` (see `defaults:` above), so an `ls` that matches
+          # nothing fails the step
+          # and takes the whole job with it — even though a missing tarball is
+          # the normal, keyless case this block exists to skip.
+          TARBALL=""
+          for candidate in "$BUNDLE"/*.app.tar.gz; do
+            [ -f "$candidate" ] && TARBALL="$candidate" && break
+          done
+
+          if [ -z "$TARBALL" ] || [ ! -f "$TARBALL.sig" ]; then
+            echo "no signed update tarball; skipping the updater manifest"
+            exit 0
+          fi
+
+          cp "$TARBALL" "$TARBALL.sig" release-assets/
+
+          # Release assets live at a predictable URL, so the manifest can point
+          # at one that does not exist yet — this job creates it a step later.
+          # Pinned to the tag rather than to `/latest/`: the manifest describes
+          # one specific build and should keep resolving to it after the next
+          # release moves `latest`. The repository is read out of the workflow
+          # context rather than written down, so a fork or a rename does not
+          # leave a stale URL behind.
+          #
+          # The endpoint the app polls is the other half of this and *is*
+          # `/latest/`, by design: see plugins.updater.endpoints in
+          # src-tauri/tauri.conf.json.
+          #
+          # Built by python3 rather than a heredoc: the notes are multi-line
+          # prose and have to be JSON-escaped, not pasted.
+          TAG="$GITHUB_REF_NAME"
+          VERSION="${TAG#v}" \
+          SIG="$(cat "$TARBALL.sig")" \
+          URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$TAG/$(basename "$TARBALL")" \
+          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          python3 -c 'import json, os; print(json.dumps({
+            "version": os.environ["VERSION"],
+            "notes": open("release-notes.md").read().strip(),
+            "pub_date": os.environ["PUB_DATE"],
+            "platforms": {"darwin-aarch64": {
+              "signature": os.environ["SIG"], "url": os.environ["URL"]}},
+          }, indent=2))' > release-assets/latest.json
+
+          cat release-assets/latest.json
+
+      - name: List what is being published
+        run: ls -la release-assets/
+
+      # No separate build artifact upload: the release itself is the durable
+      # copy, and on GitLab the `artifacts:` block only existed to hand the DMG
+      # from the build job to a separate release job. That is one job here.
+      #
+      # `fail_on_unmatched_files` guards the glob rather than any individual
+      # asset — the optional updater files are legitimately absent in the keyless
+      # case, but an empty directory means the staging step above went wrong and
+      # would otherwise publish an empty release.
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: release-assets/*
+          fail_on_unmatched_files: true

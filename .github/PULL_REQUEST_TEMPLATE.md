@@ -2,7 +2,7 @@
 Every box below is something to run on your own machine before pressing merge,
 rather than something to leave for the pipeline to find. See CONTRIBUTING.md at
 the repo root for the setup, the conventions, and what CI does and does not
-check on a merge request.
+check on a pull request.
 -->
 
 ## What this changes
@@ -41,11 +41,14 @@ check on a merge request.
 ## CHANGELOG
 
 - [ ] User-visible changes are described in the section for the next release in
-      [CHANGELOG.md](https://gitlab.com/norbert.suski/clawde-buddy/-/blob/main/CHANGELOG.md), or this change is not user-visible
+      [CHANGELOG.md](https://github.com/norbertsuski/claude-buddy/blob/main/CHANGELOG.md), or this change is not user-visible
 
-<!-- Release notes are not generated from commits. `scripts/release-notes.sh`
+<!-- The link above is absolute on purpose: a relative one does not resolve from
+     a pull request description.
+
+     Release notes are not generated from commits. `scripts/release-notes.sh`
      lifts the tag's own section straight out of CHANGELOG.md, and that is what
-     the GitLab release and the in-app update dialog both show. A change that
+     the GitHub release and the in-app update dialog both show. A change that
      never reaches the file is a change nobody reads about on release day, and a
      tag with no section at all ships with nothing but the download
      boilerplate. -->
