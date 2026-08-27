@@ -48,6 +48,17 @@ Hover a name and a popover opens centred beneath it, with the state and how long
 
 ![A popover open under web-app, reading: state busy for 1m, doing Grep, cwd /Users/n/Code/web-app, branch fix/checkout-totals, model claude-opus-5 at high effort, cli with pid 927 up 47m, and 36% of the five-hour limit used with 2h40m to the reset](docs/media/popover.png)
 
+### Crazy mode
+
+Off by default. Turned on in Settings, the widget stops being subtle about what it is already telling you:
+
+- **Fire** — the pill warms as one session goes busy and is properly alight at three, with flames along its bottom edge and sparks coming off it. Background jobs and subagents do not count towards it.
+- **Shake** — a session that has been waiting on you for more than thirty seconds makes the pill tremble, harder the longer it waits. It stops while the pointer is over the widget, so it never becomes a moving target.
+- **Fracture** — as the five-hour limit runs down, cracks spread across the pill. At the last of it the limit bar goes molten and drips.
+- **Ash** — a session dying breaks its dot apart once, and it settles back to the ordinary cross.
+
+Nothing animates while nothing is happening: an idle machine with crazy mode on costs exactly what an idle machine with it off costs. If your Mac is set to reduce motion, the colours and the cracks still ramp but nothing moves — no flames, no shake, no sparks.
+
 ### The five-hour limit
 
 The end of the row is Claude Code's own five-hour usage window: a bar of how much is left, and the share as a number. The bar warms to amber and then red as the window fills, and hovering it opens a popover with the reset time. Turn it off with `showUsage`.
@@ -189,12 +200,13 @@ Clicking any notification raises that session's window, the same as clicking its
   "hideWhen": "noSessions",
   "hidden": false,
   "keepAwake": false,
+  "crazy": "off",
   "preferredDisplay": null,
   "positions": {}
 }
 ```
 
-`hideWhen` is one of `never`, `noSessions` or `nothingActive`; anything else falls back to showing the widget. `hidden` is the tray menu's **Hide widget** and is checked before `hideWhen` is even consulted, so `true` here hides the widget whatever the mode says — set it back to `false`, or untick the menu item, to get it back. `keepAwake` is the tray menu's **Keep screen awake**; it only has an effect while a session is working or waiting, so `true` on an idle machine changes nothing. `muteUntilMs` is epoch milliseconds; the menu writes an hour or eight hours ahead for a timed mute, and `9223372036854775807` for *Until I unmute*. `placement` is `free` or `notch`; anything else reads as `free`, deliberately, since a hand-edited typo must not strand the widget in a placement it cannot be dragged out of. `viewMode` is vestigial — the view modes are gone, and the field is still parsed only so an existing config file keeps loading.
+`hideWhen` is one of `never`, `noSessions` or `nothingActive`; anything else falls back to showing the widget. `hidden` is the tray menu's **Hide widget** and is checked before `hideWhen` is even consulted, so `true` here hides the widget whatever the mode says — set it back to `false`, or untick the menu item, to get it back. `keepAwake` is the tray menu's **Keep screen awake**; it only has an effect while a session is working or waiting, so `true` on an idle machine changes nothing. `crazy` is `off` or `ember`; anything else reads as `off`. It is the only setting that changes nothing about what the widget *knows* — only how loudly it says it. `muteUntilMs` is epoch milliseconds; the menu writes an hour or eight hours ahead for a timed mute, and `9223372036854775807` for *Until I unmute*. `placement` is `free` or `notch`; anything else reads as `free`, deliberately, since a hand-edited typo must not strand the widget in a placement it cannot be dragged out of. `viewMode` is vestigial — the view modes are gone, and the field is still parsed only so an existing config file keeps loading.
 
 A corrupt or half-written file falls back to defaults rather than refusing to start.
 
@@ -223,6 +235,7 @@ Jumping to a session walks the process tree to the first executable inside a `.a
 - **Unsigned.** The DMG carries an ad-hoc signature, which is what keeps Gatekeeper from calling the app *damaged*, but it is not a notarised one — so Gatekeeper still prompts once per install, and getting rid of that prompt needs an Apple Developer ID to sign and notarize. Update *delivery* is a separate matter and does work: configure a minisign key and the app updates itself in place from the tray menu — see [Signing updates](#signing-updates). With no key, as shipped, it never checks and never updates.
 - **A `claude-desktop` session inside a long tool call writes nothing** to its transcript, so it can read as idle until the result lands. It will not reach paused, which needs ten minutes of quiet.
 - **Multi-display placement follows the primary display** by default; pick another in Settings if that is not the one you watch.
+- **Crazy mode does not reach notch mode.** The slab beside the notch is a different view with its own markup and scale, and none of the effects are drawn there. The setting stays where it is and takes effect again as soon as you go back to the floating widget.
 - **Notch mode assumes the menu bar is where the menu bar is.** A fullscreen app, or *automatically hide and show the menu bar*, leaves the slab at the top edge over the app's own content. It also needs the notched built-in display: close the lid and the widget has nothing to sit in.
 
 ## Tests

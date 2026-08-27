@@ -5,6 +5,19 @@ section out of this file, and the release workflow uses it as the body of the
 GitHub release and as the notes in the in-app update dialog — so a section that
 is missing here leaves that tag with nothing but the download boilerplate.
 
+## Unreleased
+
+- **Crazy mode**, off by default, in Settings. Turned on, the widget stops
+  being subtle about what it is already telling you: the pill catches fire as
+  sessions go busy — warm at one, properly alight at three — trembles while a
+  session has been waiting on you for more than thirty seconds, fractures as
+  the five-hour limit runs down until the limit bar itself goes molten, and
+  breaks the dot apart once when a session dies. Each of the four responds to
+  its own signal, so the widget still says *which* thing is intense rather than
+  only that something is. Nothing animates while nothing is happening, and if
+  your Mac is set to reduce motion the colours and cracks still ramp while
+  everything that moves stays still. Not drawn in notch mode.
+
 ## v0.7.1 — 2026-08-27
 
 - **The tray menu is in three groups.** What the app is — *About* and the
