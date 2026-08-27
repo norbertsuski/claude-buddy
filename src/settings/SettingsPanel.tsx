@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { HIDE_MODES, type AppConfig, type DisplayInfo } from '../types'
+import { listen } from '@tauri-apps/api/event'
+import { CONFIG_EVENT, HIDE_MODES, type AppConfig, type DisplayInfo } from '../types'
 import './settings.css'
 
 /**
@@ -29,8 +30,26 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   // it has not, which is also the answer when the lid is shut.
   const [hasNotch, setHasNotch] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Saves this form has started and not yet heard back about. The tray menu
+  // writes the same file — muting, hiding the widget, the background-jobs tick
+  // — and the form has to follow those, or its next save would carry a stale
+  // copy of them back over the top. Its own writes come back as the same event,
+  // so they are ignored while one is outstanding: without that, two quick
+  // clicks let the first save's echo land after the second and undo it.
+  const saving = useRef(0)
 
   useEffect(() => {
+    let stop: (() => void) | undefined
+    let disposed = false
+
+    listen<AppConfig>(CONFIG_EVENT, (event) => {
+      if (saving.current > 0) return
+      setConfig(event.payload)
+    }).then((unlisten) => {
+      if (disposed) unlisten()
+      else stop = unlisten
+    })
+
     invoke<AppConfig>('get_config')
       .then(setConfig)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
@@ -45,6 +64,11 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       // No notch is the safe reading: the control stays disabled rather than
       // offering a placement the widget cannot take up.
       .catch(() => setHasNotch(false))
+
+    return () => {
+      disposed = true
+      stop?.()
+    }
   }, [])
 
   // Save on every change: there is no Apply button, so a rejected value must be
@@ -54,9 +78,12 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
     const next = { ...config, ...patch }
     setConfig(next)
     setError(null)
-    invoke('set_config', { config: next }).catch((e: unknown) =>
-      setError(e instanceof Error ? e.message : String(e)),
-    )
+    saving.current += 1
+    invoke('set_config', { config: next })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => {
+        saving.current -= 1
+      })
   }
 
   if (config === null) {

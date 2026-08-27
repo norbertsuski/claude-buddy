@@ -7,7 +7,15 @@ pub const HIDE_MODES: [&str; 3] = ["never", "noSessions", "nothingActive"];
 ///
 /// Pure, so the policy is tested without a window server. The caller owns the
 /// panel; this only decides.
-pub fn should_hide(sessions: &[SessionSnapshot], hide_when: &str) -> bool {
+///
+/// `hidden` is the tray menu's "Hide widget" and wins over every mode,
+/// including `never`: it is an explicit instruction from the user, and a
+/// widget that reappeared mid-screen-share because a session woke up would be
+/// exactly the failure it exists to prevent.
+pub fn should_hide(sessions: &[SessionSnapshot], hide_when: &str, hidden: bool) -> bool {
+    if hidden {
+        return true;
+    }
     match hide_when {
         "noSessions" => sessions.is_empty(),
         "nothingActive" => !sessions
@@ -21,6 +29,12 @@ pub fn should_hide(sessions: &[SessionSnapshot], hide_when: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `should_hide` with no manual hide in play, which is what every policy
+    /// test is about.
+    fn auto(sessions: &[SessionSnapshot], hide_when: &str) -> bool {
+        should_hide(sessions, hide_when, false)
+    }
 
     fn session(state: SessionState) -> SessionSnapshot {
         SessionSnapshot {
@@ -41,45 +55,59 @@ mod tests {
 
     #[test]
     fn never_always_shows() {
-        assert!(!should_hide(&[], "never"));
-        assert!(!should_hide(&[session(SessionState::Idle)], "never"));
-        assert!(!should_hide(&[session(SessionState::Waiting)], "never"));
+        assert!(!auto(&[], "never"));
+        assert!(!auto(&[session(SessionState::Idle)], "never"));
+        assert!(!auto(&[session(SessionState::Waiting)], "never"));
     }
 
     #[test]
     fn no_sessions_hides_only_an_empty_list() {
-        assert!(should_hide(&[], "noSessions"));
-        assert!(!should_hide(&[session(SessionState::Idle)], "noSessions"));
-        assert!(!should_hide(&[session(SessionState::Paused)], "noSessions"));
+        assert!(auto(&[], "noSessions"));
+        assert!(!auto(&[session(SessionState::Idle)], "noSessions"));
+        assert!(!auto(&[session(SessionState::Paused)], "noSessions"));
     }
 
     #[test]
     fn nothing_active_hides_a_quiet_list() {
-        assert!(should_hide(&[], "nothingActive"));
-        assert!(should_hide(&[session(SessionState::Idle)], "nothingActive"));
-        assert!(should_hide(
-            &[session(SessionState::Paused)],
-            "nothingActive"
-        ));
-        assert!(should_hide(&[session(SessionState::Dead)], "nothingActive"));
+        assert!(auto(&[], "nothingActive"));
+        assert!(auto(&[session(SessionState::Idle)], "nothingActive"));
+        assert!(auto(&[session(SessionState::Paused)], "nothingActive"));
+        assert!(auto(&[session(SessionState::Dead)], "nothingActive"));
     }
 
     #[test]
     fn nothing_active_shows_for_waiting_or_busy() {
-        assert!(!should_hide(
+        assert!(!auto(&[session(SessionState::Waiting)], "nothingActive"));
+        assert!(!auto(&[session(SessionState::Busy)], "nothingActive"));
+    }
+
+    #[test]
+    fn a_manual_hide_outranks_every_mode() {
+        // Including `never`, and including a session actively waiting on the
+        // user: the menu item is an instruction, not a preference.
+        assert!(should_hide(&[], "never", true));
+        assert!(should_hide(
             &[session(SessionState::Waiting)],
-            "nothingActive"
+            "never",
+            true
         ));
-        assert!(!should_hide(
+        assert!(should_hide(
             &[session(SessionState::Busy)],
-            "nothingActive"
+            "nothingActive",
+            true
         ));
+    }
+
+    #[test]
+    fn unhiding_hands_the_decision_back_to_the_mode() {
+        assert!(!should_hide(&[session(SessionState::Idle)], "never", false));
+        assert!(should_hide(&[], "noSessions", false));
     }
 
     #[test]
     fn an_unrecognised_mode_shows_rather_than_hiding() {
         // A hand-edited config must not be able to make the widget vanish with
         // no way to reason about why.
-        assert!(!should_hide(&[], "hologram"));
+        assert!(!auto(&[], "hologram"));
     }
 }

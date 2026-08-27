@@ -38,6 +38,12 @@ pub struct Config {
     /// `nothingActive`. The tray icon always remains, so a hidden widget is
     /// never unreachable.
     pub hide_when: String,
+    /// Whether the user has put the widget away from the tray menu. Outranks
+    /// `hide_when` rather than being one of its modes: the policy answers "is
+    /// there anything worth showing", and this answers "not now" — for a screen
+    /// share or a recording — and has to survive sessions starting and
+    /// finishing underneath it.
+    pub hidden: bool,
     /// Where the widget lives: `free` to float wherever the user dragged it, or
     /// `notch` to sit in the menu bar flanking a MacBook's notch.
     pub placement: String,
@@ -63,6 +69,7 @@ impl Default for Config {
             show_background_jobs: true,
             show_usage: true,
             hide_when: "noSessions".into(),
+            hidden: false,
             placement: "free".into(),
             preferred_display: None,
             positions: HashMap::new(),
@@ -72,6 +79,35 @@ impl Default for Config {
 
 /// Accepted values for the `placement` setting.
 pub const PLACEMENTS: [&str; 2] = ["free", "notch"];
+
+/// `mute_until_ms` for a mute the user has to lift themselves.
+///
+/// A sentinel rather than an `Option`, so the field keeps one shape in a file
+/// people hand-edit and `alerts_muted` stays a single comparison. Deliberately
+/// not "now plus a hundred years": that quietly expires, and a mute the user
+/// asked to keep until they say otherwise must not.
+pub const MUTE_INDEFINITE_MS: i64 = i64::MAX;
+
+/// How long a mute chosen from the tray menu lasts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MuteFor {
+    Hour,
+    EightHours,
+    UntilUnmuted,
+}
+
+/// The deadline a mute chosen at `now_ms` should be written as.
+///
+/// Saturating: a clock far enough forward that the addition would wrap has to
+/// leave the user muted, never silently unmuted.
+pub fn mute_until(now_ms: i64, choice: MuteFor) -> i64 {
+    const HOUR_MS: i64 = 60 * 60 * 1000;
+    match choice {
+        MuteFor::Hour => now_ms.saturating_add(HOUR_MS),
+        MuteFor::EightHours => now_ms.saturating_add(8 * HOUR_MS),
+        MuteFor::UntilUnmuted => MUTE_INDEFINITE_MS,
+    }
+}
 
 impl Config {
     pub fn alerts_muted(&self, now_ms: i64) -> bool {
@@ -289,6 +325,34 @@ mod tests {
     }
 
     #[test]
+    fn a_timed_mute_ends_after_its_span() {
+        let now = 1_700_000_000_000;
+        assert_eq!(mute_until(now, MuteFor::Hour), now + 3_600_000);
+        assert_eq!(mute_until(now, MuteFor::EightHours), now + 8 * 3_600_000);
+    }
+
+    #[test]
+    fn an_indefinite_mute_never_expires() {
+        let c = Config {
+            mute_until_ms: mute_until(0, MuteFor::UntilUnmuted),
+            ..Config::default()
+        };
+        assert!(c.alerts_muted(i64::MAX - 1));
+    }
+
+    #[test]
+    fn a_mute_near_the_end_of_time_does_not_wrap_into_the_past() {
+        // Saturating, not wrapping: an addition that overflowed would land in
+        // the far past and read as "not muted" the instant it was chosen.
+        let now = i64::MAX - 10;
+        let c = Config {
+            mute_until_ms: mute_until(now, MuteFor::EightHours),
+            ..Config::default()
+        };
+        assert!(c.alerts_muted(now));
+    }
+
+    #[test]
     fn defaults_are_sane() {
         let c = Config::default();
         assert_eq!(c.view_mode, "dotRow");
@@ -301,6 +365,7 @@ mod tests {
         assert!(c.show_background_jobs);
         assert!(c.show_usage);
         assert_eq!(c.hide_when, "noSessions");
+        assert!(!c.hidden);
         assert_eq!(c.placement, "free");
         assert!(!c.wants_notch());
         assert_eq!(c.preferred_display, None);

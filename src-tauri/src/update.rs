@@ -20,52 +20,92 @@ pub fn is_configured(updater_config: Option<&Value>) -> bool {
         .is_some_and(|key| !key.trim().is_empty())
 }
 
+/// Post a notification, off the calling thread.
+///
+/// Sending blocks until the notification centre answers, so this never runs on
+/// the async runtime or the main thread.
+fn tell(app: &AppHandle, title: String, body: String) {
+    crate::notify::ensure_application(&app.config().identifier);
+    std::thread::spawn(move || {
+        let mut options = mac_notification_sys::Notification::new();
+        options.wait_for_click(false);
+        let _ = mac_notification_sys::send_notification(&title, None, &body, Some(&options));
+    });
+}
+
 /// Check once, in the background, and tell the user if there is something newer.
 ///
 /// Deliberately not automatic: replacing a running menu-bar app under the user
 /// without asking is the kind of surprise this widget exists to avoid. The
 /// check only notifies; installing is a menu item.
+///
+/// Unlike [`check_and_install`], this stays quiet about everything else. Nobody
+/// asked for this check, so "you are up to date" and "the manifest was
+/// unreachable" are both noise — a widget that nags about its own update server
+/// is worse than one that quietly stays on the version you installed.
 pub fn check_on_launch(app: AppHandle) {
     if !is_configured(app.config().plugins.0.get("updater")) {
         return;
     }
     tauri::async_runtime::spawn(async move {
         let Ok(updater) = app.updater() else { return };
-        match updater.check().await {
-            Ok(Some(update)) => {
-                let version = update.version.clone();
-                // Sending blocks until the notification centre answers, so it
-                // gets a thread rather than a slot in the async runtime.
-                std::thread::spawn(move || {
-                    let mut options = mac_notification_sys::Notification::new();
-                    options.wait_for_click(false);
-                    let _ = mac_notification_sys::send_notification(
-                        "claude-buddy update available",
-                        None,
-                        &format!("version {version} — install it from the tray menu"),
-                        Some(&options),
-                    );
-                });
-            }
-            // No update, or no reachable manifest. Neither is worth surfacing:
-            // a widget that nags about its own update server is worse than one
-            // that quietly stays on the version you installed.
-            _ => {}
+        if let Ok(Some(update)) = updater.check().await {
+            tell(
+                &app,
+                "claude-buddy update available".to_string(),
+                format!(
+                    "version {} — install it from the menu bar",
+                    update.version.clone()
+                ),
+            );
         }
     });
 }
 
-/// Download and install, then restart.
-pub fn install(app: AppHandle) {
+/// Check, install if there is anything to install, then restart.
+///
+/// Every branch reports. This runs because the user chose "Check for updates…"
+/// from the menu, and a menu item that silently does nothing three times out of
+/// four — already current, unreachable manifest, failed download — is
+/// indistinguishable from a broken one. Being current is the *common* answer,
+/// so it is the one that most needs saying.
+pub fn check_and_install(app: AppHandle) {
     if !is_configured(app.config().plugins.0.get("updater")) {
         return;
     }
     tauri::async_runtime::spawn(async move {
-        let Ok(updater) = app.updater() else { return };
-        if let Ok(Some(update)) = updater.check().await {
-            if update.download_and_install(|_, _| {}, || {}).await.is_ok() {
-                app.restart();
+        let current = app.package_info().version.to_string();
+        let updater = match app.updater() {
+            Ok(updater) => updater,
+            Err(e) => return tell(&app, "Update check failed".into(), e.to_string()),
+        };
+
+        match updater.check().await {
+            Ok(Some(update)) => {
+                let version = update.version.clone();
+                // Before the download, not after: it can take a while on a slow
+                // connection, and the app restarts out from under the user when
+                // it succeeds. This is the only warning they get.
+                tell(
+                    &app,
+                    format!("Installing claude-buddy {version}"),
+                    "downloading — the widget will restart itself".into(),
+                );
+                match update.download_and_install(|_, _| {}, || {}).await {
+                    Ok(()) => app.restart(),
+                    Err(e) => tell(
+                        &app,
+                        format!("claude-buddy {version} could not be installed"),
+                        e.to_string(),
+                    ),
+                }
             }
+            Ok(None) => tell(
+                &app,
+                "claude-buddy is up to date".into(),
+                format!("version {current}"),
+            ),
+            Err(e) => tell(&app, "Update check failed".into(), e.to_string()),
         }
     });
 }

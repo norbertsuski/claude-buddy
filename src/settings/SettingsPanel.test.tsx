@@ -1,15 +1,29 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AppConfig } from '../types'
+import { CONFIG_EVENT, type AppConfig } from '../types'
 
 const invoke = vi.fn()
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }))
+
+/// Keeps the handlers the panel registers, so a test can push a settings
+/// change the way the tray menu does.
+const { listeners } = vi.hoisted(() => ({
+  listeners: new Map<string, (event: { payload: unknown }) => void>(),
+}))
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: async (name: string, handler: (event: { payload: unknown }) => void) => {
+    listeners.set(name, handler)
+    return () => listeners.delete(name)
+  },
+}))
 
 const { SettingsPanel } = await import('./SettingsPanel')
 
 const config: AppConfig = {
   hideWhen: 'noSessions',
+  hidden: false,
   alertNeedsInput: true,
   alertDied: true,
   alertFinished: false,
@@ -30,6 +44,7 @@ const displays = [
 
 describe('SettingsPanel', () => {
   beforeEach(() => {
+    listeners.clear()
     invoke.mockReset()
     invoke.mockImplementation((cmd: string) => {
       if (cmd === 'get_config') return Promise.resolve({ ...config })
@@ -180,6 +195,40 @@ describe('SettingsPanel', () => {
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith('set_config', {
         config: expect.objectContaining({ alertFinished: true }),
+      }),
+    )
+  })
+
+  it('follows a change made from the tray menu', async () => {
+    // The menu writes the same file. Without this the form would keep showing
+    // the old value and carry it back over the top on its next save.
+    render(<SettingsPanel onClose={vi.fn()} />)
+    const box = await screen.findByLabelText('Show background jobs and subagents')
+    expect(box).toBeChecked()
+
+    act(() => {
+      listeners.get(CONFIG_EVENT)?.({ payload: { ...config, showBackgroundJobs: false } })
+    })
+
+    expect(box).not.toBeChecked()
+  })
+
+  it('keeps hidden untouched when the form saves', async () => {
+    // Nothing in the form draws it, but `set_config` takes the whole object:
+    // dropping the field would put the widget back on screen the next time
+    // anyone changed a setting.
+    invoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_config') return Promise.resolve({ ...config, hidden: true })
+      if (cmd === 'list_displays') return Promise.resolve(displays)
+      return Promise.resolve()
+    })
+    render(<SettingsPanel onClose={vi.fn()} />)
+
+    await userEvent.click(await screen.findByLabelText('Launch at login'))
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('set_config', {
+        config: expect.objectContaining({ hidden: true }),
       }),
     )
   })

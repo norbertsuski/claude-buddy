@@ -82,6 +82,15 @@ export interface AppConfig {
   showUsage: boolean
   /** When the widget takes itself off screen; mirrors visibility::HIDE_MODES. */
   hideWhen: string
+  /**
+   * Put away from the tray menu's "Hide widget", which outranks `hideWhen`.
+   *
+   * Nothing in the form touches this, but it has to be carried: `set_config`
+   * takes the whole object, so a field missing here is a field written back as
+   * its default — and the widget would reappear the next time anyone changed a
+   * setting.
+   */
+  hidden: boolean
   /** `free` to float where dragged, `notch` to flank the notch in the menu bar. */
   placement: string
   /** Display key to show the widget on, or null for the primary display. */

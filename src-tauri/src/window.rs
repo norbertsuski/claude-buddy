@@ -1,5 +1,3 @@
-use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
-use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 use tauri::{
     AppHandle, LogicalPosition, LogicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
@@ -55,53 +53,6 @@ pub fn configure_panel(window: &WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
-/// With `LSUIElement` there is no Dock icon and no app-switcher entry, so this
-/// menu is the only route to quitting. It ships in v1, not later.
-pub fn build_tray_menu(app: &AppHandle) -> tauri::Result<()> {
-    let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
-    let mute = MenuItem::with_id(app, "mute", "Mute alerts 1h", true, None::<&str>)?;
-    let update = MenuItem::with_id(app, "update", "Install update", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit claude-buddy", true, None::<&str>)?;
-    let separator = PredefinedMenuItem::separator(app)?;
-
-    // Omitted rather than greyed out when there is no signing key. With the
-    // updater plugin unregistered there is nothing behind this item: clicking it
-    // reached for plugin state that was never managed, which does not even fail
-    // quietly — it panics on the spawned task, so the click looked like it did
-    // nothing at all. Anyone who has configured a key gets the item back.
-    let mut items: Vec<&dyn IsMenuItem<_>> = vec![&settings, &mute];
-    if crate::update::is_configured(app.config().plugins.0.get("updater")) {
-        items.push(&update);
-    }
-    items.push(&separator);
-    items.push(&quit);
-
-    let menu = Menu::with_items(app, &items)?;
-
-    TrayIconBuilder::with_id("widget-menu")
-        // A tray icon without an image fails to build on macOS.
-        .icon(app.default_window_icon().cloned().ok_or_else(|| {
-            tauri::Error::Anyhow(anyhow::anyhow!("no default window icon in the bundle"))
-        })?)
-        .menu(&menu)
-        .show_menu_on_left_click(true)
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "quit" => app.exit(0),
-            "mute" => {
-                let path = crate::config::config_path();
-                let mut settings = crate::config::load(&path);
-                settings.mute_until_ms = crate::watcher::watch::now_ms() + 60 * 60 * 1000;
-                let _ = crate::config::save(&path, &settings);
-            }
-            "settings" => open_settings(app),
-            "update" => crate::update::install(app.clone()),
-            _ => {}
-        })
-        .build(app)?;
-
-    Ok(())
-}
-
 /// Put the widget on or off screen.
 ///
 /// `order_out` rather than closing: the panel keeps its configuration, its
@@ -122,6 +73,22 @@ pub fn set_widget_visible(app: &AppHandle, visible: bool) {
     } else if panel.is_visible() {
         panel.order_out(None);
     }
+}
+
+/// Re-decide whether the widget belongs on screen, and act on it.
+///
+/// The watcher does this after every snapshot, but a tray toggle changes the
+/// answer with no session having moved, and the watcher only calls back when
+/// something actually changed — on a quiet machine, not for hours. Reads the
+/// sessions from the store rather than taking them as an argument so both
+/// callers ask the same question of the same state.
+///
+/// Main thread only: panel calls are AppKit calls.
+pub fn apply_visibility(app: &AppHandle) {
+    let config = crate::config::cached();
+    let sessions = app.state::<crate::watcher::watch::SnapshotStore>().get();
+    let hide = crate::visibility::should_hide(&sessions, &config.hide_when, config.hidden);
+    set_widget_visible(app, !hide);
 }
 
 /// Open the settings window, or focus it if it is already open.

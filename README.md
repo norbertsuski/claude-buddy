@@ -137,16 +137,20 @@ The frontend hot-reloads; Rust changes trigger a rebuild. [CONTRIBUTING.md](CONT
 
 There is **no Dock icon and no Cmd-Tab entry** — it is a menu-bar app. The tray icon is the only way in and the only way out:
 
+- **Hide widget** — a tick, not a policy: takes the widget off screen and keeps it there while sessions come and go. It outranks *Hide the widget* in Settings, including **Never**. For a screen share, a recording, or the ten minutes you want the corner of your display back.
+- **Mute alerts** — a submenu: **For 1 hour**, **For 8 hours**, or **Until I unmute**. While a mute is running the item reads *Alerts muted* and **Unmute now** inside it becomes clickable; it is greyed out the rest of the time, so the menu answers "am I muted" without your having to remember.
+- **Show background jobs** — the same tick as the Settings checkbox, where you need it: one run spawning six subagents is the moment you want them out of the row, and that moment does not wait for a settings window.
 - **Settings…** — opens a normal window: when to hide the widget, which display to use, whether to sit in the notch, the sound and its three alert events, the 5h limit, background jobs, launch at login
-- **Mute alerts 1h**
-- **Install update** — installs a newer release if one is available and the updater is configured; otherwise it does nothing
+- **Check for updates…** — asks, then says what it found either way: up to date, downloading, or why it could not. Present only when the updater has a signing key configured; see [Signing updates](#signing-updates).
 - **Quit claude-buddy**
+
+The three toggles and the form write the same file, so a change made in either place shows up in the other immediately.
 
 It starts at the top centre of the primary display. Pick a different screen under Settings → *Show on display*, or drag the pill anywhere; positions are remembered per display, so docking and undocking a monitor puts it back where you left it rather than off-screen.
 
 The widget floats above fullscreen apps and follows you across Spaces, and clicking it never takes focus from your editor.
 
-Settings → *Hide the widget* takes it off screen when there is nothing to watch: **Never**, **When there are no sessions** (the default), or **When nothing is waiting or working**. The tray icon stays either way, so a hidden widget is never unreachable.
+Settings → *Hide the widget* takes it off screen when there is nothing to watch: **Never**, **When there are no sessions** (the default), or **When nothing is waiting or working**. The tray menu's **Hide widget** is the manual version and beats all three — a session waking up will not bring the widget back while it is ticked. The tray icon stays either way, so a hidden widget is never unreachable.
 
 ### Alerts
 
@@ -181,12 +185,13 @@ Clicking any notification raises that session's window, the same as clicking its
   "showBackgroundJobs": true,
   "showUsage": true,
   "hideWhen": "noSessions",
+  "hidden": false,
   "preferredDisplay": null,
   "positions": {}
 }
 ```
 
-`hideWhen` is one of `never`, `noSessions` or `nothingActive`; anything else falls back to showing the widget. `placement` is `free` or `notch`; anything else reads as `free`, deliberately, since a hand-edited typo must not strand the widget in a placement it cannot be dragged out of. `viewMode` is vestigial — the view modes are gone, and the field is still parsed only so an existing config file keeps loading.
+`hideWhen` is one of `never`, `noSessions` or `nothingActive`; anything else falls back to showing the widget. `hidden` is the tray menu's **Hide widget** and is checked before `hideWhen` is even consulted, so `true` here hides the widget whatever the mode says — set it back to `false`, or untick the menu item, to get it back. `muteUntilMs` is epoch milliseconds; the menu writes an hour or eight hours ahead for a timed mute, and `9223372036854775807` for *Until I unmute*. `placement` is `free` or `notch`; anything else reads as `free`, deliberately, since a hand-edited typo must not strand the widget in a placement it cannot be dragged out of. `viewMode` is vestigial — the view modes are gone, and the field is still parsed only so an existing config file keeps loading.
 
 A corrupt or half-written file falls back to defaults rather than refusing to start.
 
@@ -272,7 +277,7 @@ If you ever need to publish without the workflow, build locally and run `GITHUB_
 ### Signing updates
 
 The app checks for a newer release on launch and only tells you about it;
-*Install update* in the tray menu does the install. The updater refuses
+*Check for updates…* in the tray menu does the install. The updater refuses
 anything it cannot verify, so a release needs a minisign keypair. This is
 separate from Apple code signing — it secures the update channel, not
 Gatekeeper.
@@ -294,9 +299,9 @@ this project's newest release — a URL that stays the same as versions come and
 go — so it needs no editing.
 
 **No key is committed, so as shipped the updater is switched off**: with an
-empty `pubkey` the plugin is never registered, so the launch check and the
-tray item both return without making any network call, and the app stays on
-the version you installed.
+empty `pubkey` the plugin is never registered, so the launch check returns
+without making any network call, the tray item is left out of the menu
+entirely, and the app stays on the version you installed.
 
 That keylessness is also why `bundle.createUpdaterArtifacts` is `false` here.
 `tauri build` refuses to bundle an update tarball for a public key it cannot

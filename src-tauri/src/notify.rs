@@ -72,7 +72,7 @@ pub fn alert_text(alert: &Alert) -> (String, String) {
 /// Under `tauri dev` the binary is not inside a bundle, so there is no
 /// identifier to register; borrowing Terminal's is what the Tauri notification
 /// plugin did and it keeps notifications working in development.
-fn ensure_application(identifier: &str) {
+pub fn ensure_application(identifier: &str) {
     APPLICATION.call_once(|| {
         let id = if tauri::is_dev() {
             "com.apple.Terminal"

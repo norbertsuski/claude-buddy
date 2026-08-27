@@ -5,6 +5,7 @@ pub mod config;
 pub mod cursor;
 pub mod notch;
 pub mod notify;
+pub mod tray;
 pub mod update;
 pub mod usage;
 pub mod usage_api;
@@ -76,7 +77,7 @@ pub fn run() {
             crate::notch::spawn_geometry_watcher(app.handle().clone());
 
             window::restore_position(&widget);
-            window::build_tray_menu(app.handle())?;
+            tray::build(app.handle())?;
 
             // After the settings migration and before anything can save over
             // it: the rename moved the LaunchAgent's name, so an upgrading
@@ -120,15 +121,13 @@ pub fn run() {
                         .set(update.sessions.clone());
                     crate::notify::deliver(&handle, &update.alerts);
 
-                    let hide = crate::visibility::should_hide(
-                        &update.sessions,
-                        &crate::config::cached().hide_when,
-                    );
                     let visibility_handle = handle.clone();
                     // Panel calls must run on the main thread; the watcher is
-                    // its own thread.
+                    // its own thread. The decision is made there too, against
+                    // the store the line above has just written, so the tray's
+                    // "Hide widget" and this path cannot disagree.
                     let _ = handle.run_on_main_thread(move || {
-                        crate::window::set_widget_visible(&visibility_handle, !hide);
+                        crate::window::apply_visibility(&visibility_handle);
                     });
 
                     let _ = handle.emit(UPDATE_EVENT, &update);
