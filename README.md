@@ -143,7 +143,7 @@ There is **no Dock icon and no Cmd-Tab entry** — it is a menu-bar app. The tra
 - **Show background jobs** — the same tick as the Settings checkbox, where you need it: one run spawning six subagents is the moment you want them out of the row, and that moment does not wait for a settings window.
 - **Settings…** — opens a normal window: when to hide the widget, which display to use, whether to sit in the notch, the sound and its three alert events, the 5h limit, background jobs, launch at login
 - **About claude-buddy** — the standard macOS panel: icon, name, the version you are running, author, licence. With no Dock icon and no app menu there is nowhere else the app says which version it is.
-- **Check for updates…** — asks, then says what it found either way: up to date, downloading, or why it could not. Once a check has found something newer the item renames itself to **Install update 0.7.0…**, naming the version, so the menu stops offering to check for what it has already found. Present only when the updater has a signing key configured; see [Signing updates](#signing-updates).
+- **Check for updates…** — asks, then says what it found either way: up to date, downloading, or why it could not. Once a check has found something newer the item renames itself to **Install update 0.8.0…**, naming the version, so the menu stops offering to check for what it has already found. Present only when the updater has a signing key configured; see [Signing updates](#signing-updates).
 - **Quit claude-buddy**
 
 The toggles and the form write the same file, so a change made in either place shows up in the other immediately.
