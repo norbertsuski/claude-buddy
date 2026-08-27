@@ -4,13 +4,16 @@
 //! menu is the only route to quitting — and the only place the widget can be
 //! reached from once it has hidden itself.
 //!
-//! The items here are the settings worth reaching without opening a window:
+//! The middle group is the settings worth reaching without opening a window:
 //! ones toggled in the middle of doing something else. Putting the widget away
-//! for a screen share, silencing alerts for a meeting, and dropping subagent
-//! noise while one run spawns six of them are all decisions made *while* the
-//! thing is happening. Everything set once and forgotten — placement, display,
-//! launch at login, which events raise an alert — stays in Settings, where a
-//! longer list costs nothing.
+//! for a screen share, holding the display on for a long run, silencing alerts
+//! for a meeting, and dropping subagent noise while one run spawns six of them
+//! are all decisions made *while* the thing is happening. Everything set once
+//! and forgotten — placement, display, launch at login, which events raise an
+//! alert — stays in Settings, where a longer list costs nothing.
+//!
+//! Above them sits what the app *is* — its identity and its version — where a
+//! Mac app menu would put them, and below them the two ways out.
 
 use tauri::menu::{
     CheckMenuItem, IsMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
@@ -146,26 +149,38 @@ fn menu_for(app: &AppHandle, config: &Config) -> tauri::Result<Menu<Wry>> {
         None::<&str>,
     )?;
     let quit = MenuItem::with_id(app, "quit", "Quit claude-buddy", true, None::<&str>)?;
-    let separator = PredefinedMenuItem::separator(app)?;
+    // Two, not one reused twice: a separator is a real `NSMenuItem`, and the
+    // same instance cannot occupy two positions in one menu.
+    let first_separator = PredefinedMenuItem::separator(app)?;
+    let second_separator = PredefinedMenuItem::separator(app)?;
 
+    // Three groups: what this app *is*, what to change about it right now, and
+    // the two ways out. The mid-task toggles are the middle group because they
+    // are what the menu is opened for; identity and version sit above them
+    // where a Mac app menu would put them.
+    let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![&about];
     // Omitted rather than greyed out when there is no signing key. With the
     // updater plugin unregistered there is nothing behind this item: clicking
     // it reached for plugin state that was never managed, which does not even
     // fail quietly — it panics on the spawned task, so the click looked like it
     // did nothing at all. Anyone who has configured a key gets the item back.
-    let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![
-        &hide,
-        &keep_awake,
-        &mute,
-        &background,
-        &separator,
-        &settings,
-        &about,
-    ];
+    //
+    // Its absence leaves About alone above the first separator, which is a
+    // group of one rather than an empty one — so no separator has to be made
+    // conditional on it.
     if crate::update::is_configured(app.config().plugins.0.get("updater")) {
         items.push(&update);
     }
-    items.push(&quit);
+    items.extend([
+        &first_separator as &dyn IsMenuItem<Wry>,
+        &hide,
+        &keep_awake,
+        &background,
+        &mute,
+        &second_separator,
+        &settings,
+        &quit,
+    ]);
 
     Menu::with_items(app, &items)
 }

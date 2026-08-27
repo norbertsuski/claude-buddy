@@ -5,6 +5,16 @@ section out of this file, and the release workflow uses it as the body of the
 GitHub release and as the notes in the in-app update dialog — so a section that
 is missing here leaves that tag with nothing but the download boilerplate.
 
+## Unreleased
+
+- **The tray menu is in three groups.** What the app is — *About* and the
+  update item — sits at the top, where a Mac app menu would put it. The
+  mid-task toggles are in the middle, which is what the menu is opened for,
+  with *Show background jobs* beside the other ticks and *Mute alerts* last
+  since it is the one submenu among them. *Settings…* and *Quit* are together
+  at the bottom. Previously the toggles led and the identity items were mixed
+  in with *Settings…*.
+
 ## v0.7.0 — 2026-08-27
 
 - **Keep screen awake while agents work** in the tray menu. A tick that holds
