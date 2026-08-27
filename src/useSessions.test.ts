@@ -135,4 +135,23 @@ describe('useSessions initial fetch', () => {
     emit({ sessions: [session('a', 'busy')], alerts: [], usage: null })
     expect(result.current.sessions).toHaveLength(1)
   })
+
+  it('starts with no alerts', () => {
+    const { result } = renderHook(() => useSessions())
+    expect(result.current.alerts).toEqual([])
+  })
+
+  it('exposes the alerts that arrive with an update', () => {
+    const { result } = renderHook(() => useSessions())
+
+    emit({
+      sessions: [],
+      usage: null,
+      alerts: [{ sessionId: 'a', name: 'api', kind: 'died', detail: null }],
+    })
+
+    expect(result.current.alerts).toEqual([
+      { sessionId: 'a', name: 'api', kind: 'died', detail: null },
+    ])
+  })
 })

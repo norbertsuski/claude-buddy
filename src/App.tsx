@@ -29,7 +29,7 @@ export function App() {
 }
 
 function WidgetView() {
-  const { sessions, usage } = useSessions()
+  const { sessions, usage, alerts } = useSessions()
   const config = useConfig()
 
   // Placement is the one setting that cannot be guessed while the read is in
@@ -53,6 +53,8 @@ function WidgetView() {
       // Gated here rather than inside the row: "turned off" and "nothing worth
       // showing" render identically, so the row needs only the one case.
       usage={config.showUsage === false ? null : usage}
+      alerts={alerts}
+      crazy={config.crazy}
     />
   )
 }

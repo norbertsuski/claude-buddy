@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { UPDATE_EVENT, type SessionSnapshot, type Update, type Usage } from './types'
+import {
+  UPDATE_EVENT,
+  type Alert,
+  type SessionSnapshot,
+  type Update,
+  type Usage,
+} from './types'
 
 /**
  * Subscribe to watcher updates.
@@ -15,9 +21,18 @@ import { UPDATE_EVENT, type SessionSnapshot, type Update, type Usage } from './t
  * loaded, and it only re-emits when state actually changes — so a subscription
  * alone can leave the widget empty indefinitely while sessions are running.
  */
-export function useSessions(): { sessions: SessionSnapshot[]; usage: Usage | null; ready: boolean } {
+export function useSessions(): {
+  sessions: SessionSnapshot[]
+  usage: Usage | null
+  alerts: Alert[]
+  ready: boolean
+} {
   const [sessions, setSessions] = useState<SessionSnapshot[]>([])
   const [usage, setUsage] = useState<Usage | null>(null)
+  // Alerts describe the moment a session changed, not its current state, so
+  // they are only ever set from a pushed update — there is no snapshot command
+  // that could hand back a transition which has already happened.
+  const [alerts, setAlerts] = useState<Alert[]>([])
   const [ready, setReady] = useState(false)
   // A late-resolving initial fetch must not clobber a newer pushed update.
   const gotEvent = useRef(false)
@@ -30,6 +45,7 @@ export function useSessions(): { sessions: SessionSnapshot[]; usage: Usage | nul
       gotEvent.current = true
       setSessions(event.payload.sessions)
       setUsage(event.payload.usage)
+      setAlerts(event.payload.alerts ?? [])
       setReady(true)
     }).then((unlisten) => {
       if (disposed) unlisten()
@@ -65,5 +81,5 @@ export function useSessions(): { sessions: SessionSnapshot[]; usage: Usage | nul
     }
   }, [])
 
-  return { sessions, usage, ready }
+  return { sessions, usage, alerts, ready }
 }
