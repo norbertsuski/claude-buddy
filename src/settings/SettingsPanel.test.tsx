@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CONFIG_EVENT, CRAZY_LEVELS, type AppConfig } from '../types'
+import { CONFIG_EVENT, type AppConfig } from '../types'
 
 const invoke = vi.fn()
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }))
@@ -73,7 +73,7 @@ describe('SettingsPanel', () => {
     // resolving with nothing at all has to read the same way.
     render(<SettingsPanel onClose={vi.fn()} />)
     await waitFor(() => expect(screen.getByTestId('placement-notch')).toBeDisabled())
-    expect(screen.getByText(/needs a MacBook with a notch/)).toBeInTheDocument()
+    expect(screen.getByText(/Needs a MacBook with a notch/)).toBeInTheDocument()
   })
 
   it('ignores the display picker under notch placement', async () => {
@@ -186,19 +186,37 @@ describe('SettingsPanel', () => {
     )
   })
 
-  it('offers every crazy level and saves the chosen one', async () => {
+  it('turns crazy mode on and off', async () => {
     render(<SettingsPanel onClose={vi.fn()} />)
-    const select = await screen.findByLabelText('Crazy mode')
+    const box = await screen.findByLabelText('Crazy mode')
+    expect(box).not.toBeChecked()
 
-    expect([...select.querySelectorAll('option')].map((o) => o.textContent)).toEqual(
-      CRAZY_LEVELS.map((level) => level.label),
-    )
+    await userEvent.click(box)
 
-    await userEvent.selectOptions(select, 'ember')
-
+    // A checkbox over a string field: the levels stay open for `blaze` and
+    // `inferno` without anyone's settings file needing to change.
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith('set_config', {
         config: expect.objectContaining({ crazy: 'ember' }),
+      }),
+    )
+  })
+
+  it('reads any level other than off as on', async () => {
+    invoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_config') return Promise.resolve({ ...config, crazy: 'ember' })
+      if (cmd === 'list_displays') return Promise.resolve(displays)
+      return Promise.resolve()
+    })
+    render(<SettingsPanel onClose={vi.fn()} />)
+    const box = await screen.findByLabelText('Crazy mode')
+    expect(box).toBeChecked()
+
+    await userEvent.click(box)
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('set_config', {
+        config: expect.objectContaining({ crazy: 'off' }),
       }),
     )
   })
