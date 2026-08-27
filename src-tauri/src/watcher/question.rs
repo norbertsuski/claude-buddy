@@ -48,11 +48,14 @@ pub struct FakeQuestion {
 
 impl FakeQuestion {
     pub fn new() -> Self {
-        Self { answers: HashMap::new() }
+        Self {
+            answers: HashMap::new(),
+        }
     }
 
     pub fn with(mut self, session_id: &str, question: &str) -> Self {
-        self.answers.insert(session_id.to_string(), question.to_string());
+        self.answers
+            .insert(session_id.to_string(), question.to_string());
         self
     }
 }
@@ -137,7 +140,10 @@ mod tests {
 
         enrich_alerts(&mut alerts, &[session("a")], &probe);
 
-        assert_eq!(alerts[0].detail.as_deref(), Some("Shall I delete the branch?"));
+        assert_eq!(
+            alerts[0].detail.as_deref(),
+            Some("Shall I delete the branch?")
+        );
     }
 
     #[test]

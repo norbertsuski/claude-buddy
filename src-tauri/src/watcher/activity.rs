@@ -50,7 +50,9 @@ pub struct FakeActivity {
 
 impl FakeActivity {
     pub fn new() -> Self {
-        Self { times: HashMap::new() }
+        Self {
+            times: HashMap::new(),
+        }
     }
 
     pub fn with(mut self, session_id: &str, at_ms: i64) -> Self {

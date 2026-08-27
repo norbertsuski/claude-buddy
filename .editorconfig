@@ -1,0 +1,64 @@
+# Editor settings for this repo, so a contributor's editor does not silently
+# fight the formatting the CI pipeline checks.
+#
+# Nothing here is a new convention. Every value below was read off the files
+# that are already committed — two spaces on the frontend, four in Rust — so
+# opening the project in an editor that honours this file changes nothing about
+# how the existing code looks. See https://editorconfig.org for the format and
+# for which editors need a plugin (VS Code and Zed do; JetBrains and Vim's
+# common distributions do not).
+#
+# This is advisory: the enforcing gates are `cargo fmt --check` for Rust and
+# `tsc --noEmit` for TypeScript. There is no formatter check on the frontend
+# yet, so the two-space rule here is the only thing keeping a stray tab out.
+
+root = true
+
+[*]
+charset = utf-8
+# LF everywhere. The app is macOS-only and CI is Linux, so CRLF would only ever
+# arrive from a Windows editor and would show up as a whole-file diff.
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# The Rust half is formatted by rustfmt, which is fixed at four spaces. These
+# two keys just stop an editor from typing two and having `cargo fmt --check`
+# reject it later; the real rule lives in src-tauri/rustfmt.toml.
+[*.rs]
+indent_size = 4
+max_line_length = 100
+
+# The frontend: React components, plain modules, their tests and the stylesheets
+# beside them. All two-space, which is what the committed sources use.
+[*.{ts,tsx,js,jsx,css,html}]
+indent_size = 2
+
+# package.json, tsconfig.json, tauri.conf.json and the capability files.
+# package-lock.json is npm's to write and is left out of nothing — npm emits two
+# spaces itself, so it agrees anyway.
+[*.json]
+indent_size = 2
+
+# .gitlab-ci.yml. YAML cannot be indented with tabs at all, so indent_style
+# matters more here than the width does.
+[*.{yml,yaml}]
+indent_size = 2
+
+# Cargo.toml, tauri's own toml, rustfmt.toml.
+[*.toml]
+indent_size = 2
+
+# The release and packaging scripts under scripts/, which use two spaces inside
+# `if` and `for` bodies.
+[*.sh]
+indent_size = 2
+
+# README.md and CHANGELOG.md are long-form prose with no wrap column, and a line
+# ending in two spaces is Markdown's hard line break — stripping it would silently
+# rejoin paragraphs, so trailing whitespace is left alone here.
+[*.md]
+indent_size = 2
+trim_trailing_whitespace = false

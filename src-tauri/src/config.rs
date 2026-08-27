@@ -271,5 +271,4 @@ mod tests {
         }
         assert!(PLACEMENTS.contains(&"free") && PLACEMENTS.contains(&"notch"));
     }
-
 }

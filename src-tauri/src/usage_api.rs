@@ -140,7 +140,10 @@ fn fetch(now_ms: i64) -> Option<Usage> {
 /// a token whose expiry has passed is skipped rather than refreshed: see the
 /// module docs.
 fn token() -> Option<String> {
-    if let Some(token) = std::env::var(TOKEN_ENV).ok().filter(|t| !t.trim().is_empty()) {
+    if let Some(token) = std::env::var(TOKEN_ENV)
+        .ok()
+        .filter(|t| !t.trim().is_empty())
+    {
         return Some(token);
     }
     if let Some(token) = credentials_file().and_then(|bytes| token_from_json(&bytes)) {
@@ -246,8 +249,14 @@ mod tests {
         assert_eq!(token_from_json(b"not json"), None);
         assert_eq!(token_from_json(b"{}"), None);
         assert_eq!(token_from_json(br#"{"claudeAiOauth":{}}"#), None);
-        assert_eq!(token_from_json(br#"{"claudeAiOauth":{"accessToken":""}}"#), None);
-        assert_eq!(token_from_json(br#"{"claudeAiOauth":{"accessToken":7}}"#), None);
+        assert_eq!(
+            token_from_json(br#"{"claudeAiOauth":{"accessToken":""}}"#),
+            None
+        );
+        assert_eq!(
+            token_from_json(br#"{"claudeAiOauth":{"accessToken":7}}"#),
+            None
+        );
     }
 
     #[test]
@@ -262,4 +271,3 @@ mod tests {
         assert_eq!(usage.percent, 42);
     }
 }
-

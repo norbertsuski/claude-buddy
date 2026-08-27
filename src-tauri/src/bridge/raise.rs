@@ -80,11 +80,17 @@ pub struct RecordingActivator {
 
 impl RecordingActivator {
     pub fn new() -> Self {
-        Self { calls: Mutex::new(Vec::new()), fail: false }
+        Self {
+            calls: Mutex::new(Vec::new()),
+            fail: false,
+        }
     }
 
     pub fn failing() -> Self {
-        Self { calls: Mutex::new(Vec::new()), fail: true }
+        Self {
+            calls: Mutex::new(Vec::new()),
+            fail: true,
+        }
     }
 
     pub fn calls(&self) -> Vec<String> {
@@ -130,7 +136,12 @@ mod tests {
     fn activates_the_bundle_identifier_of_the_host_application() {
         let activator = RecordingActivator::new();
 
-        let outcome = raise(&cursor_tree(), &activator, &resolver("com.todesktop.cursor"), 7952);
+        let outcome = raise(
+            &cursor_tree(),
+            &activator,
+            &resolver("com.todesktop.cursor"),
+            7952,
+        );
 
         assert_eq!(outcome.as_deref(), Ok("com.todesktop.cursor"));
         assert_eq!(activator.calls(), vec!["com.todesktop.cursor".to_string()]);
@@ -163,7 +174,12 @@ mod tests {
     fn propagates_an_activation_failure() {
         let activator = RecordingActivator::failing();
 
-        let outcome = raise(&cursor_tree(), &activator, &resolver("com.todesktop.cursor"), 7952);
+        let outcome = raise(
+            &cursor_tree(),
+            &activator,
+            &resolver("com.todesktop.cursor"),
+            7952,
+        );
 
         assert!(outcome.unwrap_err().contains("activation refused"));
     }

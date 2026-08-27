@@ -57,14 +57,23 @@ mod tests {
     fn nothing_active_hides_a_quiet_list() {
         assert!(should_hide(&[], "nothingActive"));
         assert!(should_hide(&[session(SessionState::Idle)], "nothingActive"));
-        assert!(should_hide(&[session(SessionState::Paused)], "nothingActive"));
+        assert!(should_hide(
+            &[session(SessionState::Paused)],
+            "nothingActive"
+        ));
         assert!(should_hide(&[session(SessionState::Dead)], "nothingActive"));
     }
 
     #[test]
     fn nothing_active_shows_for_waiting_or_busy() {
-        assert!(!should_hide(&[session(SessionState::Waiting)], "nothingActive"));
-        assert!(!should_hide(&[session(SessionState::Busy)], "nothingActive"));
+        assert!(!should_hide(
+            &[session(SessionState::Waiting)],
+            "nothingActive"
+        ));
+        assert!(!should_hide(
+            &[session(SessionState::Busy)],
+            "nothingActive"
+        ));
     }
 
     #[test]

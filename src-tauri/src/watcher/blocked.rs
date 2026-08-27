@@ -28,7 +28,10 @@ pub struct TranscriptBlocked {
 
 impl TranscriptBlocked {
     pub fn new(projects_dir: PathBuf) -> Self {
-        Self { projects_dir, cache: Mutex::new(HashMap::new()) }
+        Self {
+            projects_dir,
+            cache: Mutex::new(HashMap::new()),
+        }
     }
 
     fn modified_ms(path: &std::path::Path) -> Option<i64> {
@@ -86,11 +89,14 @@ pub struct FakeBlocked {
 
 impl FakeBlocked {
     pub fn new() -> Self {
-        Self { prompts: HashMap::new() }
+        Self {
+            prompts: HashMap::new(),
+        }
     }
 
     pub fn with(mut self, session_id: &str, label: &str) -> Self {
-        self.prompts.insert(session_id.to_string(), label.to_string());
+        self.prompts
+            .insert(session_id.to_string(), label.to_string());
         self
     }
 }
@@ -130,8 +136,8 @@ mod tests {
 
     impl Fixture {
         fn new(tag: &str, body: &str) -> Self {
-            let root = std::env::temp_dir()
-                .join(format!("cb-blocked-{}-{tag}", std::process::id()));
+            let root =
+                std::env::temp_dir().join(format!("cb-blocked-{}-{tag}", std::process::id()));
             let _ = std::fs::remove_dir_all(&root);
             let dir = root.join("-Users-n-Code-proj");
             std::fs::create_dir_all(&dir).unwrap();
@@ -149,7 +155,10 @@ mod tests {
         }
 
         fn mtime(&self) -> std::time::SystemTime {
-            std::fs::metadata(&self.transcript).unwrap().modified().unwrap()
+            std::fs::metadata(&self.transcript)
+                .unwrap()
+                .modified()
+                .unwrap()
         }
 
         /// Rewrite the body while pinning mtime, so a re-read would be visible
@@ -191,7 +200,10 @@ mod tests {
     fn a_missing_transcript_reports_nothing() {
         let fixture = Fixture::new("missing", PENDING);
         let probe = fixture.probe();
-        assert_eq!(probe.pending_prompt("/Users/n/Code/proj", "no-such-session"), None);
+        assert_eq!(
+            probe.pending_prompt("/Users/n/Code/proj", "no-such-session"),
+            None
+        );
     }
 
     #[test]
@@ -233,13 +245,19 @@ mod tests {
 
     #[test]
     fn nothing_is_reported_by_the_null_probe() {
-        assert_eq!(NoBlocked.pending_prompt("/Users/n/Code/proj", "session-1"), None);
+        assert_eq!(
+            NoBlocked.pending_prompt("/Users/n/Code/proj", "session-1"),
+            None
+        );
     }
 
     #[test]
     fn the_fake_answers_only_for_the_session_it_was_given() {
         let probe = FakeBlocked::new().with("a", "question pending");
-        assert_eq!(probe.pending_prompt("/x", "a").as_deref(), Some("question pending"));
+        assert_eq!(
+            probe.pending_prompt("/x", "a").as_deref(),
+            Some("question pending")
+        );
         assert_eq!(probe.pending_prompt("/x", "b"), None);
     }
 }

@@ -106,7 +106,9 @@ pub struct FakeProcTree {
 
 impl FakeProcTree {
     pub fn new() -> Self {
-        Self { entries: HashMap::new() }
+        Self {
+            entries: HashMap::new(),
+        }
     }
 
     pub fn with(mut self, pid: i32, ppid: i32, exe: &str) -> Self {
@@ -139,7 +141,11 @@ mod tests {
     /// terminal, captured with `ps -o pid=,ppid=,comm=`.
     fn cursor_tree() -> FakeProcTree {
         FakeProcTree::new()
-            .with(7952, 7951, "/Users/n/.volta/tools/image/packages/@anthropic-ai/claude-code/bin/claude")
+            .with(
+                7952,
+                7951,
+                "/Users/n/.volta/tools/image/packages/@anthropic-ai/claude-code/bin/claude",
+            )
             .with(7951, 7447, "claude")
             .with(7447, 6323, "/bin/zsh")
             .with(6323, 5524, "Cursor Helper: terminal pty-host")
@@ -187,13 +193,17 @@ mod tests {
 
     #[test]
     fn a_parent_cycle_terminates_instead_of_looping() {
-        let tree = FakeProcTree::new().with(10, 11, "/bin/a").with(11, 10, "/bin/b");
+        let tree = FakeProcTree::new()
+            .with(10, 11, "/bin/a")
+            .with(11, 10, "/bin/b");
         assert_eq!(find_app_bundle(&tree, 10), None);
     }
 
     #[test]
     fn reaching_pid_one_terminates() {
-        let tree = FakeProcTree::new().with(2, 1, "/bin/zsh").with(1, 1, "/sbin/launchd");
+        let tree = FakeProcTree::new()
+            .with(2, 1, "/bin/zsh")
+            .with(1, 1, "/sbin/launchd");
         assert_eq!(find_app_bundle(&tree, 2), None);
     }
 
@@ -210,7 +220,10 @@ mod tests {
         // "Cursor Helper: terminal pty-host" would break naive whitespace splitting.
         let tree = PsProcTree::parse("  6323  5524 Cursor Helper: terminal pty-host\n");
         assert_eq!(tree.parent(6323), Some(5524));
-        assert_eq!(tree.exe(6323).as_deref(), Some("Cursor Helper: terminal pty-host"));
+        assert_eq!(
+            tree.exe(6323).as_deref(),
+            Some("Cursor Helper: terminal pty-host")
+        );
     }
 
     #[test]
@@ -234,7 +247,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(bundle_identifier(&bundle).as_deref(), Some("com.example.thing"));
+        assert_eq!(
+            bundle_identifier(&bundle).as_deref(),
+            Some("com.example.thing")
+        );
         std::fs::remove_dir_all(&bundle).unwrap();
     }
 

@@ -150,7 +150,12 @@ pub fn flank_rects(geo: &NotchGeometry, budget: f64) -> (Rect, Rect) {
         width: budget,
         height: geo.bar_height,
     };
-    let right = Rect { x: notch_right, y: 0.0, width: budget, height: geo.bar_height };
+    let right = Rect {
+        x: notch_right,
+        y: 0.0,
+        width: budget,
+        height: geo.bar_height,
+    };
     (left, right)
 }
 
@@ -161,7 +166,10 @@ pub fn flank_rects(geo: &NotchGeometry, budget: f64) -> (Rect, Rect) {
 /// two languages, and the centring is the part that would be wrong.
 pub fn notch_edges(geo: &NotchGeometry, budget: f64) -> (f64, f64) {
     let centre = half_width(geo, budget);
-    (centre - geo.notch_width / 2.0, centre + geo.notch_width / 2.0)
+    (
+        centre - geo.notch_width / 2.0,
+        centre + geo.notch_width / 2.0,
+    )
 }
 
 /// The notched display, or `None` when there is not one.
@@ -286,7 +294,9 @@ pub const NOTCH_EVENT: &str = "notch://layout";
 ///
 /// Emits only on change, so an unchanging setup costs one `NSScreen` read per
 /// tick and nothing downstream.
-pub fn spawn_geometry_watcher(app: tauri::AppHandle) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+pub fn spawn_geometry_watcher(
+    app: tauri::AppHandle,
+) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     let stop = std::sync::Arc::new(AtomicBool::new(false));
@@ -361,7 +371,10 @@ mod tests {
         // from the notch's centre than half the slab does.
         assert_eq!(
             size,
-            ((geo.notch_width / 2.0 + FLANK_BUDGET) * 2.0, geo.bar_height + 400.0)
+            (
+                (geo.notch_width / 2.0 + FLANK_BUDGET) * 2.0,
+                geo.bar_height + 400.0
+            )
         );
         assert!(size.0 >= slab_width(&geo));
         // Centred on the notch centre, which is the screen centre here.
@@ -400,9 +413,15 @@ mod tests {
 
     #[test]
     fn the_share_is_bounded_at_both_ends() {
-        let narrow = NotchGeometry { screen_width: 600.0, ..built_in() };
+        let narrow = NotchGeometry {
+            screen_width: 600.0,
+            ..built_in()
+        };
         assert_eq!(slab_width(&narrow), SLAB_MIN);
-        let wide = NotchGeometry { screen_width: 6016.0, ..built_in() };
+        let wide = NotchGeometry {
+            screen_width: 6016.0,
+            ..built_in()
+        };
         assert_eq!(slab_width(&wide), SLAB_MAX);
     }
 
@@ -410,7 +429,10 @@ mod tests {
     fn a_chip_wider_than_the_slab_still_gets_its_room() {
         // The chips win when they reach further from the notch's centre than
         // half the slab does, which is the usual case on real hardware.
-        let geo = NotchGeometry { notch_width: 10.0, ..built_in() };
+        let geo = NotchGeometry {
+            notch_width: 10.0,
+            ..built_in()
+        };
         let (_, size) = window_frame(&geo, 900.0, 0.0);
         assert_eq!(size.0, (10.0 / 2.0 + 900.0) * 2.0);
         assert!(size.0 >= slab_width(&geo));
@@ -430,7 +452,10 @@ mod tests {
     fn the_window_follows_the_notch_when_it_is_off_centre() {
         // Symmetry is not assumed anywhere: notch_x comes from the auxiliary
         // area rather than from screen_width / 2.
-        let geo = NotchGeometry { notch_x: 500.0, ..built_in() };
+        let geo = NotchGeometry {
+            notch_x: 500.0,
+            ..built_in()
+        };
         let (origin, size) = window_frame(&geo, FLANK_BUDGET, 400.0);
         assert_eq!(origin.0, 500.0 + geo.notch_width / 2.0 - size.0 / 2.0);
     }
@@ -440,7 +465,10 @@ mod tests {
         // A display left of and above the primary one sits at a negative global
         // origin, and a local value passed straight to set_position would land
         // in the dead space between displays.
-        let geo = NotchGeometry { screen_origin: (-1512.0, -400.0), ..built_in() };
+        let geo = NotchGeometry {
+            screen_origin: (-1512.0, -400.0),
+            ..built_in()
+        };
         let (local, _) = window_frame(&built_in(), FLANK_BUDGET, 400.0);
         let (origin, _) = window_frame(&geo, FLANK_BUDGET, 400.0);
         assert_eq!(origin, (-1512.0 + local.0, -400.0));
@@ -451,7 +479,10 @@ mod tests {
         let geo = built_in();
         let (left, right) = flank_rects(&geo, FLANK_BUDGET);
         let (notch_left, notch_right) = notch_edges(&geo, FLANK_BUDGET);
-        assert_eq!((left.x, left.width), (notch_left - FLANK_BUDGET, FLANK_BUDGET));
+        assert_eq!(
+            (left.x, left.width),
+            (notch_left - FLANK_BUDGET, FLANK_BUDGET)
+        );
         assert_eq!((right.x, right.width), (notch_right, FLANK_BUDGET));
         // Both live in the menu bar and nowhere below it.
         assert_eq!((left.y, left.height), (0.0, 37.0));
@@ -505,7 +536,11 @@ mod tests {
     fn a_notch_wider_than_the_screen_reports_no_right_flank() {
         // Guards the subtraction rather than the probe: `right_flank` must not
         // go negative and hand a negative width to a rect.
-        let geo = NotchGeometry { notch_x: 1400.0, notch_width: 190.0, ..built_in() };
+        let geo = NotchGeometry {
+            notch_x: 1400.0,
+            notch_width: 190.0,
+            ..built_in()
+        };
         assert_eq!(geo.right_flank(), 0.0);
     }
 }

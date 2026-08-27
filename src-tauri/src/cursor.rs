@@ -128,8 +128,7 @@ pub struct CursorPosition {
 /// The window is deliberately larger than the pill — it is sized to the widest
 /// state so that hovering never resizes it — so the window rect is no longer a
 /// usable proxy for "the cursor is on the widget".
-static HOVER_RECTS: std::sync::OnceLock<std::sync::Mutex<Vec<Rect>>> =
-    std::sync::OnceLock::new();
+static HOVER_RECTS: std::sync::OnceLock<std::sync::Mutex<Vec<Rect>>> = std::sync::OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
 pub struct Rect {
@@ -146,7 +145,12 @@ fn hover_rects() -> &'static std::sync::Mutex<Vec<Rect>> {
 /// Report which part of the window is the widget itself.
 #[tauri::command]
 pub fn set_hover_rect(x: f64, y: f64, width: f64, height: f64) {
-    *hover_rects().lock().expect("hover rects poisoned") = vec![Rect { x, y, width, height }];
+    *hover_rects().lock().expect("hover rects poisoned") = vec![Rect {
+        x,
+        y,
+        width,
+        height,
+    }];
 }
 
 /// Report several disjoint parts of the window as the widget.
@@ -193,8 +197,16 @@ pub fn to_window_local(
         width: window_size.0,
         height: window_size.1,
     }];
-    let bounds = if widget.is_empty() { &whole[..] } else { widget };
-    CursorPosition { x, y, inside: contains_any(bounds, x, y) }
+    let bounds = if widget.is_empty() {
+        &whole[..]
+    } else {
+        widget
+    };
+    CursorPosition {
+        x,
+        y,
+        inside: contains_any(bounds, x, y),
+    }
 }
 
 fn global_cursor() -> Option<(f64, f64)> {
@@ -223,16 +235,24 @@ pub fn spawn_cursor_watcher(window: WebviewWindow) -> Arc<AtomicBool> {
         while !stop_thread.load(Ordering::Relaxed) {
             std::thread::sleep(POLL);
 
-            let Some(cursor) = global_cursor() else { continue };
+            let Some(cursor) = global_cursor() else {
+                continue;
+            };
             let is_down = left_button_down();
             let window = window.clone();
             let previous = previous.clone();
             let press = press.clone();
 
             let _ = window.clone().run_on_main_thread(move || {
-                let Ok(scale) = window.scale_factor() else { return };
-                let Ok(pos) = window.outer_position() else { return };
-                let Ok(size) = window.outer_size() else { return };
+                let Ok(scale) = window.scale_factor() else {
+                    return;
+                };
+                let Ok(pos) = window.outer_position() else {
+                    return;
+                };
+                let Ok(size) = window.outer_size() else {
+                    return;
+                };
                 let origin = pos.to_logical::<f64>(scale);
                 let dims = size.to_logical::<f64>(scale);
 
@@ -262,9 +282,10 @@ pub fn spawn_cursor_watcher(window: WebviewWindow) -> Arc<AtomicBool> {
                     // clicks meant for whatever is behind it, so it is only
                     // opaque to the mouse while the cursor is on the widget.
                     if slot.map(|p| p.inside) != Some(next.inside) {
-                        if let Ok(panel) =
-                            tauri_nspanel::ManagerExt::get_webview_panel(window.app_handle(), "widget")
-                        {
+                        if let Ok(panel) = tauri_nspanel::ManagerExt::get_webview_panel(
+                            window.app_handle(),
+                            "widget",
+                        ) {
                             panel.set_ignore_mouse_events(!next.inside);
                         }
                     }
@@ -345,7 +366,12 @@ mod tests {
     fn the_widget_rect_narrows_what_counts_as_inside() {
         // The window is sized to the widest state, so most of it is empty
         // transparent margin that must not read as hovering the widget.
-        let widget = [Rect { x: 30.0, y: 30.0, width: 40.0, height: 20.0 }];
+        let widget = [Rect {
+            x: 30.0,
+            y: 30.0,
+            width: 40.0,
+            height: 20.0,
+        }];
         let big = (600.0, 200.0);
 
         let on_pill = to_window_local((ORIGIN.0 + 50.0, ORIGIN.1 + 40.0), ORIGIN, big, &widget);
@@ -363,8 +389,18 @@ mod tests {
     /// draws them: budget 200 either side, so the notch spans x 200..390.
     fn flanking_chips() -> [Rect; 2] {
         [
-            Rect { x: 140.0, y: 0.0, width: 60.0, height: 37.0 },
-            Rect { x: 390.0, y: 0.0, width: 60.0, height: 37.0 },
+            Rect {
+                x: 140.0,
+                y: 0.0,
+                width: 60.0,
+                height: 37.0,
+            },
+            Rect {
+                x: 390.0,
+                y: 0.0,
+                width: 60.0,
+                height: 37.0,
+            },
         ]
     }
 
@@ -493,7 +529,10 @@ mod tests {
     fn dragging_keeps_the_grabbed_point_under_the_cursor() {
         // Grabbed 28px into a window that started at -2020: moving the cursor
         // to -1900 must put the window at -1928.
-        assert_eq!(dragged_origin((-1900.0, -1200.0), (28.0, 14.0)), (-1928.0, -1214.0));
+        assert_eq!(
+            dragged_origin((-1900.0, -1200.0), (28.0, 14.0)),
+            (-1928.0, -1214.0)
+        );
     }
 
     #[test]

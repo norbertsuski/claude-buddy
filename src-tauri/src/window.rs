@@ -1,7 +1,9 @@
 use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
-use tauri::{AppHandle, LogicalPosition, LogicalSize, WebviewWindow, WebviewWindowBuilder, WebviewUrl};
+use tauri::{
+    AppHandle, LogicalPosition, LogicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+};
 use tauri_nspanel::cocoa::appkit::NSWindowCollectionBehavior;
 use tauri_nspanel::{ManagerExt, WebviewWindowExt};
 
@@ -19,11 +21,12 @@ const NONACTIVATING_PANEL_MASK: i32 = 1 << 7;
 /// Gap from the screen edge for a first-run placement.
 pub const WIDGET_MARGIN: f64 = 12.0;
 
-
 /// Convert the widget window into a non-activating panel that follows the user
 /// across Spaces and never takes focus.
 pub fn configure_panel(window: &WebviewWindow) -> Result<(), String> {
-    let panel = window.to_panel().map_err(|e| format!("to_panel failed: {e:?}"))?;
+    let panel = window
+        .to_panel()
+        .map_err(|e| format!("to_panel failed: {e:?}"))?;
 
     panel.set_level(PANEL_LEVEL);
 
@@ -196,7 +199,10 @@ pub fn resolve_position(
         Some([x, y]) => (x.clamp(0.0, max_x), y.clamp(0.0, max_y)),
         // Top centre: the widget sits where the eye already goes for status,
         // clear of the menu-bar extras crowding the right-hand corner.
-        None => (((display.0 - widget.0) / 2.0).clamp(0.0, max_x), margin.min(max_y)),
+        None => (
+            ((display.0 - widget.0) / 2.0).clamp(0.0, max_x),
+            margin.min(max_y),
+        ),
     }
 }
 
@@ -322,8 +328,16 @@ pub fn restore_position(window: &WebviewWindow) {
         return;
     };
     let attached: Vec<String> = monitors.iter().map(monitor_key).collect();
-    let current = window.current_monitor().ok().flatten().map(|m| monitor_key(&m));
-    let primary = window.primary_monitor().ok().flatten().map(|m| monitor_key(&m));
+    let current = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .map(|m| monitor_key(&m));
+    let primary = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| monitor_key(&m));
 
     let chosen = choose_display_key(
         settings.preferred_display.as_deref(),
@@ -572,8 +586,14 @@ mod tests {
         let wrong = resolve_position(None, display, (physical_on_a_2x_panel, 45.0), WIDGET_MARGIN);
 
         assert_eq!(right.0, (3840.0 - 383.0) / 2.0);
-        assert_ne!(right.0, wrong.0, "the two scales must not agree, or this proves nothing");
-        assert!(wrong.0 < right.0, "the old maths pushed the widget left of centre");
+        assert_ne!(
+            right.0, wrong.0,
+            "the two scales must not agree, or this proves nothing"
+        );
+        assert!(
+            wrong.0 < right.0,
+            "the old maths pushed the widget left of centre"
+        );
     }
 
     /// The one test touching `LAST_SIZE`, since it is process-wide: splitting
@@ -593,7 +613,13 @@ mod tests {
     fn an_explicit_display_choice_wins() {
         let attached = vec!["A@1470x956".to_string(), "B@3840x2160".to_string()];
         assert_eq!(
-            choose_display_key(Some("B@3840x2160"), &attached, Some("A@1470x956"), true, Some("A@1470x956")),
+            choose_display_key(
+                Some("B@3840x2160"),
+                &attached,
+                Some("A@1470x956"),
+                true,
+                Some("A@1470x956")
+            ),
             Some("B@3840x2160".to_string())
         );
     }
@@ -611,7 +637,13 @@ mod tests {
     fn a_display_the_widget_was_dragged_to_is_kept() {
         let attached = vec!["A@1470x956".to_string(), "B@3840x2160".to_string()];
         assert_eq!(
-            choose_display_key(None, &attached, Some("B@3840x2160"), true, Some("A@1470x956")),
+            choose_display_key(
+                None,
+                &attached,
+                Some("B@3840x2160"),
+                true,
+                Some("A@1470x956")
+            ),
             Some("B@3840x2160".to_string())
         );
     }
@@ -620,7 +652,13 @@ mod tests {
     fn without_a_choice_or_a_drag_the_primary_display_is_used() {
         let attached = vec!["A@1470x956".to_string(), "B@3840x2160".to_string()];
         assert_eq!(
-            choose_display_key(None, &attached, Some("B@3840x2160"), false, Some("A@1470x956")),
+            choose_display_key(
+                None,
+                &attached,
+                Some("B@3840x2160"),
+                false,
+                Some("A@1470x956")
+            ),
             Some("A@1470x956".to_string())
         );
     }

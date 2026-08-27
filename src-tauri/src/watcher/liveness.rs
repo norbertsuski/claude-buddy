@@ -79,8 +79,8 @@ impl PidLiveness for SysLiveness {
         // EPERM means the process exists but belongs to another user, which
         // still counts as alive.
         let signalled = unsafe { libc::kill(pid, 0) };
-        let exists = signalled == 0
-            || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
+        let exists =
+            signalled == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
         if !exists {
             return false;
         }
@@ -105,7 +105,9 @@ pub struct FakeLiveness {
 
 impl FakeLiveness {
     pub fn new() -> Self {
-        Self { alive: HashMap::new() }
+        Self {
+            alive: HashMap::new(),
+        }
     }
 
     pub fn with_alive(mut self, pid: i32, started_at_ms: i64) -> Self {
@@ -204,7 +206,10 @@ mod tests {
 
     #[test]
     fn etime_parses_days() {
-        assert_eq!(parse_etime("2-01:02:03"), Some(2 * 86400 + 3600 + 2 * 60 + 3));
+        assert_eq!(
+            parse_etime("2-01:02:03"),
+            Some(2 * 86400 + 3600 + 2 * 60 + 3)
+        );
     }
 
     #[test]

@@ -1,0 +1,30 @@
+# Formatting for the Rust half of the app, enforced by the `test:rustfmt` job.
+#
+# Everything here is stable rustfmt's own default. The file exists to pin those
+# defaults rather than to change them: rustfmt's defaults have shifted between
+# editions before, and a contributor whose toolchain disagrees with CI's finds
+# out by having the pipeline reformat their diff for reasons neither of them
+# can see. Written down, the settings are arguable; left implicit, they are not.
+#
+# Deliberately nothing nightly-only. Options rustfmt does not recognise on the
+# stable channel are ignored *silently* — no warning, no error — so a
+# nightly-only key here would read as an enforced rule while doing nothing at
+# all. If you want one of them, gate it behind a toolchain that has it.
+
+# 100 columns. Not a hard cap on what you may write — rustfmt leaves a line it
+# cannot break alone, and there are a few of those already — but the width it
+# formats to.
+max_width = 100
+
+# "Default" keeps the narrower sub-widths for struct literals, function calls
+# and the rest, so short expressions stay on one line and long ones break one
+# argument per line. Setting this to "Max" instead would let any expression
+# that fits in 100 columns stay on one line; it was measured against this
+# codebase and made no difference to the diff, so the default stands.
+use_small_heuristics = "Default"
+
+# Four spaces, never tabs, LF endings — the same three rules .editorconfig
+# states at the repo root for every other language here.
+tab_spaces = 4
+hard_tabs = false
+newline_style = "Unix"

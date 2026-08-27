@@ -125,7 +125,8 @@ pub fn deliver(app: &tauri::AppHandle, alerts: &[Alert]) {
                 options.default_sound();
             }
 
-            let result = mac_notification_sys::send_notification(&title, None, &body, Some(&options));
+            let result =
+                mac_notification_sys::send_notification(&title, None, &body, Some(&options));
 
             if wait {
                 OUTSTANDING.fetch_sub(1, Ordering::Relaxed);
@@ -210,7 +211,11 @@ mod tests {
         let mut config = Config::default();
         config.mute_until_ms = 10_000;
 
-        assert!(!should_deliver(&alert(AlertKind::NeedsInput), &config, 9_999));
+        assert!(!should_deliver(
+            &alert(AlertKind::NeedsInput),
+            &config,
+            9_999
+        ));
         assert!(!should_deliver(&alert(AlertKind::Died), &config, 9_999));
     }
 
@@ -218,7 +223,11 @@ mod tests {
     fn an_expired_mute_delivers_again() {
         let mut config = Config::default();
         config.mute_until_ms = 10_000;
-        assert!(should_deliver(&alert(AlertKind::NeedsInput), &config, 10_000));
+        assert!(should_deliver(
+            &alert(AlertKind::NeedsInput),
+            &config,
+            10_000
+        ));
     }
 
     #[test]

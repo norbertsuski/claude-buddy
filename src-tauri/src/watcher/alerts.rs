@@ -100,7 +100,10 @@ mod tests {
     fn cold_start_fires_nothing_even_when_a_session_is_already_waiting() {
         // The first snapshot after launch establishes a baseline. Without this,
         // every launch produces a burst of alerts for pre-existing state.
-        let next = vec![snap("a", SessionState::Waiting), snap("b", SessionState::Dead)];
+        let next = vec![
+            snap("a", SessionState::Waiting),
+            snap("b", SessionState::Dead),
+        ];
         assert!(diff_alerts(None, &next).is_empty());
     }
 
@@ -146,7 +149,10 @@ mod tests {
     fn a_session_appearing_already_waiting_fires() {
         // Not a cold start: the app was running, a new session showed up blocked.
         let prev = vec![snap("a", SessionState::Busy)];
-        let next = vec![snap("a", SessionState::Busy), snap("b", SessionState::Waiting)];
+        let next = vec![
+            snap("a", SessionState::Busy),
+            snap("b", SessionState::Waiting),
+        ];
 
         let alerts = diff_alerts(Some(&prev), &next);
 
@@ -227,13 +233,20 @@ mod tests {
     #[test]
     fn multiple_transitions_in_one_tick_all_fire() {
         let prev = vec![snap("a", SessionState::Busy), snap("b", SessionState::Busy)];
-        let next = vec![snap("a", SessionState::Waiting), snap("b", SessionState::Dead)];
+        let next = vec![
+            snap("a", SessionState::Waiting),
+            snap("b", SessionState::Dead),
+        ];
 
         let alerts = diff_alerts(Some(&prev), &next);
 
         assert_eq!(alerts.len(), 2);
-        assert!(alerts.iter().any(|a| a.session_id == "a" && a.kind == AlertKind::NeedsInput));
-        assert!(alerts.iter().any(|a| a.session_id == "b" && a.kind == AlertKind::Died));
+        assert!(alerts
+            .iter()
+            .any(|a| a.session_id == "a" && a.kind == AlertKind::NeedsInput));
+        assert!(alerts
+            .iter()
+            .any(|a| a.session_id == "b" && a.kind == AlertKind::Died));
     }
 
     #[test]
