@@ -82,6 +82,25 @@ describe('crazy mode', () => {
     expect(container.querySelector('[data-shake]')).toBeNull()
   })
 
+  it('fractures the pill as the limit runs down', () => {
+    const usage = { percent: 96, resetsAtMs: 0, severity: 'critical' as const }
+    const { container } = render(
+      <DotRow sessions={[makeSession({ sessionId: 'a' })]} usage={usage} crazy="ember" />,
+    )
+    expect(container.querySelector('.pill')?.getAttribute('data-strain')).toBe('2')
+    // Each crack is drawn twice: a dark underlay, then a light hairline. One
+    // stroke alone vanishes against the flames, the other against the pill.
+    expect(container.querySelectorAll('.crazy-cracks path')).toHaveLength(10)
+  })
+
+  it('does not fracture while usage is normal', () => {
+    const usage = { percent: 8, resetsAtMs: 0, severity: 'normal' as const }
+    const { container } = render(
+      <DotRow sessions={[makeSession({ sessionId: 'a' })]} usage={usage} crazy="ember" />,
+    )
+    expect(container.querySelector('.crazy-cracks')).toBeNull()
+  })
+
   it('shudders only at critical usage', () => {
     const usage = { percent: 96, resetsAtMs: 0, severity: 'critical' as const }
     const { container } = render(

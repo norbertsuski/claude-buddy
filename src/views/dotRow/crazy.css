@@ -205,3 +205,109 @@
     transform: translateX(-0.6px);
   }
 }
+
+/* ── Strain ───────────────────────────────────────────────────────────
+   Above the fire layers but below the dots and the summary. The pill's width
+   tracks its content, so a crack landing across a glyph run at a narrow width
+   would trade legibility for decoration; under the content it still reads as
+   damage to the pill's surface. */
+.crazy-cracks {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.crazy-cracks svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.crazy-cracks path {
+  fill: none;
+}
+
+/* Two strokes per crack. A light hairline alone disappears against the flames
+   and a dark one alone disappears against the pill, so each path is drawn as a
+   dark underlay with a light line on top of it. */
+.crazy-cracks .crack-dark {
+  stroke: rgba(20, 6, 2, 0.75);
+  stroke-width: 2.2;
+}
+
+.crazy-cracks .crack-lite {
+  stroke: rgba(255, 236, 208, 0.75);
+  stroke-width: 0.8;
+}
+
+.pill[data-strain='1'] .crazy-cracks {
+  opacity: 0.35;
+}
+
+.pill[data-strain='2'] .crazy-cracks {
+  opacity: 0.8;
+}
+
+/* Fire owns the pill from two sessions up. The cracks stay legible without
+   competing with it for the same pixels. */
+.pill[data-fire='2'] .crazy-cracks,
+.pill[data-fire='3'] .crazy-cracks {
+  opacity: 0.36;
+}
+
+/* And the flames give the cracks room to read. Same specificity as the
+   per-level heights above and later in the file, so this wins wherever both
+   apply. */
+.pill[data-strain] .crazy-flames i {
+  height: 19px;
+}
+
+/* The molten meter, reached by descendant selector rather than by a prop, so
+   UsageMeter is untouched and both variants get it for free. Only at critical,
+   and only when the meter is on screen at all. */
+.pill[data-strain='2'] .usage-fill {
+  background: linear-gradient(90deg, #ff6a10, #ffc76a 60%, #fff0c9);
+  box-shadow: 0 0 8px rgba(255, 120, 30, 0.85);
+  animation: crazy-molten 1.2s ease-in-out infinite;
+}
+
+@keyframes crazy-molten {
+  50% {
+    box-shadow: 0 0 14px rgba(255, 150, 50, 1);
+  }
+}
+
+/* dotRow.css clips the track so the fill stays inside its rounded ends. The
+   drip has to fall out of it, so the clip is lifted here rather than there —
+   that rule is correct for every other case. */
+.pill[data-strain='2'] .usage-track {
+  overflow: visible;
+}
+
+.pill[data-strain='2'] .usage-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 3px;
+  height: 3px;
+  border-radius: 0 0 50% 50%;
+  background: #ffb257;
+  box-shadow: 0 0 5px rgba(255, 140, 40, 0.9);
+  animation: crazy-drip 2.2s ease-in infinite;
+}
+
+@keyframes crazy-drip {
+  0% {
+    transform: translateY(0) scaleY(0.6);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(11px) scaleY(1.5);
+    opacity: 0;
+  }
+}

@@ -56,6 +56,16 @@ const SPARK_OFFSETS = [
   { left: '80%', bottom: '5px', delay: '-1.3s' },
 ]
 
+/** Five fractures across the pill, each drawn twice so it reads over fire and
+ *  over the dark background alike. Stretched to whatever width the pill is. */
+const CRACKS = [
+  'M52 0 L60 15 L48 24 L56 42',
+  'M148 0 L140 13 L152 22 L144 42',
+  'M96 5 L104 19 L90 27',
+  'M228 0 L221 17 L234 25 L226 42',
+  'M18 9 L27 21 L15 31',
+]
+
 export function DotRow({
   sessions,
   usage = null,
@@ -68,6 +78,7 @@ export function DotRow({
   const lit = !isCalm(heat)
   const flames = lit && heat.fire > 0 ? FLAME_OFFSETS : []
   const sparks = lit && heat.fire >= 2 ? SPARK_OFFSETS : []
+  const cracked = lit && heat.strain > 0
 
   const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null)
   const [hoveredUsage, setHoveredUsage] = useState(false)
@@ -371,6 +382,7 @@ export function DotRow({
             ref={pillRef}
             className="pill"
             data-fire={lit && heat.fire > 0 ? String(heat.fire) : undefined}
+            data-strain={cracked ? String(heat.strain) : undefined}
             // `--morph` is written per change rather than left to the
             // stylesheet: the duration the box needs depends on how far it is
             // going.
@@ -397,6 +409,18 @@ export function DotRow({
                 style={{ left: spark.left, bottom: spark.bottom, animationDelay: spark.delay }}
               />
             ))}
+            {cracked && (
+              <span className="crazy-cracks" aria-hidden="true">
+                <svg viewBox="0 0 300 42" preserveAspectRatio="none">
+                  {CRACKS.map((d) => (
+                    <path key={d} className="crack-dark" d={d} />
+                  ))}
+                  {CRACKS.map((d) => (
+                    <path key={d} className="crack-lite" d={d} />
+                  ))}
+                </svg>
+              </span>
+            )}
             <div
               className="variant-slot"
               ref={collapsedSlot}
