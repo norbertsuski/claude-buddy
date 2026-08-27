@@ -59,9 +59,17 @@ oldest_processes() {
   ' | sort -rn -k1,1 | awk '!seen[$2]++'
 }
 
+# `CB_FIXTURE_HOT=1` adds two more working sessions and spends the five-hour
+# limit down to 94%, which is the state the crazy-mode screenshots are taken in.
+# It is opt-in and additive: the default cast is byte-for-byte what it was, so
+# every screenshot taken before this still shows what it says it does.
+HOT="${CB_FIXTURE_HOT:-}"
+NEEDED=5
+[ -n "$HOT" ] && NEEDED=7
+
 BORROWED="$(oldest_processes)"
 BORROWED_COUNT="$(printf '%s\n' "$BORROWED" | grep -c . || true)"
-[ "$BORROWED_COUNT" -ge 5 ] || {
+[ "$BORROWED_COUNT" -ge "$NEEDED" ] || {
   echo "only $BORROWED_COUNT processes to borrow pids from — cannot build the fixture" >&2
   exit 1
 }
@@ -161,18 +169,31 @@ emit_session 5    5e6f7a8b-7182-4394-8e05-4a6b7c8d9ea4   docs-site         /User
 # Still says it is busy; the pid says otherwise, and death outranks status.
 emit_session gone 2c3d4e5f-8293-44a5-8f16-5b7c8d9eafb5   infra-tools       /Users/n/Code/infra-tools       interactive   ""                 busy      ""              3120    480
 
+# Two more working sessions, so the fire in crazy mode reaches its top step.
+# Only under CB_FIXTURE_HOT.
+if [ -n "$HOT" ]; then
+  emit_session 6  8f9e0d1c-a2b3-4c4d-9e5f-6a7b8c9d0e1f   payments-api      /Users/n/Code/payments-api      interactive   ""                 busy      ""              3600    30
+  emit_session 7  3b4c5d6e-f708-4192-a3b4-c5d6e7f80912   search-index      /Users/n/Code/search-index      interactive   ""                 busy      ""              2400    20
+fi
+
 # The five-hour meter: 36% spent, two hours forty to the reset, which is what
 # the popover in the README reads. `resets_at` is an absolute instant the widget
 # counts down to, so it has to be stamped now as well — a lapsed one is dropped
 # outright rather than shown as a spent window.
-RESETS_AT="$(date -u -r "$((NOW_S + 2 * 3600 + 40 * 60))" '+%Y-%m-%dT%H:%M:%S+00:00')"
+if [ -n "$HOT" ]; then
+  UTILIZATION=94
+  RESETS_AT="$(date -u -r "$((NOW_S + 18 * 60))" '+%Y-%m-%dT%H:%M:%S+00:00')"
+else
+  UTILIZATION=36
+  RESETS_AT="$(date -u -r "$((NOW_S + 2 * 3600 + 40 * 60))" '+%Y-%m-%dT%H:%M:%S+00:00')"
+fi
 cat > "$USAGE" <<JSON
 {
   "cachedUsageUtilization": {
     "fetchedAtMs": $NOW_MS,
     "utilization": {
       "five_hour": {
-        "utilization": 36,
+        "utilization": $UTILIZATION,
         "resets_at": "$RESETS_AT",
         "limit_dollars": null
       },
@@ -191,4 +212,4 @@ cat > "$USAGE" <<JSON
 }
 JSON
 
-echo "usage    -> $USAGE (36% spent, resets $RESETS_AT)"
+echo "usage    -> $USAGE ($UTILIZATION% spent, resets $RESETS_AT)"
