@@ -1,0 +1,164 @@
+/* Crazy mode.
+   Kept out of dotRow.css deliberately: that file is load-bearing layout —
+   window sizing, morph timing, the notch anchor — and burying fire keyframes in
+   it would make both harder to read. Nothing here is mounted unless the setting
+   is on and something is actually happening, so an idle machine animates
+   nothing at all.
+
+   Every animation below lives on a wrapper or a child layer, never on .pill.
+   .pill already owns an animation — flash-attention, when a session needs input
+   — and the CSS animation shorthand does not compose across rules. The flash
+   outranks everything here and keeps its element. */
+
+.crazy-shake,
+.crazy-shudder {
+  display: inline-block;
+}
+
+/* ── Fire ─────────────────────────────────────────────────────────────
+   The glow lives on its own layer rather than on the pill's background so the
+   brightness pulse repaints one small element instead of the whole pill. */
+.crazy-heat {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.pill[data-fire='1'] .crazy-heat {
+  background: radial-gradient(
+    130% 200% at 50% 135%,
+    rgba(255, 140, 50, 0.15),
+    rgba(255, 90, 20, 0) 58%
+  );
+}
+
+.pill[data-fire='2'] .crazy-heat {
+  background: radial-gradient(
+    130% 200% at 50% 130%,
+    rgba(255, 120, 30, 0.3),
+    rgba(255, 90, 20, 0) 62%
+  );
+  animation: crazy-breathe 2.6s ease-in-out infinite;
+}
+
+.pill[data-fire='3'] .crazy-heat {
+  background: radial-gradient(
+    130% 190% at 50% 125%,
+    rgba(255, 96, 16, 0.52),
+    rgba(255, 90, 20, 0) 66%
+  );
+  animation: crazy-breathe 1.5s ease-in-out infinite;
+}
+
+@keyframes crazy-breathe {
+  50% {
+    filter: brightness(1.2);
+  }
+}
+
+/* The border and the outer glow are the one thing that has to be on the pill,
+   and they are transitions rather than animations, so they cannot collide with
+   the flash. */
+.pill[data-fire='1'] {
+  border-color: rgba(255, 150, 70, 0.24);
+}
+
+.pill[data-fire='2'] {
+  border-color: rgba(255, 140, 50, 0.44);
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.5),
+    0 0 20px rgba(255, 110, 30, 0.28),
+    inset 0 1px 0 rgba(255, 190, 120, 0.14);
+}
+
+.pill[data-fire='3'] {
+  border-color: rgba(255, 130, 40, 0.7);
+  box-shadow:
+    0 8px 22px rgba(0, 0, 0, 0.55),
+    0 0 32px rgba(255, 90, 20, 0.46),
+    inset 0 1px 0 rgba(255, 200, 140, 0.22);
+}
+
+/* Clipped to the pill by the overflow:hidden dotRow.css already sets, which is
+   there so the collapsed and expanded variants reveal as the box grows. */
+.crazy-flames {
+  position: absolute;
+  inset: auto 0 -2px 0;
+  height: 24px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* A fixed count at every level, with opacity and height carrying the ramp.
+   Varying the count would remount DOM every time a session started or stopped,
+   and the worst case stays bounded at eight. */
+.crazy-flames i {
+  position: absolute;
+  bottom: -6px;
+  width: 12px;
+  height: 18px;
+  border-radius: 50% 50% 46% 46% / 62% 62% 38% 38%;
+  background: linear-gradient(to top, #ffd07a, #ff8a1e 42%, rgba(255, 72, 10, 0));
+  filter: blur(2.5px);
+  mix-blend-mode: screen;
+  transform-origin: 50% 100%;
+  animation: crazy-lick 1.1s ease-in-out infinite;
+  opacity: 0.5;
+}
+
+.pill[data-fire='2'] .crazy-flames i {
+  height: 20px;
+  opacity: 0.85;
+}
+
+.pill[data-fire='3'] .crazy-flames i {
+  height: 23px;
+  opacity: 1;
+  animation-duration: 0.8s;
+}
+
+@keyframes crazy-lick {
+  0%,
+  100% {
+    transform: scaleY(0.5) scaleX(0.9);
+  }
+  50% {
+    transform: scaleY(1.2) scaleX(1.05);
+  }
+}
+
+.crazy-spark {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: #ffd9a0;
+  box-shadow: 0 0 3px rgba(255, 180, 90, 0.9);
+  z-index: 3;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pill[data-fire='2'] .crazy-spark {
+  animation: crazy-rise 3s linear infinite;
+}
+
+.pill[data-fire='3'] .crazy-spark {
+  animation: crazy-rise 1.6s linear infinite;
+}
+
+@keyframes crazy-rise {
+  0% {
+    transform: translateY(4px) scale(0.5);
+    opacity: 0;
+  }
+  22% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-20px) scale(1);
+    opacity: 0;
+  }
+}
