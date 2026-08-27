@@ -362,3 +362,32 @@
     opacity: 1;
   }
 }
+
+/* ── Reduced motion ───────────────────────────────────────────────────
+   Capped, not killed. The glow, the border warmth and the cracks are what
+   carry the 0→3 ramp, and none of them move — so the signal survives intact
+   for someone who has asked the system not to animate things at them.
+
+   Flames, sparks and the drip are removed rather than frozen: a static blurred
+   smear reads as a rendering fault, not as a design. */
+@media (prefers-reduced-motion: reduce) {
+  .crazy-flames,
+  .crazy-spark,
+  .pill[data-strain='2'] .usage-track::after {
+    display: none;
+  }
+
+  .crazy-heat,
+  .crazy-shake[data-shake='true'],
+  .crazy-shudder[data-shudder='true'],
+  .pill[data-ash='true'] .dot-dead::before,
+  .pill[data-ash='true'] .dot-dead::after {
+    animation: none;
+  }
+
+  /* The molten gradient stays; only its pulse goes. */
+  .pill[data-strain='2'] .usage-fill {
+    animation: none;
+    box-shadow: 0 0 8px rgba(255, 120, 30, 0.85);
+  }
+}
