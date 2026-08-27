@@ -1,4 +1,5 @@
-# Build and publish the macOS DMG when a tag is pushed.
+# Check every merge request, then build and publish the macOS DMG when a tag is
+# pushed.
 #
 # Building a .app needs macOS — there is no cross-compiling it from Linux, since
 # it needs the macOS SDK and the bundler. So this pipeline needs a macOS runner,
@@ -9,7 +10,14 @@
 #   2. Your own Mac, registered as a project runner with the shell executor.
 #      Free, and it already has the toolchain. Set MACOS_RUNNER_TAG to the tag
 #      you gave it and clear MACOS_IMAGE (a shell executor ignores it).
-stages: [build, release]
+#
+# The `test` stage is split across both kinds of runner on purpose. Two of its
+# three jobs run on Linux, on the free shared runners anyone gets, so that a
+# contributor working from a fork sees a real result on their merge request
+# rather than an empty pipeline. Only the job that genuinely needs the macOS
+# SDK is pinned to the Mac, and that one is closed to forks — see the comment
+# on `test:rust`, which is the most important comment in this file.
+stages: [test, build, release]
 
 variables:
   # This project builds on a self-hosted Mac tagged `macos`. For GitLab's
@@ -19,13 +27,22 @@ variables:
   # Hosted-runner VM image. Ignored by a shell executor.
   MACOS_IMAGE: macos-15-xcode-16
   PACKAGE_NAME: clawde-buddy
+  # Linux images for the two jobs that run on the free shared runners. Both are
+  # pinned rather than floating on `:latest`: a toolchain that moves under the
+  # pipeline turns an unrelated merge request red, and `cargo fmt` in
+  # particular reformats differently between releases, which would show up as a
+  # formatting failure on a diff that touched nothing of the sort. Node 22 is
+  # the current LTS and clears the "Node 20 or later" the README asks for;
+  # RUST_IMAGE should be bumped to whatever the maintainer's own toolchain is,
+  # since that is the rustfmt everyone else's diff gets compared against.
+  NODE_IMAGE: node:22
+  RUST_IMAGE: rust:1.98
 
-build:dmg:
-  stage: build
+# Shared by the two jobs that need a real macOS toolchain. Hidden — a job whose
+# name starts with a dot is never run, only inherited from via `extends`.
+.macos-toolchain:
   tags: [$MACOS_RUNNER_TAG]
   image: $MACOS_IMAGE
-  rules:
-    - if: $CI_COMMIT_TAG
   before_script:
     # A shell executor inherits almost no PATH, so the toolchains have to be
     # named explicitly. Harmless on a hosted runner, where these do not exist.
@@ -34,9 +51,143 @@ build:dmg:
     # Mac usually has both already, so only install what is missing.
     - command -v cargo >/dev/null || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
     - '[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env" || true'
-    - node --version && npm --version && cargo --version
-    - npm ci
+    - cargo --version
+
+# The trigger the two Linux jobs share: every merge request, whoever opened it,
+# plus every push to the default branch so that main is never left unchecked
+# between merges. Deliberately not tags — see the note on `build:dmg` about why
+# the tag pipeline runs no tests.
+.on-merge-requests-and-default-branch:
+  stage: test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Typecheck and the Vitest suite. Neither needs macOS, so this runs on a stock
+# Linux image on the shared runners — which matters more than it sounds: for a
+# merge request opened from a fork, this and `test:rustfmt` are the only two
+# jobs that will run at all, so between them they are the entire signal an
+# outside contributor can get before a maintainer looks at the branch.
+test:frontend:
+  extends: .on-merge-requests-and-default-branch
+  image: $NODE_IMAGE
   script:
+    - node --version && npm --version
+    # `ci`, not `install`: it installs exactly what package-lock.json pins and
+    # fails if the lockfile and package.json have drifted apart, which is a
+    # thing worth failing on rather than papering over.
+    - npm ci
+    - npm run typecheck
+    - npm test
+
+# Formatting for the Rust half, on Linux — which looks wrong at first glance,
+# because this crate cannot be compiled anywhere but macOS: it pulls in Tauri's
+# NSPanel bindings, the Keychain and CoreGraphics, none of which exist here.
+#
+# It works because `cargo fmt` does not compile anything. It parses each file
+# and prints it back out, and `--check` diffs the two; it never resolves a
+# `use`, never touches the crate's dependencies, and never learns that
+# `tauri_nspanel` is unbuildable on this machine. A macOS-only crate is
+# therefore perfectly format-checkable on a free Linux runner, and that is the
+# whole point of putting it here: it hands fork merge requests a Rust signal
+# that would otherwise cost a macOS runner they have no access to.
+#
+# The official Rust images install with `--profile minimal`, which leaves out
+# rustfmt, so the component has to be added explicitly. `rustup component add`
+# is a no-op when it is already there, so this stays correct if the base image
+# ever switches to the default profile.
+test:rustfmt:
+  extends: .on-merge-requests-and-default-branch
+  image: $RUST_IMAGE
+  before_script:
+    - rustup component add rustfmt
+    - cargo fmt --version
+  script:
+    - cd src-tauri
+    # The settings this enforces are written down in src-tauri/rustfmt.toml.
+    - cargo fmt --check
+
+# Clippy and the Rust test suite. Unlike the two above, these do have to build
+# the crate, so they need the macOS SDK and a real toolchain — hence the same
+# runner the DMG is built on.
+#
+# SECURITY: this job is closed to forks, and that restriction is not optional.
+# The macOS runner is the maintainer's own laptop registered with GitLab's
+# *shell* executor. A shell executor does not containerise anything: it clones
+# the branch into a directory on that machine and runs the job's commands as
+# the logged-in user, with that user's files, keychain, SSH keys and network.
+# `cargo test` and `cargo clippy` both execute code out of the branch — build
+# scripts, proc macros, the tests themselves — so running this job for a merge
+# request opened from a fork would be running a stranger's code on a personal
+# Mac with no sandbox between the two. There is no reviewing your way out of
+# that either: the pipeline starts the moment the branch is pushed, long before
+# anyone reads the diff.
+#
+# So the rules below admit exactly two cases, and nothing else reaches this
+# runner:
+#
+#   1. A merge request whose source branch lives in this project rather than in
+#      a fork — i.e. someone who already has push access to it. GitLab exposes
+#      the fork's project id as CI_MERGE_REQUEST_SOURCE_PROJECT_ID in merge
+#      request pipelines, so comparing it to CI_PROJECT_ID is the direct test
+#      for "did this branch come from outside?".
+#   2. A push to the default branch, which is code that has already been merged.
+#
+# Worth knowing: by default GitLab already runs a fork's merge request pipeline
+# in the fork's own project, on the fork's runners, so most of the time this
+# job would not have been offered the branch anyway. The guard is here because
+# that default is a project setting a maintainer can turn off, and because a
+# maintainer can choose to run a fork's pipeline in this project by hand from
+# the merge request page. Both of those routes would otherwise land untrusted
+# code on the shell executor; the rule holds in every case.
+test:rust:
+  extends: .macos-toolchain
+  stage: test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - cd src-tauri
+    # TODO: make this `cargo clippy --all-targets -- -D warnings` once the
+    # existing findings are cleared. As of v0.4.0 the tree has 20 of them and
+    # `-D warnings` would fail this job on every merge request, including ones
+    # that touched no Rust at all — a gate that is red before anybody has done
+    # anything is a gate people learn to ignore. They fall into three groups:
+    # eleven `clippy::field_reassign_with_default` in test modules, seven
+    # `deprecated` on tauri-nspanel's re-exported `cocoa` bindings (upstream's
+    # to fix, not ours — the replacement is the objc2-app-kit crate), and one
+    # each of `clippy::collapsible_match` and `clippy::single_match`. Without
+    # `-D warnings` clippy still fails the job on an actual compile error,
+    # which is most of what this is here for; the warnings are printed in the
+    # job log so a contributor can see the ones they added.
+    - cargo clippy --all-targets
+    # Single-threaded on purpose. Most of the suite is pure and would run in
+    # any order, but the watcher-loop tests are not: they write real files into
+    # a temp directory, wait on FSEvents and measure real elapsed time to decide
+    # whether a session has gone quiet. Run in parallel they contend for the
+    # machine and the timing assertions start failing at random.
+    - cargo test -- --test-threads=1
+
+build:dmg:
+  extends: .macos-toolchain
+  stage: build
+  # Tags only, unchanged: this is the release build, not a check.
+  #
+  # No `needs:` on the test jobs, and that is deliberate rather than an
+  # oversight. `needs:` would deadlock the release. The three test jobs are all
+  # gated on merge requests and the default branch, so none of them exists in a
+  # tag pipeline — and a `needs:` pointing at a job that was never created makes
+  # the pipeline fail to start at all. Stage ordering does not bite either, for
+  # the same reason: the `test` stage is simply empty on a tag, so `build`
+  # begins immediately. The two sets of rules are disjoint by construction, so
+  # there is no pipeline in which both a test job and this one appear.
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    # Moved out of `before_script` so the macOS setup above could be shared with
+    # `test:rust`, which needs the toolchain but has no use for node_modules.
+    - node --version && npm --version
+    - npm ci
     # Updater artifacts are only bundled when they can be signed: `tauri build`
     # fails outright on a non-empty `plugins.updater.pubkey` it has no private
     # key for, so the signing variables are what switch the update channel on.
