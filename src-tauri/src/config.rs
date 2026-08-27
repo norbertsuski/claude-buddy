@@ -44,6 +44,11 @@ pub struct Config {
     /// share or a recording — and has to survive sessions starting and
     /// finishing underneath it.
     pub hidden: bool,
+    /// Whether the widget holds the display awake while an agent is working.
+    /// Off by default: preventing display sleep also prevents the screen
+    /// locking, and that must not start happening because someone installed a
+    /// status widget.
+    pub keep_awake: bool,
     /// Where the widget lives: `free` to float wherever the user dragged it, or
     /// `notch` to sit in the menu bar flanking a MacBook's notch.
     pub placement: String,
@@ -70,6 +75,7 @@ impl Default for Config {
             show_usage: true,
             hide_when: "noSessions".into(),
             hidden: false,
+            keep_awake: false,
             placement: "free".into(),
             preferred_display: None,
             positions: HashMap::new(),

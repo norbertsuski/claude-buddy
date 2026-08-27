@@ -138,13 +138,15 @@ The frontend hot-reloads; Rust changes trigger a rebuild. [CONTRIBUTING.md](CONT
 There is **no Dock icon and no Cmd-Tab entry** — it is a menu-bar app. The tray icon is the only way in and the only way out:
 
 - **Hide widget** — a tick, not a policy: takes the widget off screen and keeps it there while sessions come and go. It outranks *Hide the widget* in Settings, including **Never**. For a screen share, a recording, or the ten minutes you want the corner of your display back.
+- **Keep screen awake** — a tick that holds the display on for as long as a session is working or waiting on you. Off unless you turn it on. A long run is exactly when nobody is touching the keyboard, so the display sleeps on its idle timer and the answer — or the permission question that stopped the run — ends up behind a dark, locked screen. While this is ticked and something is actually working, **the Mac will not auto-lock**; the moment nothing is working it releases and normal sleep resumes. `pmset -g assertions` names the hold as *claude-buddy: agent working* if you want to see it. Subagents follow **Show background jobs**: ones you have chosen not to see cannot hold the display on either.
 - **Mute alerts** — a submenu: **For 1 hour**, **For 8 hours**, or **Until I unmute**. While a mute is running the item reads *Alerts muted* and **Unmute now** inside it becomes clickable; it is greyed out the rest of the time, so the menu answers "am I muted" without your having to remember.
 - **Show background jobs** — the same tick as the Settings checkbox, where you need it: one run spawning six subagents is the moment you want them out of the row, and that moment does not wait for a settings window.
 - **Settings…** — opens a normal window: when to hide the widget, which display to use, whether to sit in the notch, the sound and its three alert events, the 5h limit, background jobs, launch at login
-- **Check for updates…** — asks, then says what it found either way: up to date, downloading, or why it could not. Present only when the updater has a signing key configured; see [Signing updates](#signing-updates).
+- **About claude-buddy** — the standard macOS panel: icon, name, the version you are running, author, licence. With no Dock icon and no app menu there is nowhere else the app says which version it is.
+- **Check for updates…** — asks, then says what it found either way: up to date, downloading, or why it could not. Once a check has found something newer the item renames itself to **Install update 0.7.0…**, naming the version, so the menu stops offering to check for what it has already found. Present only when the updater has a signing key configured; see [Signing updates](#signing-updates).
 - **Quit claude-buddy**
 
-The three toggles and the form write the same file, so a change made in either place shows up in the other immediately.
+The toggles and the form write the same file, so a change made in either place shows up in the other immediately.
 
 It starts at the top centre of the primary display. Pick a different screen under Settings → *Show on display*, or drag the pill anywhere; positions are remembered per display, so docking and undocking a monitor puts it back where you left it rather than off-screen.
 
@@ -186,12 +188,13 @@ Clicking any notification raises that session's window, the same as clicking its
   "showUsage": true,
   "hideWhen": "noSessions",
   "hidden": false,
+  "keepAwake": false,
   "preferredDisplay": null,
   "positions": {}
 }
 ```
 
-`hideWhen` is one of `never`, `noSessions` or `nothingActive`; anything else falls back to showing the widget. `hidden` is the tray menu's **Hide widget** and is checked before `hideWhen` is even consulted, so `true` here hides the widget whatever the mode says — set it back to `false`, or untick the menu item, to get it back. `muteUntilMs` is epoch milliseconds; the menu writes an hour or eight hours ahead for a timed mute, and `9223372036854775807` for *Until I unmute*. `placement` is `free` or `notch`; anything else reads as `free`, deliberately, since a hand-edited typo must not strand the widget in a placement it cannot be dragged out of. `viewMode` is vestigial — the view modes are gone, and the field is still parsed only so an existing config file keeps loading.
+`hideWhen` is one of `never`, `noSessions` or `nothingActive`; anything else falls back to showing the widget. `hidden` is the tray menu's **Hide widget** and is checked before `hideWhen` is even consulted, so `true` here hides the widget whatever the mode says — set it back to `false`, or untick the menu item, to get it back. `keepAwake` is the tray menu's **Keep screen awake**; it only has an effect while a session is working or waiting, so `true` on an idle machine changes nothing. `muteUntilMs` is epoch milliseconds; the menu writes an hour or eight hours ahead for a timed mute, and `9223372036854775807` for *Until I unmute*. `placement` is `free` or `notch`; anything else reads as `free`, deliberately, since a hand-edited typo must not strand the widget in a placement it cannot be dragged out of. `viewMode` is vestigial — the view modes are gone, and the field is still parsed only so an existing config file keeps loading.
 
 A corrupt or half-written file falls back to defaults rather than refusing to start.
 

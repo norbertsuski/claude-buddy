@@ -1,6 +1,64 @@
+use std::sync::Mutex;
+
 use serde_json::Value;
 use tauri::AppHandle;
 use tauri_plugin_updater::UpdaterExt;
+
+/// The version the last successful check found newer, or `None` for "nothing
+/// known".
+///
+/// Held so the tray menu can name it. Without this the launch check tells the
+/// user "version 0.7.0 — install it from the menu bar" and the menu they then
+/// open still says "Check for updates…", as though the check had not happened.
+static AVAILABLE: Mutex<Option<String>> = Mutex::new(None);
+
+/// The version waiting to be installed, as far as anyone has checked.
+pub fn available() -> Option<String> {
+    AVAILABLE
+        .lock()
+        .expect("available version poisoned")
+        .clone()
+}
+
+/// Record what a check found. `None` clears — being told you are up to date is
+/// itself news, and the menu must stop advertising a version that is now
+/// installed.
+fn set_available(app: &AppHandle, version: Option<String>) {
+    if !record_available(version) {
+        return;
+    }
+    // Menu rebuilds are AppKit calls; both callers of this are on the async
+    // runtime.
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || crate::tray::refresh(&handle));
+}
+
+/// Write the slot, returning whether that changed anything.
+///
+/// Separate from [`set_available`] so the bookkeeping is testable without an
+/// `AppHandle`, and so an unchanged answer does not rebuild the menu — every
+/// launch of an up-to-date copy would otherwise redraw it for nothing.
+fn record_available(version: Option<String>) -> bool {
+    let mut slot = AVAILABLE.lock().expect("available version poisoned");
+    if *slot == version {
+        return false;
+    }
+    *slot = version;
+    true
+}
+
+/// What the tray's update item should read.
+///
+/// One item and one handler for both cases: `check_and_install` already
+/// installs when there is an update and reports being current when there is
+/// not, so this only stops the label misdescribing which of the two is about to
+/// happen.
+pub fn update_label(available: Option<&str>) -> String {
+    match available {
+        Some(version) => format!("Install update {version}…"),
+        None => "Check for updates…".to_string(),
+    }
+}
 
 /// Whether a signing key is configured, and so whether the updater can run.
 ///
@@ -50,6 +108,7 @@ pub fn check_on_launch(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let Ok(updater) = app.updater() else { return };
         if let Ok(Some(update)) = updater.check().await {
+            set_available(&app, Some(update.version.clone()));
             tell(
                 &app,
                 "claude-buddy update available".to_string(),
@@ -83,6 +142,7 @@ pub fn check_and_install(app: AppHandle) {
         match updater.check().await {
             Ok(Some(update)) => {
                 let version = update.version.clone();
+                set_available(&app, Some(version.clone()));
                 // Before the download, not after: it can take a while on a slow
                 // connection, and the app restarts out from under the user when
                 // it succeeds. This is the only warning they get.
@@ -100,11 +160,14 @@ pub fn check_and_install(app: AppHandle) {
                     ),
                 }
             }
-            Ok(None) => tell(
-                &app,
-                "claude-buddy is up to date".into(),
-                format!("version {current}"),
-            ),
+            Ok(None) => {
+                set_available(&app, None);
+                tell(
+                    &app,
+                    "claude-buddy is up to date".into(),
+                    format!("version {current}"),
+                )
+            }
             Err(e) => tell(&app, "Update check failed".into(), e.to_string()),
         }
     });
@@ -114,6 +177,45 @@ pub fn check_and_install(app: AppHandle) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// The version slot is a global, so each test that touches it puts it back.
+    /// `cargo test -- --test-threads=1` is what this crate runs under, so they
+    /// cannot interleave.
+    fn reset_available() {
+        record_available(None);
+    }
+
+    #[test]
+    fn no_known_version_offers_a_check() {
+        assert_eq!(update_label(None), "Check for updates…");
+    }
+
+    #[test]
+    fn a_known_version_offers_to_install_it_by_name() {
+        assert_eq!(update_label(Some("0.7.0")), "Install update 0.7.0…");
+    }
+
+    #[test]
+    fn the_version_slot_round_trips_and_clears() {
+        reset_available();
+        assert_eq!(available(), None);
+
+        assert!(record_available(Some("0.7.0".into())));
+        assert_eq!(available().as_deref(), Some("0.7.0"));
+
+        // Being told you are current has to clear it, or the menu keeps
+        // offering to install a version that is already running.
+        assert!(record_available(None));
+        assert_eq!(available(), None);
+    }
+
+    #[test]
+    fn writing_the_same_version_twice_is_not_a_change() {
+        reset_available();
+        assert!(record_available(Some("0.7.0".into())));
+        assert!(!record_available(Some("0.7.0".into())));
+        reset_available();
+    }
 
     #[test]
     fn a_pubkey_makes_the_updater_live() {

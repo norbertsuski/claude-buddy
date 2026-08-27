@@ -1,4 +1,6 @@
+pub mod about;
 pub mod autostart;
+pub mod awake;
 pub mod bridge;
 pub mod commands;
 pub mod config;
@@ -120,6 +122,14 @@ pub fn run() {
                         .state::<crate::watcher::watch::SnapshotStore>()
                         .set(update.sessions.clone());
                     crate::notify::deliver(&handle, &update.alerts);
+
+                    // Stays on the watcher thread, unlike the visibility call
+                    // below: a power assertion is thread-safe and there is no
+                    // AppKit call to marshal.
+                    crate::awake::apply(crate::awake::should_stay_awake(
+                        &update.sessions,
+                        crate::config::cached().keep_awake,
+                    ));
 
                     let visibility_handle = handle.clone();
                     // Panel calls must run on the main thread; the watcher is

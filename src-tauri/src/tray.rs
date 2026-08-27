@@ -16,7 +16,7 @@ use tauri::menu::{
     CheckMenuItem, IsMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
 };
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Emitter, Wry};
+use tauri::{AppHandle, Emitter, Manager, Wry};
 
 use crate::config::{self, Config, MuteFor};
 use crate::watcher::watch::now_ms;
@@ -71,6 +71,18 @@ fn menu_for(app: &AppHandle, config: &Config) -> tauri::Result<Menu<Wry>> {
         None::<&str>,
     )?;
 
+    // Beside "Hide widget" rather than in Settings: both are decisions about
+    // what the machine does while the user is looking somewhere else, and this
+    // one is taken per-run — "not this time, it matters".
+    let keep_awake = CheckMenuItem::with_id(
+        app,
+        "keepawake",
+        "Keep screen awake",
+        true,
+        config.keep_awake,
+        None::<&str>,
+    )?;
+
     // Durations rather than a plain toggle, and no absolute deadline in any
     // label: there is no date library here, and a menu reading "muted until
     // 15:04" would be a lie from 15:05 until whenever the user next opened it.
@@ -105,7 +117,28 @@ fn menu_for(app: &AppHandle, config: &Config) -> tauri::Result<Menu<Wry>> {
     )?;
 
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
-    let update = MenuItem::with_id(app, "update", "Check for updates…", true, None::<&str>)?;
+
+    // With `LSUIElement` there is no app menu, so this is the only place the
+    // app states its own name, version and author.
+    //
+    // Deliberately not `PredefinedMenuItem::about`. That item is handled inside
+    // muda, which shows the panel and returns without sending a `MenuEvent` —
+    // so this handler never sees the click, and the panel is left sitting at
+    // normal window level behind the frontmost app, looking for all the world
+    // like a menu item that does nothing. `about::show` does the same call and
+    // then activates. See that module for the full story.
+    let about = MenuItem::with_id(app, "about", "About claude-buddy", true, None::<&str>)?;
+
+    // Named after whatever the last check found, so the item stops saying
+    // "check" once the answer is known and the launch notification has already
+    // told the user there is something waiting.
+    let update = MenuItem::with_id(
+        app,
+        "update",
+        crate::update::update_label(crate::update::available().as_deref()),
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", "Quit claude-buddy", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
 
@@ -114,8 +147,15 @@ fn menu_for(app: &AppHandle, config: &Config) -> tauri::Result<Menu<Wry>> {
     // it reached for plugin state that was never managed, which does not even
     // fail quietly — it panics on the spawned task, so the click looked like it
     // did nothing at all. Anyone who has configured a key gets the item back.
-    let mut items: Vec<&dyn IsMenuItem<Wry>> =
-        vec![&hide, &mute, &background, &separator, &settings];
+    let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![
+        &hide,
+        &keep_awake,
+        &mute,
+        &background,
+        &separator,
+        &settings,
+        &about,
+    ];
     if crate::update::is_configured(app.config().plugins.0.get("updater")) {
         items.push(&update);
     }
@@ -134,6 +174,13 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
             // unrelated happened.
             crate::window::apply_visibility(app);
         }
+        "keepawake" => {
+            edit(app, |config| config.keep_awake = !config.keep_awake);
+            // Same reason "hide" calls straight into visibility: the watcher
+            // re-evaluates only when a session changes, so ticking this
+            // mid-run would otherwise do nothing until the run ended.
+            apply_keep_awake(app);
+        }
         "mute:hour" => mute_for(app, MuteFor::Hour),
         "mute:eight" => mute_for(app, MuteFor::EightHours),
         "mute:open" => mute_for(app, MuteFor::UntilUnmuted),
@@ -142,10 +189,20 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
             config.show_background_jobs = !config.show_background_jobs
         }),
         "settings" => crate::window::open_settings(app),
+        "about" => crate::about::show(app),
         "update" => crate::update::check_and_install(app.clone()),
         "quit" => app.exit(0),
         _ => {}
     }
+}
+
+/// Engage or release the display-sleep hold against the sessions as they stand.
+fn apply_keep_awake(app: &AppHandle) {
+    let sessions = app.state::<crate::watcher::watch::SnapshotStore>().get();
+    crate::awake::apply(crate::awake::should_stay_awake(
+        &sessions,
+        config::cached().keep_awake,
+    ));
 }
 
 fn mute_for(app: &AppHandle, choice: MuteFor) {

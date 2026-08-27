@@ -31,8 +31,9 @@ libc = "0.2"
 plist = "1"
 dirs = "5"
 anyhow = "1"
+core-foundation = "0.10"
 core-graphics = "0.24"
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSScreen"] }
-objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSScreen"] }
+objc2-foundation = { version = "0.3", features = ["NSAttributedString", "NSDictionary", "NSGeometry", "NSString"] }
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2" }

@@ -37,32 +37,47 @@ check has found one.
 
 ### About item
 
-```rust
-PredefinedMenuItem::about(app, Some("About claude-buddy"), Some(metadata))
-```
+`PredefinedMenuItem::about` was the first attempt and does not work here. It is
+handled entirely inside muda, which calls
+`orderFrontStandardAboutPanelWithOptions:` and returns *without* sending a
+`MenuEvent` — only its non-predefined branch does that. So `on_menu_event`
+never hears the click and there is nowhere to hook.
 
-`tauri::menu::AboutMetadata::icon` takes a `tauri::image::Image`, so
-`app.default_window_icon().cloned()` — the same call that supplies the tray
-icon — provides the logo with no new bundled asset.
+The hook is essential, because AppKit builds the panel at
+`NSNormalWindowLevel`, and macOS draws an inactive application's normal-level
+windows behind the frontmost app. In a menu-bar app that never activates the
+panel opens *underneath* whatever the user is looking at: fully realised,
+`isVisible` true, opaque, on the active Space — and invisible. Clicking About
+looks exactly like clicking a dead menu item.
 
-Only four fields are set, because on macOS only four are honoured. muda 0.19.3
-maps `name`, `version`, `short_version`, `copyright`, `icon` and `credits` onto
-`NSAboutPanelOption*` keys and passes them to
-`orderFrontStandardAboutPanelWithOptions`. `authors`, `comments`, `license` and
-`website` exist on the struct and are silently dropped on this platform. The
-code carries a comment saying so, so that nobody later "completes" the metadata
-by adding `website` and spends an afternoon wondering why it never appears.
+So the item is an ordinary `MenuItem` with id `about`, and a new
+`src-tauri/src/about.rs` does the AppKit work: build the options dictionary,
+call `orderFrontStandardAboutPanelWithOptions:`, then
+`activateIgnoringOtherApps(true)` to bring the panel forward. `ignoringOtherApps`
+rather than a plain activate because the user clicked a menu-bar item belonging
+to an app that is not, and does not become, frontmost.
 
-- `name`: `"claude-buddy"`
-- `version`: `app.package_info().version` — which reads `tauri.conf.json`, the
-  same single source `chore: bump` moves. Nothing about the version is
-  duplicated here.
-- `credits`: `"Created by Norbert Suski"` and
-  `"github.com/norbertsuski/claude-buddy"` on a second line. Plain text — the
-  panel will not make it clickable, and `website`, which would have, is one of
-  the dropped fields.
-- `copyright`: `"MIT licensed"`. `license` is dropped on macOS, so `copyright`
-  is the only honoured field left to say it in.
+Only the keys macOS honours are set. `objc2-app-kit` exposes constants for
+`ApplicationName`, `ApplicationVersion`, `Version`, `Credits` and
+`ApplicationIcon`; there has never been an exported `Copyright` key, so that one
+goes in by its literal name, as muda also does it.
+
+- name: `"claude-buddy"`
+- application version: `app.package_info().version` — which reads
+  `tauri.conf.json`, the same single source `chore: bump` moves.
+- version: deliberately blank. AppKit renders this one in parentheses after the
+  version and both resolve to the same number, so left alone the panel reads
+  "Version 0.6.0 (0.6.0)".
+- credits: `"Created by Norbert Suski"` and
+  `"github.com/norbertsuski/claude-buddy"` on a second line, as an
+  `NSAttributedString` — which is what the key documents. Plain text: the panel
+  will not linkify a URL, and there is no honoured field that would.
+- copyright: `"MIT licensed"`. The panel has no licence field of its own.
+- icon: omitted on purpose. With nothing specified AppKit uses
+  `NSApplicationIcon` from the bundle, which is the app's own logo and one fewer
+  thing to keep in step. An unbundled `tauri dev` run gets the generic icon
+  instead — verified against a real `tauri build` bundle, which shows the
+  logo.
 
 Present unconditionally. Unlike the update item, it depends on nothing being
 configured.
@@ -108,10 +123,19 @@ appears only once a check has actually found something to install.
   version.
 - The available-version slot: set, read back, clear.
 
-Neither the panel nor the menu is unit-tested — both are AppKit. Verified
-manually: the panel shows icon, name, the version from `tauri.conf.json`, and
-the credits; the menu reads "Install update …" after a launch check finds one
-and reverts to "Check for updates…" after installing.
+Neither the panel nor the menu is unit-tested — both are AppKit, and the bug
+that shaped this design was invisible to every layer above AppKit: the panel
+object existed and reported itself visible throughout. It was found by
+breakpointing `-[NSApplication orderFrontStandardAboutPanelWithOptions:]` to
+confirm the call arrived, then reading the panel's own `frame`, `level`,
+`alphaValue` and `isOnActiveSpace` — `level = 0` was the answer. Note that the
+accessibility window list does *not* report the panel, so its absence there is
+not evidence that no panel exists; that false signal cost one wrong hypothesis.
+
+Verified manually against a release bundle: the panel shows the app logo,
+`claude-buddy`, `Version 0.6.0`, the credits and the licence, and comes to the
+front. The menu reads "Install update …" after a launch check finds one and
+reverts to "Check for updates…" after installing.
 
 ## What this owes
 

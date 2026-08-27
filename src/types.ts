@@ -91,6 +91,11 @@ export interface AppConfig {
    * setting.
    */
   hidden: boolean
+  /**
+   * Hold the display awake while a session is busy or waiting, from the tray
+   * menu's "Keep screen awake". Carried for the same reason as `hidden`.
+   */
+  keepAwake: boolean
   /** `free` to float where dragged, `notch` to flank the notch in the menu bar. */
   placement: string
   /** Display key to show the widget on, or null for the primary display. */

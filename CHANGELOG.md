@@ -5,6 +5,28 @@ section out of this file, and the release workflow uses it as the body of the
 GitHub release and as the notes in the in-app update dialog — so a section that
 is missing here leaves that tag with nothing but the download boilerplate.
 
+## Unreleased
+
+- **Keep screen awake** in the tray menu. A tick that holds the display on for
+  as long as a session is working or waiting on you, and releases it the moment
+  nothing is. Off unless you turn it on. A long run is exactly when nobody is
+  touching the keyboard, so the display sleeps on its idle timer and the answer
+  — or the permission question that stopped the run — ends up behind a dark,
+  locked screen. Note that while it is holding, the Mac will not auto-lock. It
+  is an IOKit power assertion, visible as *claude-buddy: agent working* in
+  `pmset -g assertions`, released by the kernel if the app exits. Subagents
+  follow **Show background jobs**: ones you have chosen not to see cannot hold
+  the display on either.
+- **About claude-buddy** in the tray menu — the standard macOS panel, with the
+  icon, the version you are running, the author and the licence. With no Dock
+  icon and no app menu there was nowhere the app said which version it was.
+- **The update item names the version it will install.** Once a check has found
+  something newer it reads *Install update 0.7.0…* instead of *Check for
+  updates…*. The launch check would tell you "version 0.7.0 — install it from
+  the menu bar" and the menu you then opened still offered to check, as though
+  nothing had. Same item and same action either way: it installs when there is
+  something to install and says you are up to date when there is not.
+
 ## v0.6.0 — 2026-08-27
 
 **The tray menu now carries the three things you toggle mid-task.** It had two

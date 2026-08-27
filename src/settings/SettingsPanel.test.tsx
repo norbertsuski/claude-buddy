@@ -24,6 +24,7 @@ const { SettingsPanel } = await import('./SettingsPanel')
 const config: AppConfig = {
   hideWhen: 'noSessions',
   hidden: false,
+  keepAwake: false,
   alertNeedsInput: true,
   alertDied: true,
   alertFinished: false,
