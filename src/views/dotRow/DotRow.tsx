@@ -34,6 +34,9 @@ export const HOVER_GRACE_MS = 180
 /** Gap between the pill and the popover, matching `--gap-popover`. */
 const POPOVER_GAP = 10
 
+/** How long the crumble runs, matching `crazy-fall-a` in crazy.css. */
+const ASH_MS = 1400
+
 /** Where each flame sits along the pill, and how far into its cycle it starts.
  *  Fixed, so changing level never remounts DOM — and the staggered delays are
  *  what make one keyframe track look like a fire rather than like eight things
@@ -79,6 +82,18 @@ export function DotRow({
   const flames = lit && heat.fire > 0 ? FLAME_OFFSETS : []
   const sparks = lit && heat.fire >= 2 ? SPARK_OFFSETS : []
   const cracked = lit && heat.strain > 0
+
+  // `died` alerts arrive on one update and are gone by the next. The crumble
+  // takes 1.4s, so the ids are held for that long — without this the attribute
+  // is removed on the following render and the animation stops halfway.
+  const [ashing, setAshing] = useState<readonly string[]>([])
+  const ashKey = heat.ash.join(',')
+  useEffect(() => {
+    if (ashKey === '') return
+    setAshing(ashKey.split(','))
+    const timer = setTimeout(() => setAshing([]), ASH_MS)
+    return () => clearTimeout(timer)
+  }, [ashKey])
 
   const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null)
   const [hoveredUsage, setHoveredUsage] = useState(false)
@@ -383,6 +398,7 @@ export function DotRow({
             className="pill"
             data-fire={lit && heat.fire > 0 ? String(heat.fire) : undefined}
             data-strain={cracked ? String(heat.strain) : undefined}
+            data-ash={ashing.length > 0 ? 'true' : undefined}
             // `--morph` is written per change rather than left to the
             // stylesheet: the duration the box needs depends on how far it is
             // going.
@@ -438,6 +454,7 @@ export function DotRow({
                 sessions={sessions}
                 hoveredSessionId={hoveredSessionId}
                 onHoverSession={setHoveredSessionId}
+                ashing={ashing}
               />
             </div>
           </div>
