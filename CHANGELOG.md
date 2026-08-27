@@ -5,6 +5,44 @@ section out of this file, and the release workflow uses it as the body of the
 GitHub release and as the notes in the in-app update dialog — so a section that
 is missing here leaves that tag with nothing but the download boilerplate.
 
+## v0.6.0 — 2026-08-27
+
+**The tray menu now carries the three things you toggle mid-task.** It had two
+items and a broken third; what belongs there turns out not to be "the settings
+that fit" but the ones you reach for while something else is happening.
+
+- **Hide widget** puts the widget away and keeps it away. It outranks *Hide the
+  widget* in Settings rather than being another of its modes — including
+  **Never** — because the setting answers "is there anything worth showing" and
+  this answers "not now". A session waking up mid-screen-share will not undo it.
+  Untick it, or set `hidden` back to `false`, to get the widget back.
+- **Mute alerts** is a submenu: **For 1 hour**, **For 8 hours**, or **Until I
+  unmute**. The old *Mute alerts 1h* was write-only — nothing told you a mute was
+  running and nothing could lift one early, so clicking it was indistinguishable
+  from clicking nothing. While a mute is in effect the item reads *Alerts muted*
+  and **Unmute now** inside it is live; it is greyed out the rest of the time, so
+  the menu answers "am I muted" without your having to remember.
+- **Show background jobs** is the Settings checkbox where you need it. One run
+  spawning six subagents is the moment you want them out of the row, and that
+  moment does not wait for a settings window. The menu and the form write the
+  same field, so a change in either shows up in the other immediately.
+
+Placement, the display, launch at login and the three alert events stay in
+Settings, where a longer list costs nothing.
+
+**The update item says what happened.** It is **Check for updates…** now, and it
+reports every outcome: already up to date, downloading, or why it could not.
+Before, installing on success was the only branch that said anything — already
+being on the newest version, an unreachable manifest and a failed download were
+all silence. The first of those is the common case, which is what made a working
+menu item look broken. The item is still absent entirely when no signing key is
+configured.
+
+**New settings key `hidden`.** `true` hides the widget whatever `hideWhen` says.
+`muteUntilMs` also accepts `9223372036854775807`, which is what *Until I unmute*
+writes; an indefinite mute is a sentinel rather than a date far in the future,
+so it cannot quietly expire.
+
 ## v0.5.0 — 2026-08-27
 
 **The app is called `claude-buddy` now, and it lives on GitHub.** The binary,
