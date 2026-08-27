@@ -1,0 +1,4 @@
+# Written by generate.sh at run time, not committed: both carry timestamps and
+# pids that are only true for a few minutes. See README.md in this directory.
+/sessions/
+/usage.json
