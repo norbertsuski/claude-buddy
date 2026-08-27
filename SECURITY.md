@@ -19,7 +19,7 @@ imply a support window that does not exist.
 
 | Version | Supported |
 |---|---|
-| 0.4.x (latest release) | yes |
+| 0.5.x (latest release) | yes |
 | anything earlier | no — upgrade |
 
 ## Reporting a vulnerability

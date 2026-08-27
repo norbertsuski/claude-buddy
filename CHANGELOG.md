@@ -5,7 +5,7 @@ section out of this file, and the release workflow uses it as the body of the
 GitHub release and as the notes in the in-app update dialog — so a section that
 is missing here leaves that tag with nothing but the download boilerplate.
 
-## Unreleased
+## v0.5.0 — 2026-08-27
 
 **The app is called `claude-buddy` now, and it lives on GitHub.** The binary,
 the app bundle and the DMG all change name with it: `claude-buddy.app` and
