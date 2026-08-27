@@ -1,13 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import {
-  CONFIG_EVENT,
-  CRAZY_LEVELS,
-  HIDE_MODES,
-  type AppConfig,
-  type DisplayInfo,
-} from '../types'
+import { CONFIG_EVENT, HIDE_MODES, type AppConfig, type DisplayInfo } from '../types'
 import './settings.css'
 
 /**
@@ -98,130 +92,166 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="settings" data-testid="settings">
-      <label htmlFor="hide-when">Hide the widget</label>
-      <select
-        id="hide-when"
-        value={config.hideWhen}
-        onChange={(e) => update({ hideWhen: e.target.value })}
-      >
-        {HIDE_MODES.map((mode) => (
-          <option key={mode.id} value={mode.id}>
-            {mode.label}
-          </option>
-        ))}
-      </select>
-
-      <label>
-        <input
-          type="checkbox"
-          checked={config.placement === 'notch'}
-          disabled={!hasNotch}
-          data-testid="placement-notch"
-          onChange={(e) => update({ placement: e.target.checked ? 'notch' : 'free' })}
-        />
-        Sit in the menu bar beside the notch
-        {!hasNotch && ' — needs a MacBook with a notch'}
-      </label>
-
-      <label htmlFor="display">Show on display</label>
-      <select
-        id="display"
-        // Notch placement derives its display from where the notch is, so the
-        // choice would be silently ignored rather than merely unused.
-        disabled={config.placement === 'notch'}
-        value={config.preferredDisplay ?? ''}
-        onChange={(e) => update({ preferredDisplay: e.target.value === '' ? null : e.target.value })}
-      >
-        <option value="">Primary display</option>
-        {displays.map((display) => (
-          <option key={display.key} value={display.key}>
-            {display.label}
-            {display.primary ? ' — primary' : ''}
-          </option>
-        ))}
-      </select>
-
-      <label>
-        <input
-          type="checkbox"
-          checked={config.sound}
-          onChange={(e) => update(e.target.checked ? soundOn() : soundOff())}
-        />
-        Play a sound
-      </label>
-
-      {/* Each event reads as off while the sound is off, whatever the file says.
-          The parent zeroes them on its way off, but a config hand-edited — or
-          written by a version that had no parent here — can still arrive with
-          one armed, and delivery already ignores it: `notify::should_deliver`
-          gates on the sound. The form has to say the same thing. */}
-      <div className="settings-group">
-        <label>
-          <input
-            type="checkbox"
-            checked={config.sound && config.alertNeedsInput}
-            disabled={!config.sound}
-            onChange={(e) => update({ alertNeedsInput: e.target.checked })}
-          />
-          when a session needs input
-        </label>
-
-        <label>
-          <input
-            type="checkbox"
-            checked={config.sound && config.alertDied}
-            disabled={!config.sound}
-            onChange={(e) => update({ alertDied: e.target.checked })}
-          />
-          when a session dies
-        </label>
-
-        <label>
-          <input
-            type="checkbox"
-            checked={config.sound && config.alertFinished}
-            disabled={!config.sound}
-            onChange={(e) => update({ alertFinished: e.target.checked })}
-          />
-          when a session finishes its turn
-        </label>
+      {/* A two-column grid: labels flush right against the controls they name,
+          controls flush left in a column of their own. That alignment is the
+          strongest single signal that a window belongs to the system rather
+          than to a web page, and it is what every AppKit preferences pane has
+          looked like for twenty years. The trailing colons are drawn by CSS so
+          the accessible name of each control stays the label itself. */}
+      <div className="field">
+        <label htmlFor="hide-when">Hide the widget</label>
+        <select
+          id="hide-when"
+          value={config.hideWhen}
+          onChange={(e) => update({ hideWhen: e.target.value })}
+        >
+          {HIDE_MODES.map((mode) => (
+            <option key={mode.id} value={mode.id}>
+              {mode.label}
+            </option>
+          ))}
+        </select>
       </div>
 
-      <label>
-        <input
-          type="checkbox"
-          checked={config.showBackgroundJobs}
-          onChange={(e) => update({ showBackgroundJobs: e.target.checked })}
-        />
-        Show background jobs and subagents
-      </label>
+      <div className="field">
+        <label htmlFor="display">Show on display</label>
+        <select
+          id="display"
+          // Notch placement derives its display from where the notch is, so the
+          // choice would be silently ignored rather than merely unused.
+          disabled={config.placement === 'notch'}
+          value={config.preferredDisplay ?? ''}
+          onChange={(e) =>
+            update({ preferredDisplay: e.target.value === '' ? null : e.target.value })
+          }
+        >
+          <option value="">Primary display</option>
+          {displays.map((display) => (
+            <option key={display.key} value={display.key}>
+              {display.label}
+              {display.primary ? ' — primary' : ''}
+            </option>
+          ))}
+        </select>
+      </div>
 
-      <label>
-        <input
-          type="checkbox"
-          checked={config.showUsage}
-          onChange={(e) => update({ showUsage: e.target.checked })}
-        />
-        Show the 5h limit at the end of the row
-      </label>
+      <div className="field">
+        <span className="field-name">Widget</span>
+        <div className="checks">
+          <label>
+            <input
+              type="checkbox"
+              checked={config.placement === 'notch'}
+              disabled={!hasNotch}
+              data-testid="placement-notch"
+              onChange={(e) => update({ placement: e.target.checked ? 'notch' : 'free' })}
+            />
+            Sit in the menu bar beside the notch
+          </label>
+          {!hasNotch && <p className="hint">Needs a MacBook with a notch.</p>}
 
-      <label htmlFor="crazy">Crazy mode</label>
-      <select id="crazy" value={config.crazy} onChange={(e) => update({ crazy: e.target.value })}>
-        {CRAZY_LEVELS.map((level) => (
-          <option key={level.id} value={level.id}>
-            {level.label}
-          </option>
-        ))}
-      </select>
+          <label>
+            <input
+              type="checkbox"
+              checked={config.showBackgroundJobs}
+              onChange={(e) => update({ showBackgroundJobs: e.target.checked })}
+            />
+            Show background jobs and subagents
+          </label>
 
-      <label>
-        <input
-          type="checkbox"
-          checked={config.launchAtLogin}
-          onChange={(e) => update({ launchAtLogin: e.target.checked })}
-        />
-        Launch at login
-      </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={config.showUsage}
+              onChange={(e) => update({ showUsage: e.target.checked })}
+            />
+            Show the 5h limit at the end of the row
+          </label>
+
+          {/* A checkbox rather than a two-item list, for the same reason notch
+              placement is one: `crazy` is a string so later levels can be added
+              without migrating anyone's settings file, but with only `off` and
+              `ember` in existence a popup button is a checkbox in costume. */}
+          <label>
+            <input
+              type="checkbox"
+              checked={config.crazy !== 'off'}
+              onChange={(e) => update({ crazy: e.target.checked ? 'ember' : 'off' })}
+            />
+            Crazy mode
+          </label>
+          <p className="hint">
+            The pill catches fire, shakes and fractures as sessions work, wait and run the
+            limit down.
+          </p>
+        </div>
+      </div>
+
+      <div className="field">
+        <span className="field-name">Alerts</span>
+        <div className="checks">
+          <label>
+            <input
+              type="checkbox"
+              checked={config.sound}
+              onChange={(e) => update(e.target.checked ? soundOn() : soundOff())}
+            />
+            Play a sound
+          </label>
+
+          {/* Each event reads as off while the sound is off, whatever the file
+              says. The parent zeroes them on its way off, but a config
+              hand-edited — or written by a version that had no parent here —
+              can still arrive with one armed, and delivery already ignores it:
+              `notify::should_deliver` gates on the sound. The form has to say
+              the same thing. */}
+          <div className="settings-group">
+            <label>
+              <input
+                type="checkbox"
+                checked={config.sound && config.alertNeedsInput}
+                disabled={!config.sound}
+                onChange={(e) => update({ alertNeedsInput: e.target.checked })}
+              />
+              when a session needs input
+            </label>
+
+            <label>
+              <input
+                type="checkbox"
+                checked={config.sound && config.alertDied}
+                disabled={!config.sound}
+                onChange={(e) => update({ alertDied: e.target.checked })}
+              />
+              when a session dies
+            </label>
+
+            <label>
+              <input
+                type="checkbox"
+                checked={config.sound && config.alertFinished}
+                disabled={!config.sound}
+                onChange={(e) => update({ alertFinished: e.target.checked })}
+              />
+              when a session finishes its turn
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div className="field">
+        <span className="field-name">General</span>
+        <div className="checks">
+          <label>
+            <input
+              type="checkbox"
+              checked={config.launchAtLogin}
+              onChange={(e) => update({ launchAtLogin: e.target.checked })}
+            />
+            Launch at login
+          </label>
+        </div>
+      </div>
 
       {error !== null && (
         <p className="settings-error" data-testid="settings-error">
@@ -229,9 +259,11 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
         </p>
       )}
 
-      <button type="button" onClick={onClose}>
-        Done
-      </button>
+      <div className="settings-foot">
+        <button type="button" onClick={onClose}>
+          Done
+        </button>
+      </div>
     </div>
   )
 }

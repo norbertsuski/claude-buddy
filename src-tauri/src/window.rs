@@ -1,3 +1,4 @@
+use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::Manager;
 use tauri::{
     AppHandle, LogicalPosition, LogicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
@@ -116,14 +117,32 @@ pub fn open_settings(app: &AppHandle) {
         WebviewUrl::App("index.html#settings".into()),
     )
     .title("claude-buddy Settings")
-    // Measured: the form is 451px tall, and at 420 the Done button sat below
-    // the bottom edge with no way to reach it. The panel scrolls now too, so a
-    // window shrunk past its content — or a setting added later — cannot put a
-    // control out of reach again.
-    .inner_size(360.0, 500.0)
-    .min_inner_size(320.0, 360.0)
+    // Sized for the grouped layout rather than for the old single column: the
+    // rows put a label and a popup button on one line, and at 360 wide the
+    // button truncated its own label on a window with room to spare. The panel
+    // scrolls, so a window shrunk past its content — or a setting added later —
+    // still cannot put a control out of reach.
+    .inner_size(480.0, 560.0)
+    .min_inner_size(400.0, 380.0)
     .resizable(true)
     .focused(true)
+    // The window's background is AppKit's own material rather than a colour
+    // painted by the page. A flat fill is the thing that gives a web-built
+    // settings window away: it does not pick up the desktop tint behind it, it
+    // does not desaturate when the window loses focus, and it does not follow
+    // the appearance the way every other window on the machine does.
+    //
+    // `WindowBackground` is the material AppKit uses for an ordinary window,
+    // which is what this is. `FollowsWindowActiveState` is the second half of
+    // it — the material goes flat and grey when the window is not frontmost,
+    // exactly like the About panel beside it.
+    .transparent(true)
+    .effects(
+        EffectsBuilder::new()
+            .effect(Effect::WindowBackground)
+            .state(EffectState::FollowsWindowActiveState)
+            .build(),
+    )
     .build()
     {
         Ok(settings) => {

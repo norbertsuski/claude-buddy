@@ -1,7 +1,42 @@
-/* The settings window is opaque, unlike the transparent widget panel. */
+/* The settings window should look like it belongs to the system, not to this
+   app. The widget is a transparent panel with a palette of its own and earns
+   that; a form with a title bar does not.
+
+   Four things do the work, and the first two matter most:
+
+   * The background is AppKit's own window material, set on the window in
+     `window::open_settings`. Everything here stays transparent so it shows
+     through. A flat fill is what gives a web-built settings window away — it
+     takes no tint from the desktop behind it and does not go grey when the
+     window loses focus.
+   * Labels are flush right against the controls they name, controls flush left
+     in a column of their own. That alignment is what an AppKit preferences pane
+     has looked like for twenty years.
+   * `color-scheme` so WebKit draws real AppKit controls, in the user's own
+     accent colour and appearance.
+   * Nothing overrides how those controls are drawn. */
+:root {
+  color-scheme: light dark;
+
+  --sw-text: #000000;
+  --sw-secondary: rgba(0, 0, 0, 0.55);
+  --sw-disabled: rgba(0, 0, 0, 0.28);
+  --sw-rule: rgba(0, 0, 0, 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sw-text: #ffffff;
+    --sw-secondary: rgba(255, 255, 255, 0.55);
+    --sw-disabled: rgba(255, 255, 255, 0.28);
+    --sw-rule: rgba(255, 255, 255, 0.13);
+  }
+}
+
 body.settings-window {
   padding: 0;
-  background: #12161d;
+  /* Transparent, so the window's NSVisualEffectView is what you see. */
+  background: transparent;
   /* The widget's stylesheet puts `overflow: hidden` on html and body, so that a
      transparent always-on-top panel can never scroll. The settings form is an
      ordinary resizable window whose content can outgrow it, and there it meant
@@ -15,35 +50,71 @@ body.settings-window {
 body.settings-window .settings {
   width: auto;
   min-height: 100vh;
-  /* Or the panel's own padding is added to a full viewport height and the
-     window scrolls by 28px with nothing in them. */
+  /* Or the padding is added to a full viewport height and the window scrolls by
+     its own inset with nothing in it. */
   box-sizing: border-box;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
 }
 
 .settings {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  width: 300px;
-  padding: 14px;
-  background: rgba(20, 24, 32, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(18px);
-  font: 500 12px/1.4 -apple-system, 'SF Pro Text', system-ui, sans-serif;
-  color: #e8ecf5;
+  gap: 14px;
+  padding: 20px 22px 18px;
+  background: transparent;
+  /* 13px is the system body size. The form was at 11.5px, which is AppKit's
+     "small" control size — right for a palette crowded into a widget, wrong for
+     a window with a title bar. */
+  font: 13px/1.35 -apple-system, 'SF Pro Text', system-ui, sans-serif;
+  color: var(--sw-text);
+  accent-color: AccentColor;
 }
 
-.settings label {
+/* One labelled row: name in the right-aligned column, control in the left-
+   aligned one. The name column is sized to the widest label and then held, so
+   every control on the pane starts at the same x. */
+.field {
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 10px;
+}
+
+.field > label:first-child,
+.field-name {
+  text-align: right;
+  color: var(--sw-text);
+  /* Drawn rather than written into the markup, so the accessible name of each
+     control stays the label itself and `getByLabelText('Hide the widget')`
+     keeps working. */
+}
+
+.field > label:first-child::after,
+.field-name::after {
+  content: ':';
+}
+
+/* A group of checkboxes sharing one name in the left column. */
+.checks {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.checks label,
+.settings-group label {
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-size: 11.5px;
-  color: #b6bfd0;
+  gap: 6px;
+  color: var(--sw-text);
+}
+
+/* Secondary text under the control it explains, indented past the box so it
+   lines up with the label rather than with the checkbox. */
+.hint {
+  margin: -2px 0 2px 20px;
+  color: var(--sw-secondary);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 /* The three alert events, indented under the sound that delivers them. The
@@ -52,40 +123,60 @@ body.settings-window .settings {
 .settings-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 7px;
   margin-left: 18px;
 }
 
 /* A disabled child has to look disabled, or a group switched off at the parent
    reads as three settings that simply stopped responding. */
+.checks label:has(input:disabled),
 .settings-group label:has(input:disabled) {
-  color: #6a7284;
+  color: var(--sw-disabled);
 }
 
-.settings select,
-.settings input[type='number'] {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 6px;
-  color: #e8ecf5;
-  font: 11.5px -apple-system, system-ui, sans-serif;
-  padding: 5px 7px;
+/* Deliberately unstyled. WebKit draws a real AppKit popup button and a real
+   checkbox for these, in the user's own accent colour and appearance, and every
+   property the old stylesheet set here — background, border, radius, colour —
+   replaced one with a rectangle that only resembled it. */
+.settings select {
+  font: 13px -apple-system, system-ui, sans-serif;
+  /* Proportional rather than a fixed cap: at 190px "When there are no sessions"
+     and a display name both truncated to nonsense on a window wide enough to
+     have shown them whole. A popup button still ellipsises when the window is
+     genuinely too narrow, which is AppKit's own answer. */
+  max-width: 100%;
+  justify-self: start;
 }
 
+.settings select:disabled {
+  opacity: 0.45;
+}
+
+.settings-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--sw-rule);
+}
+
+/* Left to AppKit as well, apart from the width a default button is given. The
+   pill it used to be is not a shape macOS has. */
 .settings button {
-  align-self: flex-end;
-  margin-top: 4px;
-  padding: 5px 14px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 999px;
-  color: #e8ecf5;
-  font: 600 11.5px -apple-system, system-ui, sans-serif;
-  cursor: pointer;
+  font: 13px -apple-system, system-ui, sans-serif;
+  min-width: 74px;
 }
 
 .settings-error {
-  margin: 0;
-  color: #e0533d;
-  font: 10.5px ui-monospace, Menlo, monospace;
+  margin: 0 0 0 126px;
+  color: #c0392b;
+  font-size: 11.5px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .settings-error {
+    color: #ff6961;
+  }
 }
