@@ -81,7 +81,7 @@ Notch placement takes the display choice out of your hands — the notch decides
 - macOS 13 or later
 - Xcode Command Line Tools — `xcode-select --install`
 - Node 20 or later
-- Rust, via [rustup](https://rustup.rs)
+- Rust 1.77 or later, via [rustup](https://rustup.rs)
 
 ## Install
 
@@ -103,7 +103,7 @@ For a distributable image instead, `npm run dmg` writes `dist-dmg/clawde-buddy_<
 npm run tauri dev
 ```
 
-The frontend hot-reloads; Rust changes trigger a rebuild.
+The frontend hot-reloads; Rust changes trigger a rebuild. [CONTRIBUTING.md](CONTRIBUTING.md) has the fuller version — the layer boundaries the code is expected to keep, the test commands, and what CI will say about a merge request.
 
 ## Using it
 
@@ -189,6 +189,31 @@ Jumping to a session walks the process tree to the first executable inside a `.a
 - **Multi-display placement follows the primary display** by default; pick another in Settings if that is not the one you watch.
 - **Notch mode assumes the menu bar is where the menu bar is.** A fullscreen app, or *automatically hide and show the menu bar*, leaves the slab at the top edge over the app's own content. It also needs the notched built-in display: close the lid and the widget has nothing to sit in.
 
+## Tests
+
+```bash
+npm test
+```
+
+```bash
+cd src-tauri && cargo test -- --test-threads=1
+```
+
+277 Rust tests and 191 frontend tests. The Rust suite is weighted toward `watcher::state`, where every session state and transition is derived — that function is pure, with the clock, pid liveness and transcript activity all injected, so the whole state machine is tested without touching a filesystem. The watcher-loop tests use real files and real time, hence `--test-threads=1`.
+
+Three environment variables point the widget at fixtures instead of live data, which is how the screenshots on this page were made — the third because the real usage file carries what the account has actually spent, which is neither reproducible nor anyone else's business. Setting `CLAWDE_BUDDY_USAGE_FILE` also stops the live call, which would otherwise put the real figure straight back on screen.
+
+The fixture data is committed under `fixtures/`, and `scripts/dev-fixtures.sh` points `CLAWDE_BUDDY_REGISTRY_DIR`, `CLAWDE_BUDDY_PROJECTS_DIR` and `CLAWDE_BUDDY_USAGE_FILE` at it and launches the widget, so the screenshots above reproduce in one command:
+
+```bash
+scripts/dev-fixtures.sh        # npm run tauri dev
+scripts/dev-fixtures.sh app    # the release bundle, already built
+```
+
+Half of the fixture is generated rather than committed, and the script regenerates it on every run. It has to: a session's state is derived from how long it has been quiet and from whether its pid is still alive, so a registry with timestamps frozen at the moment it was written reads as a row of paused, dead sessions a fortnight later. The transcripts are static — nothing in them is time-sensitive — and `fixtures/generate.sh` stamps the registry and the usage window fresh each time. One consequence worth knowing before you go looking for the red cross: the dead session ages off the row five minutes after the widget first sees it.
+
+Set the three by hand instead if you would rather aim the widget at a registry of your own.
+
 ## Releasing
 
 Tag and push; the pipeline builds the DMG, uploads it and creates the release.
@@ -203,27 +228,11 @@ but the download boilerplate in it.
 scripts/release-notes.sh v0.4.0
 ```
 
-## Tests
-
-```bash
-npm test
-```
-
-```bash
-cd src-tauri && cargo test -- --test-threads=1
-```
-
-262 Rust tests and 191 frontend tests. The Rust suite is weighted toward `watcher::state`, where every session state and transition is derived — that function is pure, with the clock, pid liveness and transcript activity all injected, so the whole state machine is tested without touching a filesystem. The watcher-loop tests use real files and real time, hence `--test-threads=1`.
-
-Three environment variables point the widget at fixtures instead of live data, which is how the screenshots on this page were made — the third because the real usage file carries what the account has actually spent, which is neither reproducible nor anyone else's business. Setting `CLAWDE_BUDDY_USAGE_FILE` also stops the live call, which would otherwise put the real figure straight back on screen:
-
-```bash
-CLAWDE_BUDDY_REGISTRY_DIR=/path/to/sessions CLAWDE_BUDDY_PROJECTS_DIR=/path/to/projects CLAWDE_BUDDY_USAGE_FILE=/path/to/usage.json src-tauri/target/release/bundle/macos/clawde-buddy.app/Contents/MacOS/clawde-buddy
-```
-
-## Releasing
+### Building the image
 
 `npm run dmg` builds the installer image with `hdiutil`, deliberately not through Tauri's `dmg` bundler — that one drives Finder over AppleScript to arrange the window and times out without Automation permission, locally and in CI alike. The result installs identically, just without a custom background.
+
+### The macOS runner
 
 `.gitlab-ci.yml` builds and publishes on a tag: it runs the build, uploads the DMG to the Generic Packages registry and attaches it to a Release. A `.app` cannot be cross-compiled from Linux, so that job needs a macOS runner, and there are two ways to have one:
 
@@ -285,6 +294,16 @@ TAURI_SIGNING_PRIVATE_KEY=$(cat ~/.tauri/clawde-buddy.key) \
 
 The spec and implementation plans this was built from are kept in the repo:
 
-- [Design spec](docs/superpowers/specs/2026-08-25-clawde-buddy-design.md)
-- [Implementation plan, v1](docs/superpowers/plans/2026-08-25-clawde-buddy-v1.md)
-- [Implementation plan, v2](docs/superpowers/plans/2026-08-25-clawde-buddy-v2.md)
+- [Design spec](docs/superpowers/specs/2026-08-25-clawde-buddy-design.md), and the [v2 design](docs/superpowers/specs/2026-08-25-clawde-buddy-v2-design.md) that followed it
+- [Notch mode design](docs/superpowers/specs/2026-08-26-notch-mode-design.md)
+- Implementation plans, [v1](docs/superpowers/plans/2026-08-25-clawde-buddy-v1.md) and [v2](docs/superpowers/plans/2026-08-25-clawde-buddy-v2.md)
+
+## Contributing
+
+Contributions are welcome, under the same MIT terms as everything else here. [CONTRIBUTING.md](CONTRIBUTING.md) carries the setup and the conventions — how the three layers are meant to stay apart, and what a merge request is expected to arrive with. Anything that looks like a security problem goes the way [SECURITY.md](SECURITY.md) describes rather than into a public issue, so that a fix can land before the details do.
+
+One thing about the pipeline is worth knowing in advance: the Rust suite needs macOS, and a fork has no macOS runner. A merge request from a fork therefore gets the frontend tests, the typecheck and a format check, and nothing else — the maintainer runs `cargo test` on a Mac before merging. A green pipeline on your fork is most of the story, not all of it.
+
+## License
+
+MIT, copyright Norbert Suski. The full text is in [LICENSE](LICENSE).

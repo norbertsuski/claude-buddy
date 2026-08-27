@@ -2,10 +2,21 @@
   "name": "clawde-buddy",
   "private": true,
   "version": "0.4.0",
+  "description": "A floating always-on-top macOS widget that shows what every local Claude Code session is doing, and tells you when one is waiting on you.",
+  "license": "MIT",
+  "author": "Norbert Suski",
+  "repository": {
+    "type": "git",
+    "url": "https://gitlab.com/norbert.suski/clawde-buddy.git"
+  },
+  "bugs": {
+    "url": "https://gitlab.com/norbert.suski/clawde-buddy/-/issues"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "typecheck": "tsc --noEmit",
     "tauri": "tauri",
     "test": "vitest run",
     "test:watch": "vitest",
