@@ -20,8 +20,10 @@ import {
   widgetWindowSize,
 } from '../../useWidgetSize'
 import { centredAnchor, POPOVER_WIDTH, targetAtPoint, useCursor } from '../../useCursor'
+import { CALM, deriveHeat, isCalm } from './heat'
 import type { SessionViewProps } from '../SessionView'
 import './dotRow.css'
+import './crazy.css'
 
 /**
  * Delay before the popover opens. Without it, sweeping the cursor across the
@@ -32,7 +34,41 @@ export const HOVER_GRACE_MS = 180
 /** Gap between the pill and the popover, matching `--gap-popover`. */
 const POPOVER_GAP = 10
 
-export function DotRow({ sessions, usage = null }: SessionViewProps) {
+/** Where each flame sits along the pill, and how far into its cycle it starts.
+ *  Fixed, so changing level never remounts DOM — and the staggered delays are
+ *  what make one keyframe track look like a fire rather than like eight things
+ *  doing the same thing at the same moment. */
+const FLAME_OFFSETS = [
+  { left: '3%', delay: '0s' },
+  { left: '15%', delay: '-0.3s' },
+  { left: '27%', delay: '-0.7s' },
+  { left: '39%', delay: '-0.15s' },
+  { left: '51%', delay: '-0.55s' },
+  { left: '63%', delay: '-0.9s' },
+  { left: '75%', delay: '-0.25s' },
+  { left: '88%', delay: '-0.65s' },
+]
+
+const SPARK_OFFSETS = [
+  { left: '18%', bottom: '9px', delay: '0s' },
+  { left: '38%', bottom: '6px', delay: '-0.5s' },
+  { left: '58%', bottom: '8px', delay: '-0.9s' },
+  { left: '80%', bottom: '5px', delay: '-1.3s' },
+]
+
+export function DotRow({
+  sessions,
+  usage = null,
+  alerts = [],
+  crazy = 'off',
+}: SessionViewProps) {
+  // Off is free: nothing is derived, no attribute is written and no element is
+  // mounted, so the widget is what it was before crazy mode existed.
+  const heat = crazy === 'ember' ? deriveHeat(sessions, usage, alerts) : CALM
+  const lit = !isCalm(heat)
+  const flames = lit && heat.fire > 0 ? FLAME_OFFSETS : []
+  const sparks = lit && heat.fire >= 2 ? SPARK_OFFSETS : []
+
   const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null)
   const [hoveredUsage, setHoveredUsage] = useState(false)
   const [anchorOffset, setAnchorOffset] = useState(0)
@@ -307,28 +343,63 @@ export function DotRow({ sessions, usage = null }: SessionViewProps) {
       data-flashing={flashing ? 'true' : 'false'}
       style={rowWidth === null ? undefined : { width: rowWidth }}
     >
-      <div
-        ref={pillRef}
-        className="pill"
-        // `--morph` is written per change rather than left to the stylesheet:
-        // the duration the box needs depends on how far it is going.
-        style={
-          {
-            '--morph': `${morphMs}ms`,
-            ...(pillBox === null ? {} : { width: pillBox.width, height: pillBox.height }),
-          } as CSSProperties
-        }
-      >
-        <div className="variant-slot" ref={collapsedSlot} data-show={showNamed ? 'false' : 'true'}>
-          <CollapsedPill sessions={sessions} usage={usage} />
-        </div>
-        <div className="variant-slot" ref={expandedSlot} data-show={showNamed ? 'true' : 'false'}>
-          <NamedDotRow
-            usage={usage}
-            sessions={sessions}
-            hoveredSessionId={hoveredSessionId}
-            onHoverSession={setHoveredSessionId}
-          />
+      {/* Two wrappers, one transform each. `.pill` already owns an animation —
+          the attention flash — and the CSS shorthand does not compose across
+          rules, so jitter and shudder cannot live there. Both are rendered
+          unconditionally so the pill is never remounted as heat comes and
+          goes; a remount would restart the box morph mid-flight. */}
+      <div className={lit ? 'crazy-shake' : undefined}>
+        <div className={lit ? 'crazy-shudder' : undefined}>
+          <div
+            ref={pillRef}
+            className="pill"
+            data-fire={lit && heat.fire > 0 ? String(heat.fire) : undefined}
+            // `--morph` is written per change rather than left to the
+            // stylesheet: the duration the box needs depends on how far it is
+            // going.
+            style={
+              {
+                '--morph': `${morphMs}ms`,
+                ...(pillBox === null ? {} : { width: pillBox.width, height: pillBox.height }),
+              } as CSSProperties
+            }
+          >
+            {lit && heat.fire > 0 && <span className="crazy-heat" />}
+            {flames.length > 0 && (
+              <span className="crazy-flames" aria-hidden="true">
+                {flames.map((flame) => (
+                  <i key={flame.left} style={{ left: flame.left, animationDelay: flame.delay }} />
+                ))}
+              </span>
+            )}
+            {sparks.map((spark) => (
+              <span
+                key={spark.left}
+                className="crazy-spark"
+                aria-hidden="true"
+                style={{ left: spark.left, bottom: spark.bottom, animationDelay: spark.delay }}
+              />
+            ))}
+            <div
+              className="variant-slot"
+              ref={collapsedSlot}
+              data-show={showNamed ? 'false' : 'true'}
+            >
+              <CollapsedPill sessions={sessions} usage={usage} />
+            </div>
+            <div
+              className="variant-slot"
+              ref={expandedSlot}
+              data-show={showNamed ? 'true' : 'false'}
+            >
+              <NamedDotRow
+                usage={usage}
+                sessions={sessions}
+                hoveredSessionId={hoveredSessionId}
+                onHoverSession={setHoveredSessionId}
+              />
+            </div>
+          </div>
         </div>
       </div>
       {showNamed && (hovered !== null || (hoveredUsage && usage !== null)) && (

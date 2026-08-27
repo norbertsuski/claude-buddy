@@ -39,6 +39,49 @@ const sessions: SessionSnapshot[] = [
   },
 ]
 
+function makeSession(over: Partial<SessionSnapshot>): SessionSnapshot {
+  return { ...sessions[0], detail: null, elapsedMs: 0, ...over }
+}
+
+describe('crazy mode', () => {
+  it('mounts nothing extra when it is off', () => {
+    const { container } = render(
+      <DotRow
+        sessions={[makeSession({ sessionId: 'a', state: 'busy' }), makeSession({ sessionId: 'b', state: 'busy' })]}
+        crazy="off"
+      />,
+    )
+    expect(container.querySelector('.crazy-shake')).toBeNull()
+    expect(container.querySelector('.crazy-heat')).toBeNull()
+    expect(container.querySelector('.crazy-flames')).toBeNull()
+    expect(container.querySelector('.pill')?.getAttribute('data-fire')).toBeNull()
+  })
+
+  it('mounts nothing extra when it is on but nothing is happening', () => {
+    const { container } = render(
+      <DotRow sessions={[makeSession({ sessionId: 'a', state: 'idle' })]} crazy="ember" />,
+    )
+    expect(container.querySelector('.crazy-heat')).toBeNull()
+    expect(container.querySelector('.crazy-shake')).toBeNull()
+  })
+
+  it('burns at the level the busy count calls for', () => {
+    const { container } = render(
+      <DotRow
+        sessions={[
+          makeSession({ sessionId: 'a', state: 'busy' }),
+          makeSession({ sessionId: 'b', state: 'busy' }),
+          makeSession({ sessionId: 'c', state: 'busy' }),
+        ]}
+        crazy="ember"
+      />,
+    )
+    expect(container.querySelector('.pill')?.getAttribute('data-fire')).toBe('3')
+    expect(container.querySelectorAll('.crazy-flames i')).toHaveLength(8)
+    expect(container.querySelectorAll('.crazy-spark')).toHaveLength(4)
+  })
+})
+
 describe('DotRow', () => {
   // Both variants stay mounted so they can crossfade; `data-show` on the
   // wrapping slot is what says which one the user sees.
