@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CONFIG_EVENT, type AppConfig } from '../types'
+import { CONFIG_EVENT, CRAZY_LEVELS, type AppConfig } from '../types'
 
 const invoke = vi.fn()
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }))
@@ -25,6 +25,7 @@ const config: AppConfig = {
   hideWhen: 'noSessions',
   hidden: false,
   keepAwake: false,
+  crazy: 'off',
   alertNeedsInput: true,
   alertDied: true,
   alertFinished: false,
@@ -181,6 +182,23 @@ describe('SettingsPanel', () => {
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith('set_config', {
         config: expect.objectContaining({ showUsage: false }),
+      }),
+    )
+  })
+
+  it('offers every crazy level and saves the chosen one', async () => {
+    render(<SettingsPanel onClose={vi.fn()} />)
+    const select = await screen.findByLabelText('Crazy mode')
+
+    expect([...select.querySelectorAll('option')].map((o) => o.textContent)).toEqual(
+      CRAZY_LEVELS.map((level) => level.label),
+    )
+
+    await userEvent.selectOptions(select, 'ember')
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('set_config', {
+        config: expect.objectContaining({ crazy: 'ember' }),
       }),
     )
   })
