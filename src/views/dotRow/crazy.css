@@ -311,3 +311,54 @@
     opacity: 0;
   }
 }
+
+/* ── Ash ──────────────────────────────────────────────────────────────
+   Dying is a moment, not a condition. The sequence runs once and the dot
+   settles back to the ordinary dead cross it draws the rest of the time. */
+.pill[data-ash='true'] .dot-dead::before {
+  animation: crazy-fall-a 1.4s ease-in 1;
+}
+
+.pill[data-ash='true'] .dot-dead::after {
+  animation: crazy-fall-b 1.4s ease-in 1;
+}
+
+/* The expanded row has a dot per session, so only the one that actually died
+   crumbles. The collapsed row's "N died" chip is an aggregate with a single dot
+   and no session to be precise about, so it follows the pill. */
+.pill[data-ash='true'] .entry .dot-dead:not([data-ash='true'])::before,
+.pill[data-ash='true'] .entry .dot-dead:not([data-ash='true'])::after {
+  animation: none;
+}
+
+@keyframes crazy-fall-a {
+  0%,
+  16% {
+    transform: rotate(45deg) translate(0, 0);
+    opacity: 1;
+  }
+  55% {
+    transform: rotate(88deg) translate(2px, 7px);
+    opacity: 0;
+  }
+  100% {
+    transform: rotate(45deg) translate(0, 0);
+    opacity: 1;
+  }
+}
+
+@keyframes crazy-fall-b {
+  0%,
+  20% {
+    transform: rotate(-45deg) translate(0, 0);
+    opacity: 1;
+  }
+  62% {
+    transform: rotate(-96deg) translate(-3px, 8px);
+    opacity: 0;
+  }
+  100% {
+    transform: rotate(-45deg) translate(0, 0);
+    opacity: 1;
+  }
+}

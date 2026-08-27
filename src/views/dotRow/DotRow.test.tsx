@@ -82,6 +82,27 @@ describe('crazy mode', () => {
     expect(container.querySelector('[data-shake]')).toBeNull()
   })
 
+  it('crumbles the dead dot when a session dies, then stops', async () => {
+    vi.useFakeTimers()
+    try {
+      const dead = makeSession({ sessionId: 'a', state: 'dead' })
+      const alerts = [{ sessionId: 'a', name: 'repo', kind: 'died' as const, detail: null }]
+      const { container } = render(<DotRow sessions={[dead]} alerts={alerts} crazy="ember" />)
+
+      expect(container.querySelector('.pill')?.getAttribute('data-ash')).toBe('true')
+
+      // Held for the length of the animation and no longer: a dead session can
+      // sit in the list for hours, and an effect outliving the moment would be
+      // permanent noise.
+      await act(async () => {
+        vi.advanceTimersByTime(1_500)
+      })
+      expect(container.querySelector('.pill')?.getAttribute('data-ash')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('fractures the pill as the limit runs down', () => {
     const usage = { percent: 96, resetsAtMs: 0, severity: 'critical' as const }
     const { container } = render(

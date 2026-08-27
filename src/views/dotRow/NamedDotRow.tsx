@@ -24,6 +24,8 @@ interface Props {
    * name, so between two of them there would be nowhere left showing it.
    */
   usage?: Usage | null
+  /** Sessions crumbling right now, so only the one that died animates. */
+  ashing?: readonly string[]
 }
 
 export function NamedDotRow({
@@ -32,6 +34,7 @@ export function NamedDotRow({
   onHoverSession,
   onHoverOffset,
   usage = null,
+  ashing = [],
 }: Props) {
   const visible = sessions.slice(0, MAX_VISIBLE)
   const hidden = sessions.length - visible.length
@@ -44,6 +47,7 @@ export function NamedDotRow({
           session={session}
           separated={index > 0}
           hovered={hoveredSessionId === session.sessionId}
+          ashing={ashing.includes(session.sessionId)}
           onHover={(sessionId, element) => {
             onHoverSession(sessionId)
             // Only an enter carries an element, and only an enter has an offset

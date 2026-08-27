@@ -14,6 +14,8 @@ interface Props {
    * and a notch chip share one entry.
    */
   onHover: (sessionId: string | null, element: HTMLElement | null) => void
+  /** Whether this session just died and its dot should crumble. */
+  ashing?: boolean
 }
 
 /**
@@ -23,7 +25,13 @@ interface Props {
  * identically. Two copies drifted the moment one of them gained a data
  * attribute the popover hit-testing depended on.
  */
-export function SessionEntry({ session, separated, hovered, onHover }: Props) {
+export function SessionEntry({
+  session,
+  separated,
+  hovered,
+  onHover,
+  ashing = false,
+}: Props) {
   return (
     <span className="entry-group">
       {separated &&
@@ -46,7 +54,10 @@ export function SessionEntry({ session, separated, hovered, onHover }: Props) {
         onMouseEnter={(e) => onHover(session.sessionId, e.currentTarget)}
         onMouseLeave={() => onHover(null, null)}
       >
-        <span className={`dot dot-${session.state}`} />
+        <span
+          className={`dot dot-${session.state}`}
+          data-ash={ashing ? 'true' : undefined}
+        />
         <span className="entry-name">{shortName(session.name)}</span>
       </span>
     </span>
