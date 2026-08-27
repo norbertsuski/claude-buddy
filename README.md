@@ -50,18 +50,28 @@ Hover a name and a popover opens centred beneath it, with the state and how long
 
 ### Crazy mode
 
-Off by default. Turned on in Settings, the widget stops being subtle about what it is already telling you:
+Off by default. Turned on in Settings, the widget stops being subtle about what it is already telling you.
 
-- **Fire** — the pill warms as one session goes busy and is properly alight at three, with flames along its bottom edge and sparks coming off it. Background jobs and subagents do not count towards it.
-- **Shake** — a session that has been waiting on you for more than thirty seconds makes the pill tremble, harder the longer it waits. It stops while the pointer is over the widget, so it never becomes a moving target.
+![The collapsed pill on fire: an amber "1 needs you" chip, a green "3 working" chip, a red "1 died" chip, then "2 idle" and "1 job", with flames licking along the inside of the pill's bottom edge, sparks rising off them, a hairline fracture running across the pill and the limit bar glowing molten at the end](docs/media/crazy.gif)
+
+- **Fire** — the pill warms as one session goes busy and is properly alight at three, with flames along its bottom edge and sparks coming off it. Background jobs and subagents do not count towards it: they are work you did not start.
+- **Shake** — a session that has been waiting on you for more than thirty seconds makes the pill tremble, harder the longer it waits, to a peak of 1.4px. It stops while the pointer is over the widget, so it never becomes a moving target.
 - **Fracture** — as the five-hour limit runs down, cracks spread across the pill. At the last of it the limit bar goes molten and drips.
-- **Ash** — a session dying breaks its dot apart once, and it settles back to the ordinary cross.
+- **Ash** — a session dying breaks its dot apart once, and it settles back to the ordinary cross. Once, not forever: a dead session can sit in the row for hours.
+
+Each of the four answers to its own signal, so the widget still says *which* thing is intense rather than only that something is.
+
+![The expanded row on fire: api-service waiting behind an amber triangle, its background job migrate-schemas demoted behind an arrow, then payments-api, web-app and search-index working behind green circles, design-system idle, docs-site paused, infra-tools dead behind a red cross, with flames along the bottom edge, cracks across the pill and the limit reading 16m](docs/media/crazy-expanded.png)
 
 Nothing animates while nothing is happening: an idle machine with crazy mode on costs exactly what an idle machine with it off costs. If your Mac is set to reduce motion, the colours and the cracks still ramp but nothing moves — no flames, no shake, no sparks.
+
+Crazy mode applies to the floating widget. Notch placement is unaffected.
 
 ### The five-hour limit
 
 The end of the row is Claude Code's own five-hour usage window: a bar of how much is left, and the share as a number. The bar warms to amber and then red as the window fills, and hovering it opens a popover with the reset time. Turn it off with `showUsage`.
+
+![The five-hour popover open beneath the limit bar at the end of the expanded row, reading: used 36%, resets in 2h39m at 02:34 AM](docs/media/usage.png)
 
 The figure comes from the API, and only from there: the widget asks for it every five minutes with the same `GET /api/oauth/usage` Claude Code makes, using the OAuth token Claude Code already holds — read from `CLAUDE_CODE_OAUTH_TOKEN`, `~/.claude/.credentials.json` or the login Keychain. `showUsage` governs both halves; hide the meter and the requests stop with it.
 
@@ -154,10 +164,12 @@ There is **no Dock icon and no Cmd-Tab entry** — it is a menu-bar app. The tra
 - **Keep screen awake while agents work** — a tick that holds the display on for as long as a session is working or waiting on you. While it is actually holding, the item reads *Keeping screen awake now*, so the menu answers "is it doing anything right now" — on an idle machine, ticked, it does nothing at all. Off unless you turn it on. A long run is exactly when nobody is touching the keyboard, so the display sleeps on its idle timer and the answer — or the permission question that stopped the run — ends up behind a dark, locked screen. While this is ticked and something is actually working, **the Mac will not auto-lock**; the moment nothing is working it releases and normal sleep resumes. `pmset -g assertions` names the hold as *claude-buddy: agent working* if you want to see it. Subagents follow **Show background jobs**: ones you have chosen not to see cannot hold the display on either.
 - **Show background jobs** — the same tick as the Settings checkbox, where you need it: one run spawning six subagents is the moment you want them out of the row, and that moment does not wait for a settings window.
 - **Mute alerts** — a submenu: **For 1 hour**, **For 8 hours**, or **Until I unmute**. While a mute is running the item reads *Alerts muted* and **Unmute now** inside it becomes clickable; it is greyed out the rest of the time, so the menu answers "am I muted" without your having to remember.
-- **Settings…** — opens a normal window: when to hide the widget, which display to use, whether to sit in the notch, the sound and its three alert events, the 5h limit, background jobs, launch at login
+- **Settings…** — opens a normal window: when to hide the widget, which display to use, whether to sit in the notch, the sound and its three alert events, the 5h limit, background jobs, crazy mode, launch at login
 - **Quit claude-buddy**
 
 The toggles and the form write the same file, so a change made in either place shows up in the other immediately.
+
+![The Settings window: popup buttons for "Hide the widget" set to "When there are no sessions" and "Show on display" set to "Primary display", then checkboxes grouped under Widget for sitting beside the notch, showing background jobs, showing the 5h limit and Crazy mode; under Alerts for playing a sound and its three events; and under General for launching at login](docs/media/settings.png)
 
 It starts at the top centre of the primary display. Pick a different screen under Settings → *Show on display*, or drag the pill anywhere; positions are remembered per display, so docking and undocking a monitor puts it back where you left it rather than off-screen.
 
