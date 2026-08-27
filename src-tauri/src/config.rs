@@ -49,6 +49,11 @@ pub struct Config {
     /// locking, and that must not start happening because someone installed a
     /// status widget.
     pub keep_awake: bool,
+    /// How theatrical the widget is allowed to be: `off`, or `ember` to let the
+    /// pill catch fire, shake and fracture in response to what it is already
+    /// showing. Off by default and deliberately so — the calm widget is the
+    /// correct default for something that lives in the menu bar.
+    pub crazy: String,
     /// Where the widget lives: `free` to float wherever the user dragged it, or
     /// `notch` to sit in the menu bar flanking a MacBook's notch.
     pub placement: String,
@@ -76,6 +81,7 @@ impl Default for Config {
             hide_when: "noSessions".into(),
             hidden: false,
             keep_awake: false,
+            crazy: "off".into(),
             placement: "free".into(),
             preferred_display: None,
             positions: HashMap::new(),
@@ -85,6 +91,11 @@ impl Default for Config {
 
 /// Accepted values for the `placement` setting.
 pub const PLACEMENTS: [&str; 2] = ["free", "notch"];
+
+/// Crazy-mode levels that exist. `blaze` and `inferno` are designed in the spec
+/// but not built, and are deliberately absent so the settings form cannot offer
+/// a level that does nothing.
+pub const CRAZY_LEVELS: [&str; 2] = ["off", "ember"];
 
 /// `mute_until_ms` for a mute the user has to lift themselves.
 ///
@@ -288,6 +299,24 @@ pub fn save(path: &Path, config: &Config) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn crazy_defaults_to_off_and_round_trips() {
+        assert_eq!(Config::default().crazy, "off");
+
+        // A settings file written before crazy mode existed must load with the
+        // feature off rather than failing to parse.
+        let older = r#"{"placement":"free","showUsage":true}"#;
+        let loaded: Config = serde_json::from_str(older).expect("older config parses");
+        assert_eq!(loaded.crazy, "off");
+
+        let mut config = Config::default();
+        config.crazy = "ember".into();
+        let json = serde_json::to_string(&config).expect("serialises");
+        let back: Config = serde_json::from_str(&json).expect("round-trips");
+        assert_eq!(back.crazy, "ember");
+        assert!(CRAZY_LEVELS.contains(&back.crazy.as_str()));
+    }
 
     fn temp_path(tag: &str) -> PathBuf {
         std::env::temp_dir().join(format!("cb-config-{}-{tag}.json", std::process::id()))

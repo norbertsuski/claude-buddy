@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { CONFIG_EVENT, HIDE_MODES, type AppConfig, type DisplayInfo } from '../types'
+import {
+  CONFIG_EVENT,
+  CRAZY_LEVELS,
+  HIDE_MODES,
+  type AppConfig,
+  type DisplayInfo,
+} from '../types'
 import './settings.css'
 
 /**
@@ -198,6 +204,15 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
         />
         Show the 5h limit at the end of the row
       </label>
+
+      <label htmlFor="crazy">Crazy mode</label>
+      <select id="crazy" value={config.crazy} onChange={(e) => update({ crazy: e.target.value })}>
+        {CRAZY_LEVELS.map((level) => (
+          <option key={level.id} value={level.id}>
+            {level.label}
+          </option>
+        ))}
+      </select>
 
       <label>
         <input

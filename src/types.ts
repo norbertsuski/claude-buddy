@@ -96,12 +96,24 @@ export interface AppConfig {
    * menu's "Keep screen awake". Carried for the same reason as `hidden`.
    */
   keepAwake: boolean
+  /**
+   * How theatrical the widget may be: `off`, or `ember`. Carried for the same
+   * reason as `hidden` and `keepAwake` — `set_config` takes the whole object,
+   * so a field missing here is a field written back as its default.
+   */
+  crazy: string
   /** `free` to float where dragged, `notch` to flank the notch in the menu bar. */
   placement: string
   /** Display key to show the widget on, or null for the primary display. */
   preferredDisplay: string | null
   positions: Record<string, [number, number]>
 }
+
+/** Mirrors config::CRAZY_LEVELS in Rust. Only levels that exist are listed. */
+export const CRAZY_LEVELS = [
+  { id: 'off', label: 'Off' },
+  { id: 'ember', label: 'Ember — the pill catches fire' },
+] as const
 
 /** Mirrors visibility::HIDE_MODES in Rust. */
 export const HIDE_MODES = [
