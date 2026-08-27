@@ -15,6 +15,7 @@ use crate::watcher::liveness::PidLiveness;
 use crate::watcher::question::QuestionProbe;
 use crate::watcher::registry::read_registry_dir;
 use crate::watcher::state::{snapshot, SessionSnapshot, SessionState};
+use crate::watcher::working::WorkProbe;
 
 /// Reconcile interval. Catches process death and paused-threshold crossings,
 /// neither of which changes a file and so neither of which FSEvents reports.
@@ -101,6 +102,7 @@ pub fn spawn_watcher(
     liveness: Arc<dyn PidLiveness + Send + Sync>,
     activity: Arc<dyn ActivityProbe + Send + Sync>,
     blocked: Arc<dyn BlockedProbe + Send + Sync>,
+    work: Arc<dyn WorkProbe + Send + Sync>,
     question: Arc<dyn QuestionProbe + Send + Sync>,
     on_update: impl Fn(Update) + Send + 'static,
 ) -> WatcherHandle {
@@ -140,6 +142,7 @@ pub fn spawn_watcher(
                 liveness.as_ref(),
                 activity.as_ref(),
                 blocked.as_ref(),
+                work.as_ref(),
                 now,
                 crate::watcher::state::PAUSED_THRESHOLD_MS,
                 settings.show_background_jobs,
@@ -177,7 +180,11 @@ pub fn spawn_watcher(
             if changed {
                 let mut alerts = diff_alerts(previous.as_deref(), &sessions);
                 crate::watcher::question::enrich_alerts(&mut alerts, &sessions, question.as_ref());
-                on_update(Update { sessions: sessions.clone(), alerts, usage });
+                on_update(Update {
+                    sessions: sessions.clone(),
+                    alerts,
+                    usage,
+                });
                 previous = Some(sessions);
                 previous_usage = usage;
             }
@@ -188,7 +195,10 @@ pub fn spawn_watcher(
         }
     });
 
-    WatcherHandle { stop, join: Some(join) }
+    WatcherHandle {
+        stop,
+        join: Some(join),
+    }
 }
 
 #[cfg(test)]
@@ -202,6 +212,7 @@ mod tests {
     use crate::watcher::liveness::FakeLiveness;
     use crate::watcher::question::{FakeQuestion, NoQuestion};
     use crate::watcher::state::{SessionState, PAUSED_THRESHOLD_MS};
+    use crate::watcher::working::NoWork;
 
     /// Long enough to cover one reconcile tick plus FSEvents latency.
     const WAIT: Duration = Duration::from_secs(6);
@@ -210,8 +221,7 @@ mod tests {
 
     impl TempDir {
         fn new(tag: &str) -> Self {
-            let dir = std::env::temp_dir()
-                .join(format!("cb-watch-{}-{tag}", std::process::id()));
+            let dir = std::env::temp_dir().join(format!("cb-watch-{}-{tag}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).unwrap();
             Self(dir)
@@ -247,10 +257,7 @@ mod tests {
         }
     }
 
-    fn recv_matching(
-        rx: &mpsc::Receiver<Update>,
-        pred: impl Fn(&Update) -> bool,
-    ) -> Update {
+    fn recv_matching(rx: &mpsc::Receiver<Update>, pred: impl Fn(&Update) -> bool) -> Update {
         let deadline = std::time::Instant::now() + WAIT;
         while std::time::Instant::now() < deadline {
             if let Ok(update) = rx.recv_timeout(Duration::from_millis(500)) {
@@ -272,6 +279,7 @@ mod tests {
             &FakeLiveness::new(),
             &NoActivity,
             &NoBlocked,
+            &NoWork,
             now_ms(),
             PAUSED_THRESHOLD_MS,
             true,
@@ -294,6 +302,7 @@ mod tests {
             liveness,
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
+            Arc::new(NoWork),
             Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);
@@ -324,6 +333,7 @@ mod tests {
             liveness,
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
+            Arc::new(NoWork),
             Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);
@@ -351,6 +361,7 @@ mod tests {
             liveness,
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
+            Arc::new(NoWork),
             Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);
@@ -381,6 +392,7 @@ mod tests {
             liveness,
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
+            Arc::new(NoWork),
             Arc::new(FakeQuestion::new().with("session-4242", "Shall I delete the branch?")),
             move |u| {
                 let _ = tx.send(u);
@@ -414,6 +426,7 @@ mod tests {
             liveness,
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
+            Arc::new(NoWork),
             Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);
@@ -440,6 +453,7 @@ mod tests {
             Arc::new(FakeLiveness::new()),
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
+            Arc::new(NoWork),
             Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);
@@ -464,6 +478,7 @@ mod tests {
             liveness,
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
+            Arc::new(NoWork),
             Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);

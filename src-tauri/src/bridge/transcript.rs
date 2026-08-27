@@ -138,8 +138,7 @@ const BLOCKING_TOOL_LABELS: [(&str, &str); 2] = [
 
 /// Tools that block on a human by definition. A pending call to one of these
 /// is proof the session wants the user, not that a tool is slow.
-pub const BLOCKING_TOOLS: [&str; 2] =
-    [BLOCKING_TOOL_LABELS[0].0, BLOCKING_TOOL_LABELS[1].0];
+pub const BLOCKING_TOOLS: [&str; 2] = [BLOCKING_TOOL_LABELS[0].0, BLOCKING_TOOL_LABELS[1].0];
 
 /// How a blocking tool reads in the widget, or `None` if it does not block.
 fn blocking_tool_label(name: &str) -> Option<&'static str> {
@@ -210,6 +209,47 @@ pub fn pending_user_prompt(bytes: &[u8]) -> Option<String> {
     }
 
     None
+}
+
+/// Whether a tool call is still running.
+///
+/// The busy heuristic for statusless sessions is transcript mtime, and a
+/// transcript is only appended when a message or a tool result lands. A single
+/// long tool call — a build, a test run, a subagent — writes nothing for
+/// minutes, so mtime alone ages an actively working session into `idle`.
+/// Measured against a live claude-desktop session, 58% of a twelve-minute
+/// working stretch sat inside gaps longer than the busy window.
+///
+/// An assistant `tool_use` with no `tool_result` for its id is direct evidence
+/// the session is mid-turn. Deliberately the mirror image of
+/// `pending_user_prompt`: the tools in `BLOCKING_TOOLS` are excluded, because
+/// those wait on a human rather than on a machine, and reporting them as busy
+/// would bury the one state that needs the user.
+///
+/// A `tool_use` carrying no id is ignored rather than assumed pending: without
+/// an id no result can ever be matched to it, so it would read as in flight
+/// forever.
+pub fn has_work_in_flight(bytes: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(bytes);
+    let records: Vec<serde_json::Value> = text
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+
+    let answered = answered_tool_uses(&records);
+
+    records
+        .iter()
+        .rev()
+        .filter_map(assistant_content)
+        .flatten()
+        .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_use"))
+        .filter(|b| {
+            let name = b.get("name").and_then(|n| n.as_str()).unwrap_or_default();
+            !BLOCKING_TOOLS.contains(&name)
+        })
+        .filter_map(|b| b.get("id").and_then(|v| v.as_str()))
+        .any(|id| !answered.contains(id))
 }
 
 /// The most recent thing the assistant actually said, ignoring tool uses.
@@ -335,7 +375,10 @@ mod tests {
 
     #[test]
     fn latest_activity_reports_the_newest_tool_use() {
-        assert_eq!(latest_activity(TOOL_TAIL.as_bytes()).as_deref(), Some("Bash"));
+        assert_eq!(
+            latest_activity(TOOL_TAIL.as_bytes()).as_deref(),
+            Some("Bash")
+        );
     }
 
     #[test]
@@ -399,14 +442,25 @@ mod tests {
 
     #[test]
     fn prefers_the_newest_value_when_records_disagree() {
-        let body = concat!(r#"{"gitBranch":"old-branch"}"#, "\n", r#"{"gitBranch":"new-branch"}"#, "\n");
-        assert_eq!(detail_from_tail(body.as_bytes()).branch.as_deref(), Some("new-branch"));
+        let body = concat!(
+            r#"{"gitBranch":"old-branch"}"#,
+            "\n",
+            r#"{"gitBranch":"new-branch"}"#,
+            "\n"
+        );
+        assert_eq!(
+            detail_from_tail(body.as_bytes()).branch.as_deref(),
+            Some("new-branch")
+        );
     }
 
     #[test]
     fn a_truncated_first_line_is_skipped_not_fatal() {
         // Reading a fixed tail almost always lands mid-record.
-        let body = format!("{}\n{}", r#"del":"claude-opus-5"},"gitBranch":"junk"}"#, TAIL);
+        let body = format!(
+            "{}\n{}",
+            r#"del":"claude-opus-5"},"gitBranch":"junk"}"#, TAIL
+        );
         let d = detail_from_tail(body.as_bytes());
         assert_eq!(d.branch.as_deref(), Some("feat/rate-limiting"));
     }
@@ -427,7 +481,10 @@ mod tests {
 
     #[test]
     fn entirely_unparseable_input_yields_all_none() {
-        assert_eq!(detail_from_tail(b"not json at all\nnor this\n"), TranscriptDetail::default());
+        assert_eq!(
+            detail_from_tail(b"not json at all\nnor this\n"),
+            TranscriptDetail::default()
+        );
     }
 
     /// Shape taken from the live claude-desktop transcript: the newest record
@@ -477,7 +534,10 @@ mod tests {
 
     #[test]
     fn pending_user_prompt_skips_a_truncated_leading_line() {
-        let tail = format!("{}\n{}", r#"e":"tool_use","name":"AskUserQuestion"#, PENDING_QUESTION_TAIL);
+        let tail = format!(
+            "{}\n{}",
+            r#"e":"tool_use","name":"AskUserQuestion"#, PENDING_QUESTION_TAIL
+        );
         assert_eq!(
             pending_user_prompt(tail.as_bytes()).as_deref(),
             Some("question pending")
@@ -500,7 +560,51 @@ mod tests {
             r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_b","name":"ExitPlanMode"}]}}"#,
             "\n",
         );
-        assert_eq!(pending_user_prompt(tail.as_bytes()).as_deref(), Some("plan approval"));
+        assert_eq!(
+            pending_user_prompt(tail.as_bytes()).as_deref(),
+            Some("plan approval")
+        );
+    }
+
+    #[test]
+    fn an_unanswered_bash_call_is_work_in_flight() {
+        // The case mtime cannot see: a long Bash run writes nothing for
+        // minutes, and the session reads idle while it is plainly working.
+        let tail = r#"{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","id":"toolu_bash","name":"Bash","input":{"command":"cargo build"}}]}}"#;
+        assert!(has_work_in_flight(tail.as_bytes()));
+    }
+
+    #[test]
+    fn an_answered_call_is_not_work_in_flight() {
+        let tail = format!(
+            "{}\n{}",
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_bash","name":"Bash"}]}}"#,
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_bash","content":"done"}]}}"#
+        );
+        assert!(!has_work_in_flight(tail.as_bytes()));
+    }
+
+    #[test]
+    fn a_pending_blocking_tool_is_not_work_in_flight() {
+        // A question waiting on a human is the opposite of work in flight;
+        // reporting it as busy would hide the one state that needs the user.
+        assert!(!has_work_in_flight(PENDING_QUESTION_TAIL.as_bytes()));
+    }
+
+    #[test]
+    fn an_idle_tail_has_no_work_in_flight() {
+        assert!(!has_work_in_flight(b""));
+        assert!(!has_work_in_flight(TOOL_TAIL.as_bytes()));
+    }
+
+    #[test]
+    fn work_in_flight_survives_a_truncated_leading_line() {
+        let tail = format!(
+            "{}\n{}",
+            r#"e":"tool_use","name":"Bash"#,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_b","name":"Bash"}]}}"#
+        );
+        assert!(has_work_in_flight(tail.as_bytes()));
     }
 
     #[test]
@@ -523,7 +627,10 @@ mod tests {
 
     #[test]
     fn slug_also_replaces_dots() {
-        assert_eq!(project_slug("/Users/n/.claude-mem/x"), "-Users-n--claude-mem-x");
+        assert_eq!(
+            project_slug("/Users/n/.claude-mem/x"),
+            "-Users-n--claude-mem-x"
+        );
     }
 
     #[test]

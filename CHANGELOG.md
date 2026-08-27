@@ -5,6 +5,25 @@ section out of this file, and the tag pipeline uses it as the release
 description — so a section that is missing here leaves that tag with nothing but
 the download boilerplate.
 
+## Unreleased
+
+**A session running a long tool no longer reads as idle.** Claude Desktop
+sessions write no `status`, so the widget fell back to transcript modification
+time with a 30-second busy window — but a transcript is only appended when a
+message or a tool result lands. One long build, test run or subagent holds it
+silent for minutes. Measured on a live session, 58% of a twelve-minute working
+stretch sat inside gaps longer than that window, all of it displayed as idle.
+
+- The watcher now reads the transcript tail for an assistant `tool_use` with no
+  `tool_result` for its id, which is direct evidence the session is mid-turn.
+  `AskUserQuestion` and `ExitPlanMode` are excluded: those wait on a human, and
+  the amber "needs you" state still wins.
+- Bounded by the paused threshold, so an interrupted turn — which leaves its
+  call unanswered for good — settles into `paused` instead of reading busy
+  until the session exits.
+- Sessions that report their own status are untouched: what they say still
+  beats what the transcript implies.
+
 ## v0.4.0 — 2026-08-27
 
 **The five-hour limit is live now.** The meter used to read Claude Code's cache

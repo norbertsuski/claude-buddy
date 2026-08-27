@@ -1,7 +1,7 @@
 pub mod bridge;
 pub mod commands;
-pub mod cursor;
 pub mod config;
+pub mod cursor;
 pub mod notch;
 pub mod notify;
 pub mod update;
@@ -51,7 +51,9 @@ pub fn run() {
             // down with it — an app that will not start because it cannot
             // check for its own update is worse than one that never checks.
             if crate::update::is_configured(app.config().plugins.0.get("updater")) {
-                let _ = app.handle().plugin(tauri_plugin_updater::Builder::new().build());
+                let _ = app
+                    .handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build());
             }
 
             let widget = app
@@ -88,6 +90,9 @@ pub fn run() {
                     crate::bridge::transcript::projects_dir(),
                 )),
                 Arc::new(crate::watcher::blocked::TranscriptBlocked::new(
+                    crate::bridge::transcript::projects_dir(),
+                )),
+                Arc::new(crate::watcher::working::TranscriptWork::new(
                     crate::bridge::transcript::projects_dir(),
                 )),
                 Arc::new(crate::watcher::question::TranscriptQuestion::new(

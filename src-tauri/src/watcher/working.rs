@@ -1,0 +1,224 @@
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::Mutex;
+
+/// Whether a session has a tool call still running.
+///
+/// Claude Desktop writes no `status`, so `state::snapshot` falls back to
+/// transcript mtime — and a transcript is silent for as long as a single tool
+/// call takes. A build, a test run or a subagent can hold a session quiet for
+/// minutes while it is plainly working, which mtime alone reads as `idle`.
+///
+/// Injected rather than called directly, matching `PidLiveness`,
+/// `ActivityProbe`, `BlockedProbe` and `QuestionProbe`, so the state machine
+/// stays testable without a transcript on disk.
+pub trait WorkProbe {
+    fn in_flight(&self, cwd: &str, session_id: &str) -> bool;
+}
+
+/// Reads the pending tool call from the session transcript.
+///
+/// Caches on transcript mtime for the same reason `TranscriptBlocked` does: the
+/// watcher reconciles every two seconds and consults this for every statusless
+/// session, and a 64KB tail read per session per tick is wasted on a file that
+/// has not changed.
+pub struct TranscriptWork {
+    projects_dir: PathBuf,
+    cache: Mutex<HashMap<String, (i64, bool)>>,
+}
+
+impl TranscriptWork {
+    pub fn new(projects_dir: PathBuf) -> Self {
+        Self {
+            projects_dir,
+            cache: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn modified_ms(path: &std::path::Path) -> Option<i64> {
+        let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+        let since_epoch = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
+        Some(since_epoch.as_millis() as i64)
+    }
+
+    fn read(&self, cwd: &str, session_id: &str) -> Option<bool> {
+        use crate::bridge::transcript::{
+            find_transcript, has_work_in_flight, read_tail, TAIL_BYTES,
+        };
+
+        let path = find_transcript(&self.projects_dir, cwd, session_id)?;
+        // No mtime means no cache key, so read rather than guess.
+        let mtime = Self::modified_ms(&path)?;
+
+        {
+            let cache = self.cache.lock().expect("work cache poisoned");
+            if let Some((cached_at, answer)) = cache.get(session_id) {
+                if *cached_at == mtime {
+                    return Some(*answer);
+                }
+            }
+        }
+
+        let answer = read_tail(&path, TAIL_BYTES)
+            .ok()
+            .map(|bytes| has_work_in_flight(&bytes))?;
+
+        self.cache
+            .lock()
+            .expect("work cache poisoned")
+            .insert(session_id.to_string(), (mtime, answer));
+
+        Some(answer)
+    }
+}
+
+impl WorkProbe for TranscriptWork {
+    fn in_flight(&self, cwd: &str, session_id: &str) -> bool {
+        self.read(cwd, session_id).unwrap_or(false)
+    }
+}
+
+/// Reports nothing, for callers that do not care.
+pub struct NoWork;
+
+impl WorkProbe for NoWork {
+    fn in_flight(&self, _cwd: &str, _session_id: &str) -> bool {
+        false
+    }
+}
+
+/// Test double keyed by session id.
+pub struct FakeWork {
+    working: HashSet<String>,
+}
+
+impl FakeWork {
+    pub fn new() -> Self {
+        Self {
+            working: HashSet::new(),
+        }
+    }
+
+    pub fn with(mut self, session_id: &str) -> Self {
+        self.working.insert(session_id.to_string());
+        self
+    }
+}
+
+impl Default for FakeWork {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WorkProbe for FakeWork {
+    fn in_flight(&self, _cwd: &str, session_id: &str) -> bool {
+        self.working.contains(session_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RUNNING: &str = concat!(
+        r#"{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","id":"toolu_bash","name":"Bash"}]}}"#,
+        "\n"
+    );
+
+    const FINISHED: &str = concat!(
+        r#"{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","id":"toolu_bash","name":"Bash"}]}}"#,
+        "\n",
+        r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_bash"}]}}"#,
+        "\n"
+    );
+
+    struct Fixture {
+        root: PathBuf,
+        transcript: PathBuf,
+    }
+
+    impl Fixture {
+        fn new(tag: &str, body: &str) -> Self {
+            let root = std::env::temp_dir().join(format!("cb-work-{}-{tag}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            let dir = root.join("-Users-n-Code-proj");
+            std::fs::create_dir_all(&dir).unwrap();
+            let transcript = dir.join("session-1.jsonl");
+            std::fs::write(&transcript, body).unwrap();
+            Self { root, transcript }
+        }
+
+        fn probe(&self) -> TranscriptWork {
+            TranscriptWork::new(self.root.clone())
+        }
+
+        fn ask(&self, probe: &TranscriptWork) -> bool {
+            probe.in_flight("/Users/n/Code/proj", "session-1")
+        }
+
+        fn mtime(&self) -> std::time::SystemTime {
+            std::fs::metadata(&self.transcript)
+                .unwrap()
+                .modified()
+                .unwrap()
+        }
+
+        /// Rewrite the body while pinning mtime, so a re-read would be visible
+        /// in the answer and a cache hit would not.
+        fn rewrite_keeping_mtime(&self, body: &str) {
+            let was = self.mtime();
+            std::fs::write(&self.transcript, body).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&self.transcript)
+                .unwrap()
+                .set_modified(was)
+                .unwrap();
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn a_running_tool_call_is_reported() {
+        let fixture = Fixture::new("running", RUNNING);
+        assert!(fixture.ask(&fixture.probe()));
+    }
+
+    #[test]
+    fn a_finished_tool_call_is_not_reported() {
+        let fixture = Fixture::new("finished", FINISHED);
+        assert!(!fixture.ask(&fixture.probe()));
+    }
+
+    #[test]
+    fn a_missing_transcript_reports_nothing() {
+        let probe = TranscriptWork::new(std::env::temp_dir().join("cb-work-missing"));
+        assert!(!probe.in_flight("/Users/n/Code/proj", "session-1"));
+    }
+
+    #[test]
+    fn an_unchanged_transcript_is_answered_from_cache() {
+        let fixture = Fixture::new("cache-hit", RUNNING);
+        let probe = fixture.probe();
+        assert!(fixture.ask(&probe));
+
+        fixture.rewrite_keeping_mtime(FINISHED);
+        assert!(fixture.ask(&probe), "same mtime should not be re-read");
+    }
+
+    #[test]
+    fn a_changed_transcript_is_re_read() {
+        let fixture = Fixture::new("cache-miss", RUNNING);
+        let probe = fixture.probe();
+        assert!(fixture.ask(&probe));
+
+        std::fs::write(&fixture.transcript, FINISHED).unwrap();
+        assert!(!fixture.ask(&probe), "new mtime should be re-read");
+    }
+}
