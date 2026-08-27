@@ -33,6 +33,19 @@ Between them they also cover the fields the popover reads out of a transcript
 rather than the registry — two models, three effort levels, five branches, a
 tool name as the activity and a sentence of prose as the fallback.
 
+### The hot cast
+
+`CB_FIXTURE_HOT=1 scripts/dev-fixtures.sh` adds two more working sessions —
+`payments-api` and `search-index` — and spends the five-hour limit down to 94%.
+It exists because crazy mode has a ramp: fire reaches its top step at three
+working sessions and the pill only fractures once the limit is `critical`, and
+the default cast has one working session and 36% spent, so it shows the first
+rung of an effect and nothing else. The crazy-mode images in the root README are
+taken in this state.
+
+It is additive and opt-in. The default cast is byte-for-byte what it was, so
+every screenshot taken before it still shows what its alt text says it does.
+
 ## What is committed and what is not
 
 `projects/` is committed. It is the transcripts, laid out the way Claude Code
