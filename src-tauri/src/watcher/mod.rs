@@ -5,5 +5,6 @@ pub mod liveness;
 pub mod question;
 pub mod registry;
 pub mod state;
+pub mod title;
 pub mod watch;
 pub mod working;

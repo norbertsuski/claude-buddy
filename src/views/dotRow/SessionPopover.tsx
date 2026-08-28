@@ -92,7 +92,7 @@ export function SessionPopover({
       <div className="popover-head">
         <span className={`dot dot-${session.state}`} />
         <span className="popover-title" data-testid="popover-name">
-          {session.name}
+          {session.title ?? session.name}
         </span>
       </div>
       <dl className="popover-fields">
@@ -104,6 +104,8 @@ export function SessionPopover({
         <dd className="popover-activity" data-testid="popover-activity">
           {dash(detail.activity)}
         </dd>
+        <dt>session</dt>
+        <dd data-testid="popover-session-name">{session.name}</dd>
         <dt>cwd</dt>
         <dd data-testid="popover-cwd">{session.cwd}</dd>
         <dt>branch</dt>

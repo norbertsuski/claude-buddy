@@ -15,6 +15,7 @@ use crate::watcher::liveness::PidLiveness;
 use crate::watcher::question::QuestionProbe;
 use crate::watcher::registry::read_registry_dir;
 use crate::watcher::state::{snapshot, SessionSnapshot, SessionState};
+use crate::watcher::title::TitleProbe;
 use crate::watcher::working::WorkProbe;
 
 /// Reconcile interval. Catches process death and paused-threshold crossings,
@@ -53,10 +54,22 @@ pub fn now_ms() -> i64 {
 /// Identity of a snapshot for change detection: everything the UI renders
 /// except the clock-derived fields. Without this, elapsed time alone would make
 /// every tick look like a change and the UI would re-render twice a second.
-fn fingerprint(sessions: &[SessionSnapshot]) -> Vec<(String, SessionState, Option<String>)> {
+fn fingerprint(
+    sessions: &[SessionSnapshot],
+) -> Vec<(String, SessionState, Option<String>, Option<String>)> {
     sessions
         .iter()
-        .map(|s| (s.session_id.clone(), s.state, s.detail.clone()))
+        .map(|s| {
+            (
+                s.session_id.clone(),
+                s.state,
+                s.detail.clone(),
+                // Retitling changes nothing else about a session, so without
+                // this the row would keep the name it was first given until
+                // something else moved.
+                s.title.clone(),
+            )
+        })
         .collect()
 }
 
@@ -103,6 +116,7 @@ pub fn spawn_watcher(
     activity: Arc<dyn ActivityProbe + Send + Sync>,
     blocked: Arc<dyn BlockedProbe + Send + Sync>,
     work: Arc<dyn WorkProbe + Send + Sync>,
+    titles: Arc<dyn TitleProbe + Send + Sync>,
     question: Arc<dyn QuestionProbe + Send + Sync>,
     on_update: impl Fn(Update) + Send + 'static,
 ) -> WatcherHandle {
@@ -143,6 +157,7 @@ pub fn spawn_watcher(
                 activity.as_ref(),
                 blocked.as_ref(),
                 work.as_ref(),
+                titles.as_ref(),
                 now,
                 crate::watcher::state::PAUSED_THRESHOLD_MS,
                 settings.show_background_jobs,
@@ -212,6 +227,7 @@ mod tests {
     use crate::watcher::liveness::FakeLiveness;
     use crate::watcher::question::{FakeQuestion, NoQuestion};
     use crate::watcher::state::{SessionState, PAUSED_THRESHOLD_MS};
+    use crate::watcher::title::NoTitle;
     use crate::watcher::working::NoWork;
 
     /// Long enough to cover one reconcile tick plus FSEvents latency.
@@ -280,6 +296,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             now_ms(),
             PAUSED_THRESHOLD_MS,
             true,
@@ -303,6 +320,7 @@ mod tests {
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
             Arc::new(NoWork),
+            Arc::new(NoTitle),
             Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);
@@ -334,6 +352,7 @@ mod tests {
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
             Arc::new(NoWork),
+            Arc::new(NoTitle),
             Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);
@@ -362,6 +381,7 @@ mod tests {
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
             Arc::new(NoWork),
+            Arc::new(NoTitle),
             Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);
@@ -393,6 +413,7 @@ mod tests {
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
             Arc::new(NoWork),
+            Arc::new(NoTitle),
             Arc::new(FakeQuestion::new().with("session-4242", "Shall I delete the branch?")),
             move |u| {
                 let _ = tx.send(u);
@@ -427,6 +448,7 @@ mod tests {
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
             Arc::new(NoWork),
+            Arc::new(NoTitle),
             Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);
@@ -454,6 +476,7 @@ mod tests {
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
             Arc::new(NoWork),
+            Arc::new(NoTitle),
             Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);
@@ -479,6 +502,7 @@ mod tests {
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
             Arc::new(NoWork),
+            Arc::new(NoTitle),
             Arc::new(NoQuestion),
             move |u| {
                 let _ = tx.send(u);

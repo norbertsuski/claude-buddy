@@ -525,15 +525,24 @@ body {
 
 .popover-head {
   display: flex;
-  align-items: center;
+  /* Titles are sentences and wrap to a second line; the dot sits against the
+     first one rather than floating beside the middle of a two-line block. */
+  align-items: flex-start;
   gap: 10px;
   padding: 12px 15px 10px;
+}
+
+/* The dot is the one thing in the head with no text baseline to sit on. */
+.popover-head .dot {
+  margin-top: 5px;
+  flex: none;
 }
 
 .popover-title {
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.1px;
+  overflow-wrap: anywhere;
 }
 
 .popover-fields {

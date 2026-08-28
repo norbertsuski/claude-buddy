@@ -35,6 +35,32 @@ export function shortName(name: string): string {
   return stripped.length > 0 ? stripped : name
 }
 
+/**
+ * Longest label the collapsed row will draw for one session.
+ *
+ * The pill sizes itself to its contents, so nothing else stops a title from
+ * widening the widget across the screen — and titles are sentences where names
+ * were single words. Chosen to hold a short sentence: five sessions at this
+ * width still fit a laptop menu bar.
+ */
+export const ROW_LABEL_MAX_CHARS = 22
+
+/**
+ * What one session is called in the row.
+ *
+ * The title is what the user recognises — three sessions in one repository are
+ * three identical names and three different titles. It falls back to the
+ * registry name, because a session is only titled once Claude Code has seen
+ * enough of it to name it, and a nameless dot for the first minute is worse
+ * than the folder it is running in.
+ */
+export function rowLabel(session: SessionSnapshot): string {
+  const title = session.title?.trim()
+  if (!title) return shortName(session.name)
+  if (title.length <= ROW_LABEL_MAX_CHARS) return title
+  return `${title.slice(0, ROW_LABEL_MAX_CHARS).trimEnd()}\u2026`
+}
+
 /** Sessions you answer, as opposed to background jobs belonging to them. */
 export function ownSessions(sessions: SessionSnapshot[]): SessionSnapshot[] {
   return sessions.filter((s) => !s.background)

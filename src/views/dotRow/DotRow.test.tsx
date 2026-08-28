@@ -27,6 +27,7 @@ const sessions: SessionSnapshot[] = [
     pid: 7952,
     sessionId: 'id-a',
     name: 'api-service-55',
+    title: null,
     cwd: '/Users/n/Code/api-service',
     entrypoint: 'cli',
     state: 'waiting',

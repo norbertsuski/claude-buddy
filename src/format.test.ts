@@ -19,7 +19,7 @@ describe('formatElapsed', () => {
   })
 })
 
-import { countByState, shortName } from './format'
+import { countByState, rowLabel, ROW_LABEL_MAX_CHARS, shortName } from './format'
 import type { SessionSnapshot, SessionState } from './types'
 
 function s(state: SessionState): SessionSnapshot {
@@ -27,6 +27,7 @@ function s(state: SessionState): SessionSnapshot {
     pid: 1,
     sessionId: `id-${state}-${Math.random()}`,
     name: 'proj-a1',
+    title: null,
     cwd: '/Users/n/Code/proj',
     entrypoint: 'cli',
     state,
@@ -57,6 +58,32 @@ describe('shortName', () => {
   it('never returns an empty string', () => {
     expect(shortName('a1')).toBe('a1')
     expect(shortName('')).toBe('')
+  })
+})
+
+describe('rowLabel', () => {
+  const titled = (title: string | null): SessionSnapshot => ({
+    ...s('idle'),
+    name: 'api-service-55',
+    title,
+  })
+
+  it('prefers the session title', () => {
+    expect(rowLabel(titled('Rate limit bucket key'))).toBe('Rate limit bucket key')
+  })
+
+  it('falls back to the shortened registry name when there is no title', () => {
+    expect(rowLabel(titled(null))).toBe('api-service')
+  })
+
+  it('treats a blank title as no title', () => {
+    expect(rowLabel(titled('   '))).toBe('api-service')
+  })
+
+  it('clips a long title rather than widening the pill', () => {
+    const label = rowLabel(titled('Rewrite the whole installation guide from scratch'))
+    expect(label).toBe('Rewrite the whole inst\u2026')
+    expect(label.length).toBeLessThanOrEqual(ROW_LABEL_MAX_CHARS + 1)
   })
 })
 

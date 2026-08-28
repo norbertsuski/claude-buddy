@@ -33,6 +33,12 @@ Between them they also cover the fields the popover reads out of a transcript
 rather than the registry — two models, three effort levels, five branches, a
 tool name as the activity and a sentence of prose as the fallback.
 
+Every transcript but one ends on a `custom-title` record, which is where the
+name the row shows comes from. `infra-tools` deliberately has none, so the cast
+also shows what an untitled session looks like: it falls back to the
+folder-derived name in the registry. `docs-site`'s title is longer than the row
+will draw, so the clipping is on screen too rather than only in a test.
+
 ### The hot cast
 
 `CB_FIXTURE_HOT=1 scripts/dev-fixtures.sh` adds two more working sessions —
