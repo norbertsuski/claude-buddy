@@ -17,15 +17,45 @@ pub trait TitleProbe {
     fn title(&self, cwd: &str, session_id: &str) -> Option<String>;
 }
 
+/// Largest transcript worth scanning end to end for a title.
+///
+/// Only reached once per session, and only when the tail had nothing, but a
+/// transcript is an append-only log with no upper bound — one left running for
+/// a week should not be read into memory whole on the strength of a maybe.
+pub const FULL_SCAN_MAX_BYTES: u64 = 32 * 1024 * 1024;
+
+/// One session's cached answer.
+struct Cached {
+    /// Transcript mtime the answer was read at.
+    at_ms: i64,
+    title: Option<String>,
+    /// Whether the whole file has been searched for this session. Once it has,
+    /// a tail with no title means the title is simply older than the tail —
+    /// not that there is none — so the answer already found stands.
+    scanned_whole: bool,
+}
+
 /// Reads the newest `custom-title` record from the session transcript.
 ///
 /// Caches on transcript mtime for the same reason `TranscriptWork` does: the
 /// watcher reconciles every two seconds and this is consulted for every
 /// session, not just the statusless ones, so an uncached tail read would be the
 /// most expensive thing in the loop.
+///
+/// The tail alone is not enough, which the other transcript probes get away
+/// with and this one does not. Claude Code appends a `custom-title` when it
+/// names a session and again whenever it renames it — usually within the first
+/// few exchanges and then never again — so in a session that has run for hours
+/// the title sits megabytes behind the end. Measured on a live session: the
+/// only `custom-title` record was 1.8MB from the end of a 1.9MB transcript, far
+/// outside any tail worth reading every two seconds.
+///
+/// So the tail is read every time, because a *rename* lands at the end and has
+/// to be picked up promptly, and a full scan happens at most once per session —
+/// only when the tail yields nothing and the file has not been scanned before.
 pub struct TranscriptTitle {
     projects_dir: PathBuf,
-    cache: Mutex<HashMap<String, (i64, Option<String>)>>,
+    cache: Mutex<HashMap<String, Cached>>,
 }
 
 impl TranscriptTitle {
@@ -51,28 +81,59 @@ impl TranscriptTitle {
         // No mtime means no cache key, so read rather than guess.
         let mtime = Self::modified_ms(&path)?;
 
-        {
+        let (known, scanned_whole) = {
             let cache = self.cache.lock().expect("title cache poisoned");
-            if let Some((cached_at, answer)) = cache.get(session_id) {
-                if *cached_at == mtime {
-                    return answer.clone();
-                }
+            match cache.get(session_id) {
+                Some(entry) if entry.at_ms == mtime => return entry.title.clone(),
+                Some(entry) => (entry.title.clone(), entry.scanned_whole),
+                None => (None, false),
             }
-        }
+        };
 
-        // A transcript that exists but has no title is cached too: an untitled
-        // session is the common case, and it must not cost a tail read a
-        // second.
-        let answer = read_tail(&path, TAIL_BYTES)
+        // A rename is appended like any other record, so the tail is what keeps
+        // a retitled session current.
+        let from_tail = read_tail(&path, TAIL_BYTES)
             .ok()
             .and_then(|bytes| latest_custom_title(&bytes));
 
-        self.cache
-            .lock()
-            .expect("title cache poisoned")
-            .insert(session_id.to_string(), (mtime, answer.clone()));
+        let (title, scanned_whole) = match (from_tail, scanned_whole) {
+            (Some(title), _) => (Some(title), scanned_whole),
+            // Nothing in the tail and nowhere else looked yet: the title may
+            // simply be older than the tail, so pay for one full read.
+            (None, false) => (Self::scan_whole(&path), true),
+            // Already scanned. The tail having nothing is expected — it has had
+            // nothing since the scan — and the answer from that scan stands.
+            (None, true) => (known, true),
+        };
 
-        answer
+        // An untitled session is cached too: it is the common case, and it must
+        // not cost a read a second, nor a full scan every tick.
+        self.cache.lock().expect("title cache poisoned").insert(
+            session_id.to_string(),
+            Cached {
+                at_ms: mtime,
+                title: title.clone(),
+                scanned_whole,
+            },
+        );
+
+        title
+    }
+
+    /// Search the whole transcript, newest record first.
+    fn scan_whole(path: &std::path::Path) -> Option<String> {
+        Self::scan_whole_within(path, FULL_SCAN_MAX_BYTES)
+    }
+
+    /// The size guard, taken as an argument so a test can exercise it without
+    /// writing a file the size of the real limit.
+    fn scan_whole_within(path: &std::path::Path, max_bytes: u64) -> Option<String> {
+        use crate::bridge::transcript::latest_custom_title;
+
+        if std::fs::metadata(path).ok()?.len() > max_bytes {
+            return None;
+        }
+        latest_custom_title(&std::fs::read(path).ok()?)
     }
 }
 
@@ -264,6 +325,67 @@ mod tests {
             None,
             "same mtime should not be re-read"
         );
+    }
+
+    /// The case the tail alone gets wrong. Claude Code writes `custom-title`
+    /// when it names a session and then not again, so in a long session the
+    /// title is buried far behind the end of the file.
+    #[test]
+    fn a_title_older_than_the_tail_is_still_found() {
+        let filler = format!("{}\n", r#"{"type":"user","gitBranch":"main"}"#).repeat(4_000);
+        let fixture = Fixture::new("buried", &format!("{TITLED}{filler}"));
+
+        assert!(
+            std::fs::metadata(&fixture.transcript).unwrap().len()
+                > crate::bridge::transcript::TAIL_BYTES,
+            "fixture must be longer than the tail or it proves nothing"
+        );
+        assert_eq!(
+            fixture.ask(&fixture.probe()).as_deref(),
+            Some("Rebase and conflicts")
+        );
+    }
+
+    /// A rename lands at the end of the file, so the tail has to keep winning
+    /// over whatever the one full scan turned up.
+    #[test]
+    fn a_rename_outranks_a_title_found_by_the_full_scan() {
+        let filler = format!("{}\n", r#"{"type":"user","gitBranch":"main"}"#).repeat(4_000);
+        let fixture = Fixture::new("buried-renamed", &format!("{TITLED}{filler}"));
+        let probe = fixture.probe();
+        assert_eq!(fixture.ask(&probe).as_deref(), Some("Rebase and conflicts"));
+
+        fixture.rewrite_advancing_mtime(&format!(
+            "{TITLED}{filler}{}",
+            r#"{"type":"custom-title","customTitle":"Ship the release","sessionId":"session-1"}"#
+        ));
+
+        assert_eq!(fixture.ask(&probe).as_deref(), Some("Ship the release"));
+    }
+
+    /// Once the whole file has been searched, later ticks must not keep
+    /// searching it: the tail having nothing is the expected steady state.
+    #[test]
+    fn the_full_scan_is_not_repeated_after_the_file_grows() {
+        let filler = format!("{}\n", r#"{"type":"user","gitBranch":"main"}"#).repeat(4_000);
+        let fixture = Fixture::new("scanned-once", &format!("{TITLED}{filler}"));
+        let probe = fixture.probe();
+        assert_eq!(fixture.ask(&probe).as_deref(), Some("Rebase and conflicts"));
+
+        // The title is gone from the file entirely. A second full scan would
+        // find nothing and drop the name off the row; the cached answer stands.
+        fixture.rewrite_advancing_mtime(&filler);
+
+        assert_eq!(fixture.ask(&probe).as_deref(), Some("Rebase and conflicts"));
+    }
+
+    #[test]
+    fn a_transcript_too_large_to_scan_reports_nothing() {
+        let filler = format!("{}\n", r#"{"type":"user","gitBranch":"main"}"#).repeat(4_000);
+        let fixture = Fixture::new("oversize", &format!("{TITLED}{filler}"));
+        // Not a real 32MB file: the guard is what is under test, and writing
+        // one would make this the slowest test in the suite.
+        assert!(TranscriptTitle::scan_whole_within(&fixture.transcript, 0).is_none());
     }
 
     #[test]

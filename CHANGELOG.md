@@ -15,7 +15,10 @@ is missing here leaves that tag with nothing but the download boilerplate.
   clipped so the pill cannot grow across the screen. The popover is headed by
   the full title and carries the folder-derived name and the working directory
   underneath it, so nothing that used to be visible has gone away, and
-  notifications name a session the same way the row does.
+  notifications name a session the same way the row does. A session that has
+  been running for hours is named correctly too: Claude Code writes the title
+  once, near the start of the transcript, so the widget reads the whole file
+  once when the end of it has nothing to say.
 
 ## v0.8.0 — 2026-08-28
 
