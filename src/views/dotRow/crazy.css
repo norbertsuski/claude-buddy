@@ -10,9 +10,13 @@
    — and the CSS animation shorthand does not compose across rules. The flash
    outranks everything here and keeps its element. */
 
+/* `block`, not `inline-block`: an inline-level box sits on a text baseline and
+   its parent reserves descender space under it, which made the row two pixels
+   taller the moment crazy mode was switched on. These wrappers exist to carry a
+   transform and nothing else — they must cost no layout at all, lit or not. */
 .crazy-shake,
 .crazy-shudder {
-  display: inline-block;
+  display: block;
 }
 
 /* Content above every effect layer.
@@ -84,11 +88,17 @@
     inset 0 1px 0 rgba(255, 190, 120, 0.14);
 }
 
+/* Every shadow here has to stay inside --shadow-pad, which is 30px: the window
+   is sized to the content plus that, and anything wider is clipped square at
+   the window edge and reads as a grey box rather than as a glow. The rule
+   dotRow.css states is max(offset-y + blur) <= the pad, so 28px of blur at zero
+   offset is the most this can ask for. It was 32px, and the top of the glow was
+   being cut off. */
 .pill[data-fire='3'] {
   border-color: rgba(255, 130, 40, 0.7);
   box-shadow:
     0 8px 22px rgba(0, 0, 0, 0.55),
-    0 0 32px rgba(255, 90, 20, 0.46),
+    0 0 28px rgba(255, 90, 20, 0.5),
     inset 0 1px 0 rgba(255, 200, 140, 0.22);
 }
 

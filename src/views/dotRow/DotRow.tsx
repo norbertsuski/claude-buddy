@@ -381,16 +381,19 @@ export function DotRow({
     >
       {/* Two wrappers, one transform each. `.pill` already owns an animation —
           the attention flash — and the CSS shorthand does not compose across
-          rules, so jitter and shudder cannot live there. Both are rendered
-          unconditionally so the pill is never remounted as heat comes and
-          goes; a remount would restart the box morph mid-flight. */}
+          rules, so jitter and shudder cannot live there.
+          Always mounted *and* always classed, whatever the setting says. The
+          class was conditional at first and that was a bug: it carries
+          `display` with it, so turning crazy mode on relaid out the row and the
+          widget visibly jumped. Only the data attributes vary now, and they
+          drive animation alone. */}
       <div
-        className={lit ? 'crazy-shake' : undefined}
+        className="crazy-shake"
         data-shake={shaking ? 'true' : undefined}
         style={shaking ? ({ '--crazy-amp': heat.jitter * 1.4 } as CSSProperties) : undefined}
       >
         <div
-          className={lit ? 'crazy-shudder' : undefined}
+          className="crazy-shudder"
           data-shudder={shuddering ? 'true' : undefined}
         >
           <div
