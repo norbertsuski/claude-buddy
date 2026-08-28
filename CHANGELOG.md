@@ -5,7 +5,7 @@ section out of this file, and the release workflow uses it as the body of the
 GitHub release and as the notes in the in-app update dialog — so a section that
 is missing here leaves that tag with nothing but the download boilerplate.
 
-## Unreleased
+## v0.8.0 — 2026-08-28
 
 - **Crazy mode**, off by default, in Settings. Turned on, the widget stops
   being subtle about what it is already telling you: the pill catches fire as
