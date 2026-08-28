@@ -40,11 +40,11 @@ At rest, a small pill with counts. Each coloured chip carries the dot of the sta
 
 ![The collapsed pill reading "1 needs you", "1 working", "1 died", "2 idle", "1 job", then a progress bar and 64%](docs/media/collapsed.png)
 
-Hover it and the pill morphs into a named row, one dot per session.
+Hover it and the pill morphs into a named row, one dot per session. Each one is labelled with what that session calls *itself* — the title Claude Code gives it, which says what the session is about rather than which folder it is in. Three sessions in one repository are three different labels rather than the same name three times. A session Claude Code has not titled yet falls back to its folder name, and a long title is clipped to keep the pill from growing across the screen.
 
 ![The expanded row: api-service waiting behind an amber triangle, its background job migrate-schemas demoted behind an arrow, web-app working behind a green circle, design-system idle behind a hollow ring, docs-site paused behind a two-bar glyph, infra-tools dead behind a red cross, and the limit bar reading 2h40m](docs/media/expanded.png)
 
-Hover a name and a popover opens centred beneath it, with the state and how long it has held, what the session is *doing* — the newest tool it reached for, or failing that the last thing it said — plus the working directory, git branch, model, effort, entrypoint, pid and uptime. Click it to bring that session's editor to the front.
+Hover a name and a popover opens centred beneath it, headed by the session's full title, with the state and how long it has held, what the session is *doing* — the newest tool it reached for, or failing that the last thing it said — plus its registry name, the working directory, git branch, model, effort, entrypoint, pid and uptime. Click it to bring that session's editor to the front.
 
 ![A popover open under web-app, reading: state busy for 1m, doing Grep, cwd /Users/n/Code/web-app, branch fix/checkout-totals, model claude-opus-5 at high effort, cli with pid 927 up 47m, and 36% of the five-hour limit used with 2h40m to the reset](docs/media/popover.png)
 
@@ -190,6 +190,8 @@ Three transitions can interrupt you:
 - **A session starts waiting for input.** The notification carries the session's actual pending question, read from its transcript — not just `input needed`. The registry's own reason stands in when the transcript yields nothing.
 - **A session dies.** Its process is gone.
 - **A session finishes its turn** — busy to idle. Off by default, since a finished turn is the common case and alerting on it is the noisy choice; enable it in Settings. Only that edge counts: answering a question and going quiet is not a finished turn, and a session first seen idle has finished nothing.
+
+Each notification names the session the same way the row does: by its title, falling back to the folder-derived name for a session Claude Code has not titled.
 
 Clicking any notification raises that session's window, the same as clicking its popover.
 

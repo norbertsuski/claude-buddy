@@ -7,6 +7,7 @@ function session(over: Partial<SessionSnapshot>): SessionSnapshot {
     pid: 1,
     sessionId: 's',
     name: 'repo',
+    title: null,
     cwd: '/tmp',
     entrypoint: 'cli',
     state: 'idle',

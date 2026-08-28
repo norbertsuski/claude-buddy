@@ -15,6 +15,7 @@ const session: SessionSnapshot = {
   pid: 7952,
   sessionId: 'id-a',
   name: 'api-service-55',
+  title: null,
   cwd: '/Users/dev/Documents/Code/api-service',
   entrypoint: 'cli',
   state: 'waiting',
@@ -37,9 +38,19 @@ describe('SessionPopover', () => {
     })
   })
 
-  it('shows the full session name, not the shortened one', () => {
+  it('heads with the title when the session has one', () => {
+    render(<SessionPopover session={{ ...session, title: 'Rate limit bucket key' }} />)
+    expect(screen.getByTestId('popover-name')).toHaveTextContent('Rate limit bucket key')
+  })
+
+  it('heads with the full registry name when the session has no title', () => {
     render(<SessionPopover session={session} />)
     expect(screen.getByTestId('popover-name')).toHaveTextContent('api-service-55')
+  })
+
+  it('shows the registry name in the fields, so a title never hides it', () => {
+    render(<SessionPopover session={{ ...session, title: 'Rate limit bucket key' }} />)
+    expect(screen.getByTestId('popover-session-name')).toHaveTextContent('api-service-55')
   })
 
   it('shows the waiting detail with elapsed time', () => {

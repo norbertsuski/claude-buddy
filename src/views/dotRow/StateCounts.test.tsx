@@ -8,6 +8,7 @@ function session(name: string, state: SessionState): SessionSnapshot {
     pid: 1,
     sessionId: `id-${name}`,
     name,
+    title: null,
     cwd: `/Users/n/Code/${name}`,
     entrypoint: 'cli',
     state,

@@ -1,4 +1,4 @@
-import { shortName } from '../../format'
+import { rowLabel } from '../../format'
 import type { SessionSnapshot } from '../../types'
 import './dotRow.css'
 
@@ -19,7 +19,8 @@ interface Props {
 }
 
 /**
- * One session in an expanded row: a state dot and a short name.
+ * One session in an expanded row: a state dot and the session's own title,
+ * falling back to its folder-derived name.
  *
  * Extracted so the free-mode row and the notch chips render entries
  * identically. Two copies drifted the moment one of them gained a data
@@ -58,7 +59,7 @@ export function SessionEntry({
           className={`dot dot-${session.state}`}
           data-ash={ashing ? 'true' : undefined}
         />
-        <span className="entry-name">{shortName(session.name)}</span>
+        <span className="entry-name">{rowLabel(session)}</span>
       </span>
     </span>
   )

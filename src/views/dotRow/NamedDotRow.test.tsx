@@ -9,6 +9,7 @@ function session(name: string, state: SessionState): SessionSnapshot {
     pid: 1,
     sessionId: `id-${name}`,
     name,
+    title: null,
     cwd: `/Users/n/Code/${name}`,
     entrypoint: 'cli',
     state,
@@ -31,6 +32,23 @@ describe('NamedDotRow', () => {
       />,
     )
     expect(screen.getByText('api-service')).toBeInTheDocument()
+    expect(screen.getByText('web-app')).toBeInTheDocument()
+  })
+
+  it('shows the session title in place of the folder name', () => {
+    render(
+      <NamedDotRow
+        sessions={[
+          { ...session('api-service-55', 'waiting'), title: 'Rate limit bucket key' },
+          session('web-app-e2', 'busy'),
+        ]}
+        hoveredSessionId={null}
+        onHoverSession={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Rate limit bucket key')).toBeInTheDocument()
+    expect(screen.queryByText('api-service')).not.toBeInTheDocument()
+    // Untitled sessions keep the folder name they have always had.
     expect(screen.getByText('web-app')).toBeInTheDocument()
   })
 

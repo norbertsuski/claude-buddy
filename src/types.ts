@@ -6,7 +6,10 @@ export type SessionState = 'waiting' | 'busy' | 'idle' | 'paused' | 'dead'
 export interface SessionSnapshot {
   pid: number
   sessionId: string
+  /** The registry's name, which is always `<folder>-<2 chars>`. */
   name: string
+  /** What the session calls itself, from its transcript. Null until titled. */
+  title: string | null
   cwd: string
   entrypoint: string
   state: SessionState

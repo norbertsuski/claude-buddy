@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { shortName, formatElapsed } from '../../format'
+import { rowLabel, formatElapsed } from '../../format'
 import type { SessionSnapshot, SessionState, Usage } from '../../types'
 import { DETAIL_MORPH_MS, RowDetailSlot } from './RowDetail'
 import './dotRow.css'
@@ -214,7 +214,7 @@ export function NotchPanel({
               data-hovered={row?.sessionId === session.sessionId ? 'true' : 'false'}
             >
               <span className={`dot dot-${session.state}`} />
-              <span className="notch-name">{shortName(session.name)}</span>
+              <span className="notch-name">{rowLabel(session)}</span>
               <span className="notch-status">{stateLabel(session)}</span>
               <span className="notch-elapsed">{formatElapsed(session.elapsedMs)}</span>
             </div>

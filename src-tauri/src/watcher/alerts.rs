@@ -63,7 +63,10 @@ pub fn diff_alerts(prev: Option<&[SessionSnapshot]>, next: &[SessionSnapshot]) -
             Some(Alert {
                 session_id: s.session_id.clone(),
                 pid: s.pid,
-                name: s.name.clone(),
+                // A notification says what the widget says. The title is what
+                // the user recognises; the registry name is the folder, which
+                // for three sessions in one repository names all three alike.
+                name: s.title.clone().unwrap_or_else(|| s.name.clone()),
                 kind,
                 detail: s.detail.clone(),
             })
@@ -81,6 +84,7 @@ mod tests {
             pid: 1,
             session_id: id.to_string(),
             name: format!("name-{id}"),
+            title: None,
             cwd: "/Users/n/Code/x".into(),
             entrypoint: "cli".into(),
             state,

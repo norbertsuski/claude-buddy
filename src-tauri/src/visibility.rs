@@ -41,6 +41,7 @@ mod tests {
             pid: 1,
             session_id: "a".into(),
             name: "api-service".into(),
+            title: None,
             cwd: "/Users/n/Code/api-service".into(),
             entrypoint: "cli".into(),
             state,

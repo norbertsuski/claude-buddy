@@ -5,6 +5,18 @@ section out of this file, and the release workflow uses it as the body of the
 GitHub release and as the notes in the in-app update dialog — so a section that
 is missing here leaves that tag with nothing but the download boilerplate.
 
+## Unreleased
+
+- **Sessions are named by what they are about.** The row used to label every
+  session with the folder it was running in, which made three sessions in one
+  repository three copies of the same word. It now shows the title Claude Code
+  gives a session — read from the session's own transcript — and falls back to
+  the folder name for a session that has not been titled yet. Long titles are
+  clipped so the pill cannot grow across the screen. The popover is headed by
+  the full title and carries the folder-derived name and the working directory
+  underneath it, so nothing that used to be visible has gone away, and
+  notifications name a session the same way the row does.
+
 ## v0.8.0 — 2026-08-28
 
 - **Crazy mode**, off by default, in Settings. Turned on, the widget stops

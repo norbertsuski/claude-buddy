@@ -6,6 +6,7 @@ use crate::watcher::activity::ActivityProbe;
 use crate::watcher::blocked::BlockedProbe;
 use crate::watcher::liveness::PidLiveness;
 use crate::watcher::registry::RegistryFile;
+use crate::watcher::title::TitleProbe;
 use crate::watcher::working::WorkProbe;
 
 /// Idle sessions older than this read as `Paused`.
@@ -76,6 +77,9 @@ pub struct SessionSnapshot {
     pub pid: i32,
     pub session_id: String,
     pub name: String,
+    /// What the session calls itself, from the transcript. Absent until Claude
+    /// Code has titled it, which is why the row falls back to `name`.
+    pub title: Option<String>,
     pub cwd: String,
     pub entrypoint: String,
     /// The registry's `waitingFor`, present only while `Waiting`.
@@ -136,6 +140,7 @@ pub fn snapshot(
     activity: &dyn ActivityProbe,
     blocked: &dyn BlockedProbe,
     work: &dyn WorkProbe,
+    titles: &dyn TitleProbe,
     now_ms: i64,
     paused_threshold_ms: i64,
     include_background: bool,
@@ -207,6 +212,7 @@ pub fn snapshot(
                 pid: f.pid,
                 session_id: f.session_id.clone(),
                 name: display_name(f),
+                title: titles.title(&f.cwd, &f.session_id),
                 cwd: f.cwd.clone(),
                 entrypoint: f.entrypoint.clone().unwrap_or_default(),
                 state,
@@ -300,6 +306,7 @@ mod tests {
     use crate::watcher::blocked::{FakeBlocked, NoBlocked};
     use crate::watcher::liveness::FakeLiveness;
     use crate::watcher::registry::RegistryFile;
+    use crate::watcher::title::{FakeTitle, NoTitle};
     use crate::watcher::working::{FakeWork, NoWork};
 
     const NOW: i64 = 1_787_662_300_000;
@@ -339,6 +346,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -364,6 +372,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -386,6 +395,7 @@ mod tests {
                 &NoActivity,
                 &NoBlocked,
                 &NoWork,
+                &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
                 true,
@@ -409,6 +419,7 @@ mod tests {
                 &NoActivity,
                 &NoBlocked,
                 &NoWork,
+                &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
                 true,
@@ -432,6 +443,7 @@ mod tests {
                 &NoActivity,
                 &NoBlocked,
                 &NoWork,
+                &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
                 true,
@@ -454,6 +466,7 @@ mod tests {
                 &NoActivity,
                 &NoBlocked,
                 &NoWork,
+                &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
                 true,
@@ -476,6 +489,7 @@ mod tests {
                 &NoActivity,
                 &NoBlocked,
                 &NoWork,
+                &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
                 true,
@@ -499,6 +513,7 @@ mod tests {
                 &NoActivity,
                 &NoBlocked,
                 &NoWork,
+                &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
                 true,
@@ -523,6 +538,7 @@ mod tests {
                 &NoActivity,
                 &NoBlocked,
                 &NoWork,
+                &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
                 true,
@@ -544,6 +560,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -566,6 +583,7 @@ mod tests {
             &activity,
             &NoBlocked,
             &FakeWork::new().with("session-1"),
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -587,6 +605,7 @@ mod tests {
             &activity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -610,6 +629,7 @@ mod tests {
             &activity,
             &NoBlocked,
             &FakeWork::new().with("session-1"),
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -631,6 +651,7 @@ mod tests {
             &activity,
             &FakeBlocked::new().with("session-1", "question pending"),
             &FakeWork::new().with("session-1"),
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -656,6 +677,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &FakeWork::new().with("session-1"),
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -684,6 +706,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -722,6 +745,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -747,6 +771,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -775,6 +800,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -797,6 +823,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             false,
@@ -815,6 +842,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -835,6 +863,7 @@ mod tests {
                 &NoActivity,
                 &NoBlocked,
                 &NoWork,
+                &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
                 true,
@@ -856,6 +885,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -875,6 +905,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -894,6 +925,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -912,6 +944,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -933,6 +966,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -954,6 +988,7 @@ mod tests {
                 &NoActivity,
                 &NoBlocked,
                 &NoWork,
+                &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
                 true,
@@ -963,6 +998,49 @@ mod tests {
                 .name,
             "project-1"
         );
+    }
+
+    #[test]
+    fn a_titled_session_carries_its_title() {
+        let f = file(1, "cli");
+        let session_id = f.session_id.clone();
+        let out = snapshot(
+            &[f],
+            &alive(1),
+            &NoActivity,
+            &NoBlocked,
+            &NoWork,
+            &FakeTitle::new().with(&session_id, "Rebase and conflicts"),
+            NOW,
+            PAUSED_THRESHOLD_MS,
+            true,
+            &HashMap::new(),
+        )
+        .sessions;
+
+        assert_eq!(out[0].title.as_deref(), Some("Rebase and conflicts"));
+        // The registry name is still carried: the popover shows both, and the
+        // row needs something to fall back to.
+        assert_eq!(out[0].name, "project-1");
+    }
+
+    #[test]
+    fn an_untitled_session_has_no_title() {
+        let out = snapshot(
+            &[file(1, "cli")],
+            &alive(1),
+            &NoActivity,
+            &NoBlocked,
+            &NoWork,
+            &NoTitle,
+            NOW,
+            PAUSED_THRESHOLD_MS,
+            true,
+            &HashMap::new(),
+        )
+        .sessions;
+
+        assert_eq!(out[0].title, None);
     }
 
     #[test]
@@ -988,6 +1066,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1020,6 +1099,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1046,6 +1126,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1070,6 +1151,7 @@ mod tests {
             &probe,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1092,6 +1174,7 @@ mod tests {
             &probe,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1114,6 +1197,7 @@ mod tests {
                 &probe,
                 &NoBlocked,
                 &NoWork,
+                &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
                 true,
@@ -1135,6 +1219,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1162,6 +1247,7 @@ mod tests {
             &probe,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1188,6 +1274,7 @@ mod tests {
             &activity,
             &blocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1212,6 +1299,7 @@ mod tests {
             &activity,
             &blocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1235,6 +1323,7 @@ mod tests {
             &activity,
             &blocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1259,6 +1348,7 @@ mod tests {
                 &busy,
                 &quiet,
                 &NoWork,
+                &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
                 true,
@@ -1277,6 +1367,7 @@ mod tests {
                 &idle,
                 &quiet,
                 &NoWork,
+                &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
                 true,
@@ -1295,6 +1386,7 @@ mod tests {
                 &paused,
                 &quiet,
                 &NoWork,
+                &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
                 true,
@@ -1321,6 +1413,7 @@ mod tests {
             &NoActivity,
             &blocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1344,6 +1437,7 @@ mod tests {
             &NoActivity,
             &blocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1372,6 +1466,7 @@ mod tests {
             &NoActivity,
             &blocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1397,6 +1492,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1420,6 +1516,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1445,6 +1542,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1462,6 +1560,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1481,6 +1580,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1501,6 +1601,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1521,6 +1622,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1542,6 +1644,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1560,6 +1663,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,
@@ -1580,6 +1684,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
             true,

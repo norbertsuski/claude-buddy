@@ -28,6 +28,7 @@ function session(id: string, state: Update['sessions'][number]['state']) {
     pid: 1,
     sessionId: id,
     name: `name-${id}`,
+    title: null,
     cwd: '/Users/n/Code/x',
     entrypoint: 'cli',
     state,

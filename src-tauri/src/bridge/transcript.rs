@@ -70,13 +70,18 @@ pub fn detail_from_tail(bytes: &[u8]) -> TranscriptDetail {
 }
 
 /// Shorten to fit, on a character boundary, with an ellipsis.
-fn clip(text: &str) -> String {
+fn clip_to(text: &str, max_chars: usize) -> String {
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if text.chars().count() <= ACTIVITY_MAX_CHARS {
+    if text.chars().count() <= max_chars {
         return text;
     }
-    let head: String = text.chars().take(ACTIVITY_MAX_CHARS).collect();
+    let head: String = text.chars().take(max_chars).collect();
     format!("{head}\u{2026}")
+}
+
+/// Shorten an activity line to the width the popover gives it.
+fn clip(text: &str) -> String {
+    clip_to(text, ACTIVITY_MAX_CHARS)
 }
 
 /// The content blocks of an assistant record, if this is one.
@@ -276,6 +281,41 @@ pub fn latest_assistant_text(bytes: &[u8]) -> Option<String> {
                 }
             }
         }
+    }
+
+    None
+}
+
+/// Longest session title the widget will carry. Titles are a sentence at most;
+/// this only guards against a transcript that carries something pathological.
+pub const TITLE_MAX_CHARS: usize = 64;
+
+/// The session's own title, as Claude Code named it.
+///
+/// Claude Code appends a `custom-title` record every time it titles or retitles
+/// a session, so the newest one wins and the tail is where it lives. Sessions
+/// that have never been titled have no such record at all, which is why this
+/// returns `None` rather than something derived — the caller falls back to the
+/// registry name, and a name that came from the folder is better than a name
+/// invented here.
+///
+/// Blank titles are treated as absent: a title of spaces would render as a
+/// nameless row rather than as the folder the user recognises.
+pub fn latest_custom_title(bytes: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(bytes);
+
+    for line in text.lines().rev() {
+        let Ok(record) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if record.get("type").and_then(|t| t.as_str()) != Some("custom-title") {
+            continue;
+        }
+        let title = record.get("customTitle").and_then(|t| t.as_str())?;
+        if title.trim().is_empty() {
+            return None;
+        }
+        return Some(clip_to(title, TITLE_MAX_CHARS));
     }
 
     None
@@ -693,5 +733,60 @@ mod tests {
 
         assert_eq!(bytes.len(), TAIL.len());
         std::fs::remove_file(&path).unwrap();
+    }
+
+    /// Claude Code appends a fresh `custom-title` record every time it retitles
+    /// a session, so a tail routinely holds several and only the last is true.
+    const TITLED: &str = concat!(
+        r#"{"type":"custom-title","customTitle":"first guess","sessionId":"s1"}"#,
+        "\n",
+        r#"{"type":"user","gitBranch":"main"}"#,
+        "\n",
+        r#"{"type":"custom-title","customTitle":"Session name in the widget","sessionId":"s1"}"#,
+        "\n",
+    );
+
+    #[test]
+    fn the_newest_custom_title_wins() {
+        assert_eq!(
+            latest_custom_title(TITLED.as_bytes()).as_deref(),
+            Some("Session name in the widget")
+        );
+    }
+
+    #[test]
+    fn a_transcript_with_no_custom_title_has_no_title() {
+        assert_eq!(latest_custom_title(TAIL.as_bytes()), None);
+    }
+
+    #[test]
+    fn a_blank_custom_title_reads_as_no_title() {
+        let line = r#"{"type":"custom-title","customTitle":"   ","sessionId":"s1"}"#;
+        assert_eq!(latest_custom_title(line.as_bytes()), None);
+    }
+
+    #[test]
+    fn a_long_title_is_clipped_to_the_widget_limit() {
+        let long = "word ".repeat(60);
+        let line = format!(r#"{{"type":"custom-title","customTitle":"{long}"}}"#);
+
+        let title = latest_custom_title(line.as_bytes()).expect("should have a title");
+
+        assert_eq!(title.chars().count(), TITLE_MAX_CHARS + 1);
+        assert!(title.ends_with('\u{2026}'));
+    }
+
+    /// The tail begins mid-record far more often than not, and a truncated
+    /// `custom-title` must not shadow the intact one before it.
+    #[test]
+    fn a_truncated_leading_record_is_skipped() {
+        let broken = format!(
+            r#"tom-title","customTitle":"junk"}}
+{TITLED}"#
+        );
+        assert_eq!(
+            latest_custom_title(broken.as_bytes()).as_deref(),
+            Some("Session name in the widget")
+        );
     }
 }

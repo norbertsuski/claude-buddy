@@ -111,6 +111,7 @@ mod tests {
             pid: 7,
             session_id: id.to_string(),
             name: format!("name-{id}"),
+            title: None,
             cwd: "/Users/n/Code/x".into(),
             entrypoint: "cli".into(),
             state: SessionState::Waiting,
