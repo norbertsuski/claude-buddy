@@ -205,6 +205,27 @@ Write it as it should appear: the existing entries are prose that explains the
 change to someone who does not know the code, not a restatement of the commit
 subject.
 
+### Cutting a release
+
+The tag is what publishes: pushing `v*` runs the release workflow, which builds
+the DMG and writes the updater manifest from the changelog section at the tagged
+commit. So the version bump has to land on `main` *before* the tag, not with it.
+
+Three files carry the version, and one deliberately does not:
+
+- `package.json` and `src-tauri/tauri.conf.json` — the version users see comes
+  from the second of these.
+- `package-lock.json` — `npm install --package-lock-only` after editing
+  `package.json`, which rewrites the two `version` fields and nothing else.
+  Easy to forget, and nothing catches it: `npm ci` fails on *dependency* drift
+  but not on a stale version field, so the lockfile sat two releases behind
+  before anyone noticed.
+- `src-tauri/Cargo.toml` stays at `0.1.0`. That is not an oversight — no code
+  reads `CARGO_PKG_VERSION`, and the comment above it says so.
+
+Then stamp the changelog's top section with the tag and the date, run the full
+suite, commit as `chore: bump to <version>`, push, and tag.
+
 ## Keeping the README in step
 
 `CHANGELOG.md` says what changed in a release. `README.md` says what the app
