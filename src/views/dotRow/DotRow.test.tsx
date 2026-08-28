@@ -51,9 +51,13 @@ describe('crazy mode', () => {
         crazy="off"
       />,
     )
-    expect(container.querySelector('.crazy-shake')).toBeNull()
+    // The wrappers are always there and always classed — that is what keeps the
+    // box identical whether the setting is on or off. What must be absent is
+    // everything that draws or animates.
     expect(container.querySelector('.crazy-heat')).toBeNull()
     expect(container.querySelector('.crazy-flames')).toBeNull()
+    expect(container.querySelector('.crazy-cracks')).toBeNull()
+    expect(container.querySelector('[data-shake]')).toBeNull()
     expect(container.querySelector('.pill')?.getAttribute('data-fire')).toBeNull()
   })
 
@@ -62,7 +66,8 @@ describe('crazy mode', () => {
       <DotRow sessions={[makeSession({ sessionId: 'a', state: 'idle' })]} crazy="ember" />,
     )
     expect(container.querySelector('.crazy-heat')).toBeNull()
-    expect(container.querySelector('.crazy-shake')).toBeNull()
+    expect(container.querySelector('[data-shake]')).toBeNull()
+    expect(container.querySelector('[data-shudder]')).toBeNull()
   })
 
   it('shakes harder the longer a session has waited', () => {
@@ -128,6 +133,30 @@ describe('crazy mode', () => {
       <DotRow sessions={[makeSession({ sessionId: 'a' })]} usage={usage} crazy="ember" />,
     )
     expect(container.querySelector('.crazy-shudder')?.getAttribute('data-shudder')).toBe('true')
+  })
+
+  it('keeps the same box whether it is lit or not', () => {
+    // Turning crazy mode on must change nothing about layout. The wrappers are
+    // always mounted so the pill is never remounted mid-morph, and their class
+    // has to be constant for the same reason: a class that appears with `lit`
+    // takes its `display` with it, and the row changes height as the setting is
+    // toggled.
+    const calm = render(<DotRow sessions={[makeSession({ sessionId: 'a', state: 'idle' })]} crazy="ember" />)
+    const lit = render(
+      <DotRow
+        sessions={[
+          makeSession({ sessionId: 'a', state: 'busy' }),
+          makeSession({ sessionId: 'b', state: 'busy' }),
+          makeSession({ sessionId: 'c', state: 'busy' }),
+        ]}
+        crazy="ember"
+      />,
+    )
+
+    for (const cls of ['crazy-shake', 'crazy-shudder']) {
+      expect(calm.container.querySelector(`.${cls}`)).not.toBeNull()
+      expect(lit.container.querySelector(`.${cls}`)).not.toBeNull()
+    }
   })
 
   it('burns at the level the busy count calls for', () => {
