@@ -164,6 +164,25 @@ mod tests {
                 .unwrap()
         }
 
+        /// Rewrite the body and move mtime on by a second.
+        ///
+        /// Writing alone is not enough to prove a cache miss. The cache is keyed
+        /// on mtime in whole milliseconds, and two `fs::write` calls in a row
+        /// land inside the same millisecond often enough to matter — measured at
+        /// roughly one time in four on an SSD, which is exactly the shape of the
+        /// intermittent CI failure this replaced. The test is about what a
+        /// changed mtime does, so it sets one rather than hoping for one.
+        fn rewrite_advancing_mtime(&self, body: &str) {
+            let was = self.mtime();
+            std::fs::write(&self.transcript, body).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&self.transcript)
+                .unwrap()
+                .set_modified(was + std::time::Duration::from_secs(1))
+                .unwrap();
+        }
+
         /// Rewrite the body while pinning mtime, so a re-read would be visible
         /// in the answer and a cache hit would not.
         fn rewrite_keeping_mtime(&self, body: &str) {
@@ -218,7 +237,7 @@ mod tests {
         let probe = fixture.probe();
         assert!(fixture.ask(&probe));
 
-        std::fs::write(&fixture.transcript, FINISHED).unwrap();
+        fixture.rewrite_advancing_mtime(FINISHED);
         assert!(!fixture.ask(&probe), "new mtime should be re-read");
     }
 }
