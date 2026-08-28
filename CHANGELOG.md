@@ -5,7 +5,7 @@ section out of this file, and the release workflow uses it as the body of the
 GitHub release and as the notes in the in-app update dialog — so a section that
 is missing here leaves that tag with nothing but the download boilerplate.
 
-## Unreleased
+## v0.9.0 — 2026-08-28
 
 - **Sessions are named by what they are about.** The row used to label every
   session with the folder it was running in, which made three sessions in one
