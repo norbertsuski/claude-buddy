@@ -52,6 +52,7 @@ function session(name: string, state: SessionState): SessionSnapshot {
     statusTimeMs: Date.now() - 120_000,
     startedAtMs: Date.now() - 600_000,
     background: false,
+    tasks: [],
   }
 }
 

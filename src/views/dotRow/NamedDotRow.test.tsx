@@ -19,6 +19,7 @@ function session(name: string, state: SessionState): SessionSnapshot {
     statusTimeMs: 0,
     startedAtMs: 0,
     background: false,
+    tasks: [],
   }
 }
 

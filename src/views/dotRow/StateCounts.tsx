@@ -9,7 +9,14 @@ import './notchFlanks.css'
  * The left chip lays itself out in reverse, so first here is nearest the notch —
  * the count that matters sits closest to where the eye already is.
  */
-export const STATE_ORDER: SessionState[] = ['waiting', 'dead', 'busy', 'idle', 'paused']
+export const STATE_ORDER: SessionState[] = [
+  'waiting',
+  'dead',
+  'busy',
+  'tasking',
+  'idle',
+  'paused',
+]
 
 /**
  * One dot and a number per state present, and nothing for the states absent.

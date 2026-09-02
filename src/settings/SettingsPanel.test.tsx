@@ -29,6 +29,7 @@ const config: AppConfig = {
   alertNeedsInput: true,
   alertDied: true,
   alertFinished: false,
+  alertTaskDone: false,
   sound: true,
   muteUntilMs: 0,
   launchAtLogin: false,

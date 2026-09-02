@@ -45,6 +45,7 @@ export function stateLabel(session: SessionSnapshot): string {
   const labels: Record<SessionState, string> = {
     waiting: 'needs you',
     busy: 'working',
+    tasking: 'running a task',
     idle: 'idle',
     paused: 'paused',
     dead: 'died',
