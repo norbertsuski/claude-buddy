@@ -7,6 +7,15 @@ use serde::Serialize;
 /// claude-buddy wants are always in the last few records.
 pub const TAIL_BYTES: u64 = 65_536;
 
+/// Largest transcript worth reading end to end.
+///
+/// A transcript is an append-only log with no upper bound — one left running
+/// for a week should not be read into memory whole on the strength of a maybe.
+/// Shared by the title probe, which scans once for a title older than the tail,
+/// and by the task probe, which scans once to find tasks that are still
+/// running.
+pub const FULL_SCAN_MAX_BYTES: u64 = 32 * 1024 * 1024;
+
 /// Longest activity string the popover will show on one line.
 pub const ACTIVITY_MAX_CHARS: usize = 64;
 
@@ -70,7 +79,11 @@ pub fn detail_from_tail(bytes: &[u8]) -> TranscriptDetail {
 }
 
 /// Shorten to fit, on a character boundary, with an ellipsis.
-fn clip_to(text: &str, max_chars: usize) -> String {
+///
+/// Public because task labels are clipped to the same width by the same rule;
+/// two truncations that disagreed would show up as two different ellipses in
+/// one popover.
+pub fn clip_to(text: &str, max_chars: usize) -> String {
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if text.chars().count() <= max_chars {
         return text;
@@ -85,7 +98,10 @@ fn clip(text: &str) -> String {
 }
 
 /// The content blocks of an assistant record, if this is one.
-fn assistant_content(record: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+///
+/// Public because the task probe uses it to follow execution as it replays a
+/// transcript.
+pub fn assistant_content(record: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
     record
         .get("message")
         .and_then(|m| m.get("content"))
@@ -154,7 +170,10 @@ fn blocking_tool_label(name: &str) -> Option<&'static str> {
 }
 
 /// The content blocks of any record, assistant or user.
-fn message_content(record: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+///
+/// Public because the task probe uses it to follow execution as it replays a
+/// transcript.
+pub fn message_content(record: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
     record
         .get("message")
         .and_then(|m| m.get("content"))
@@ -371,6 +390,27 @@ pub fn read_tail(path: &Path, max_bytes: u64) -> std::io::Result<Vec<u8>> {
 
     let mut buf = Vec::with_capacity(max_bytes.min(len) as usize);
     file.take(max_bytes).read_to_end(&mut buf)?;
+    Ok(buf)
+}
+
+/// Read the bytes of a file between two offsets.
+///
+/// The companion of `read_tail` for a file being followed rather than sampled:
+/// a transcript is append-only, so everything new since the last read is one
+/// window. `to` past the end is clamped and an inverted window is empty,
+/// because the file can be truncated between the stat that produced these
+/// offsets and this read.
+pub fn read_range(path: &Path, from: u64, to: u64) -> std::io::Result<Vec<u8>> {
+    let mut file = std::fs::File::open(path)?;
+    let len = file.metadata()?.len();
+    let from = from.min(len);
+    let to = to.min(len);
+    if to <= from {
+        return Ok(Vec::new());
+    }
+    file.seek(SeekFrom::Start(from))?;
+    let mut buf = Vec::with_capacity((to - from) as usize);
+    file.take(to - from).read_to_end(&mut buf)?;
     Ok(buf)
 }
 
@@ -788,5 +828,20 @@ mod tests {
             latest_custom_title(broken.as_bytes()).as_deref(),
             Some("Session name in the widget")
         );
+    }
+
+    #[test]
+    fn read_range_returns_only_the_requested_window() {
+        let path = std::env::temp_dir().join(format!("cb-range-{}.txt", std::process::id()));
+        std::fs::write(&path, b"aaaa\nbbbb\ncccc\n").unwrap();
+
+        assert_eq!(read_range(&path, 5, 10).unwrap(), b"bbbb\n");
+        // Past the end is clamped rather than an error: the file can be
+        // truncated between the stat and the read.
+        assert_eq!(read_range(&path, 10, 999).unwrap(), b"cccc\n");
+        // An inverted window is empty, not a panic.
+        assert!(read_range(&path, 10, 5).unwrap().is_empty());
+
+        std::fs::remove_file(&path).unwrap();
     }
 }
