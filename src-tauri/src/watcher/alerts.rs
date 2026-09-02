@@ -28,11 +28,20 @@ pub struct Alert {
 ///
 /// A function of the edge, not the state: "finished" only means anything as a
 /// move out of `Busy`, and a session first seen idle has finished nothing.
+///
+/// A turn that ends while a background task runs lands in `Tasking` rather
+/// than `Idle`, and it is the same turn ending, so it reads the same. The
+/// later `Tasking -> Idle` deliberately does not: the turn has already been
+/// reported, the task's own ending is `TaskDone`'s to report, and two
+/// "finished" notifications for one turn would be worse than the silence this
+/// arm was added to fix.
 fn alert_kind(was: Option<SessionState>, now: SessionState) -> Option<AlertKind> {
     match (was, now) {
         (_, SessionState::Waiting) => Some(AlertKind::NeedsInput),
         (_, SessionState::Dead) => Some(AlertKind::Died),
-        (Some(SessionState::Busy), SessionState::Idle) => Some(AlertKind::Finished),
+        (Some(SessionState::Busy), SessionState::Idle | SessionState::Tasking) => {
+            Some(AlertKind::Finished)
+        }
         _ => None,
     }
 }
@@ -254,6 +263,30 @@ mod tests {
 
         assert_eq!(alerts.len(), 1);
         assert_eq!(alerts[0].kind, AlertKind::Finished);
+    }
+
+    #[test]
+    fn a_turn_ending_while_a_task_runs_still_fires_finished() {
+        // The turn is over either way. Before `Tasking` existed this session
+        // went `Busy -> Idle` and notified; leaving a background command
+        // running must not silence it.
+        let prev = vec![snap("a", SessionState::Busy)];
+        let next = vec![snap("a", SessionState::Tasking)];
+
+        let alerts = diff_alerts(Some(&prev), &next);
+
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].kind, AlertKind::Finished);
+    }
+
+    #[test]
+    fn a_task_landing_afterwards_does_not_fire_finished_a_second_time() {
+        // `Busy -> Tasking` already reported this turn ending, and the task
+        // finishing is `TaskDone`'s to report. Two "finished" notifications
+        // for one turn would be worse than the bug that was fixed here.
+        let prev = vec![snap("a", SessionState::Tasking)];
+        let next = vec![snap("a", SessionState::Idle)];
+        assert!(diff_alerts(Some(&prev), &next).is_empty());
     }
 
     #[test]
