@@ -97,6 +97,7 @@ mod tests {
             status_time_ms: 0,
             started_at_ms: 0,
             background: false,
+            tasks: Vec::new(),
         }
     }
 
