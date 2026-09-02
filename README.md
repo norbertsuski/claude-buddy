@@ -44,6 +44,16 @@ Hover it and the pill morphs into a named row, one dot per session. Each one is 
 
 ![The expanded row: api-service waiting behind an amber triangle, its background job migrate-schemas demoted behind an arrow, web-app working behind a green circle, design-system idle behind a hollow ring, docs-site paused behind a two-bar glyph, infra-tools dead behind a red cross, and the limit bar reading 2h40m](docs/media/expanded.png)
 
+A session that fires off a background test run, a dev server, a watch or a
+background subagent goes quiet, and used to read `paused` after ten minutes —
+indistinguishable from one nobody was driving. It now reads `tasking`, and the
+collapsed pill counts it too, with a "1 on a task" chip between the working
+chip and the died chip. The popover lists what it is waiting on: each running
+task's kind, what it is, and how long it has been going. Registry jobs count
+too, so a session waiting on one of those reads the same way whether or not
+the job has a row of its own. When a task ends, a notification says which one
+and how it went; turn that off with `alertTaskDone`.
+
 Hover a name and a popover opens centred beneath it, headed by the session's full title, with the state and how long it has held, what the session is *doing* — the newest tool it reached for, or failing that the last thing it said — plus its registry name, the working directory, git branch, model, effort, entrypoint, pid and uptime. Click it to bring that session's editor to the front.
 
 ![A popover open under web-app, reading: state busy for 1m, doing Grep, cwd /Users/n/Code/web-app, branch fix/checkout-totals, model claude-opus-5 at high effort, cli with pid 927 up 47m, and 36% of the five-hour limit used with 2h40m to the reset](docs/media/popover.png)
@@ -54,7 +64,7 @@ Off by default. Turned on in Settings, the widget stops being subtle about what 
 
 ![The collapsed pill on fire: an amber "1 needs you" chip, a green "3 working" chip, a red "1 died" chip, then "2 idle" and "1 job", with flames licking along the inside of the pill's bottom edge, sparks rising off them, a hairline fracture running across the pill and the limit bar glowing molten at the end](docs/media/crazy.gif)
 
-- **Fire** — the pill warms as one session goes busy and is properly alight at three, with flames along its bottom edge and sparks coming off it. Background jobs and subagents do not count towards it: they are work you did not start.
+- **Fire** — the pill warms as one session goes busy or tasking and is properly alight at three, with flames along its bottom edge and sparks coming off it. Background jobs and subagents do not count towards it — that is work you did not start — and neither does a registry job counted as one of your own tasks; only a task you launched yourself stokes it.
 - **Shake** — a session that has been waiting on you for more than thirty seconds makes the pill tremble, harder the longer it waits, to a peak of 1.4px. It stops while the pointer is over the widget, so it never becomes a moving target.
 - **Fracture** — as the five-hour limit runs down, cracks spread across the pill. At the last of it the limit bar goes molten and drips.
 - **Ash** — a session dying breaks its dot apart once, and it settles back to the ordinary cross. Once, not forever: a dead session can sit in the row for hours.
@@ -79,12 +89,13 @@ There is no fallback to Claude Code's own cache of the figure in `~/.claude.json
 
 The token is borrowed, never managed: an expired one is a reason to skip a poll, not to run the refresh flow behind Claude Code's back. Nothing is written anywhere, and the first Keychain read may raise the system's own permission dialog. The meter disappears when the answer is not usable — a window that has already reset, a shape the response does not have any more, no token to ask with.
 
-Every state carries a shape as well as a hue, because colour alone is unreadable to a red-green colourblind user and these five dots are the widget's whole vocabulary. The box stays 11px in each case, so nothing shifts as a session changes state.
+Every state carries a shape as well as a hue, because colour alone is unreadable to a red-green colourblind user and these six dots are the widget's whole vocabulary. The box stays 11px in each case, so nothing shifts as a session changes state.
 
 | Colour | Shape | State |
 |---|---|---|
 | amber | triangle, inside a pulsing ring | waiting on you — carries the reason, e.g. `input needed` |
 | green | filled circle with a glow | working |
+| teal | hollow ring with a turning arc | waiting on a background task — carries what it is waiting for |
 | grey | hollow ring | idle |
 | dim grey | two-bar pause glyph | paused — quiet for ten minutes |
 | red | cross | died — the process is gone |
@@ -109,7 +120,7 @@ At rest it is a black band the height of the menu bar, hugging the notch: sessio
 
 ![The menu bar with a black band across the notch: amber, red, green, grey and paused dots each with a count on the left, and the limit's bar on the right](docs/media/notch-rest.png)
 
-Hover anywhere on the black and that same element grows — down and out to a third of the display's width — into a list of every session with its status and elapsed time, and the detail of the row under the cursor opens beneath it. There is no popover in this mode; the slab is wide enough to say everything the popover said. Leave it and it collapses back into the menu bar.
+Hover anywhere on the black and that same element grows — down and out to a third of the display's width — into a list of every session with its status and elapsed time, and the detail of the row under the cursor opens beneath it. There is no popover in this mode; the slab is wide enough to say everything the popover said. A tasking session's detail names what it is waiting on — the task's own name — the same way a waiting session's detail names its reason. Leave it and it collapses back into the menu bar.
 
 ![The slab open below the notch: api-service needing input and hovered, its detail showing AskUserQuestion, one background agent, branch and model, and cwd; then web-app working, design-system idle, docs-site paused and infra-tools died; a footer reading 64% of the 5h limit left](docs/media/notch-open.png)
 
@@ -161,10 +172,10 @@ There is **no Dock icon and no Cmd-Tab entry** — it is a menu-bar app. The tra
 - **About claude-buddy** — the standard macOS panel: icon, name, the version you are running, author, licence. With no Dock icon and no app menu there is nowhere else the app says which version it is.
 - **Check for updates…** — asks, then says what it found either way: up to date, downloading, or why it could not. Once a check has found something newer the item renames itself to **Install update 0.8.0…**, naming the version, so the menu stops offering to check for what it has already found. Present only when the updater has a signing key configured; see [Signing updates](#signing-updates).
 - **Hide widget** — a tick, not a policy: takes the widget off screen and keeps it there while sessions come and go. It outranks *Hide the widget* in Settings, including **Never**. For a screen share, a recording, or the ten minutes you want the corner of your display back.
-- **Keep screen awake while agents work** — a tick that holds the display on for as long as a session is working or waiting on you. While it is actually holding, the item reads *Keeping screen awake now*, so the menu answers "is it doing anything right now" — on an idle machine, ticked, it does nothing at all. Off unless you turn it on. A long run is exactly when nobody is touching the keyboard, so the display sleeps on its idle timer and the answer — or the permission question that stopped the run — ends up behind a dark, locked screen. While this is ticked and something is actually working, **the Mac will not auto-lock**; the moment nothing is working it releases and normal sleep resumes. `pmset -g assertions` names the hold as *claude-buddy: agent working* if you want to see it. Subagents follow **Show background jobs**: ones you have chosen not to see cannot hold the display on either.
+- **Keep screen awake while agents work** — a tick that holds the display on for as long as a session is working, waiting on you, or on a background task. While it is actually holding, the item reads *Keeping screen awake now*, so the menu answers "is it doing anything right now" — on an idle machine, ticked, it does nothing at all. Off unless you turn it on. A long run is exactly when nobody is touching the keyboard, so the display sleeps on its idle timer and the answer — or the permission question that stopped the run — ends up behind a dark, locked screen. While this is ticked and something is actually working, **the Mac will not auto-lock**; the moment nothing is working it releases and normal sleep resumes. `pmset -g assertions` names the hold as *claude-buddy: agent working* if you want to see it. Subagents follow **Show background jobs**: ones you have chosen not to see cannot hold the display on either.
 - **Show background jobs** — the same tick as the Settings checkbox, where you need it: one run spawning six subagents is the moment you want them out of the row, and that moment does not wait for a settings window.
 - **Mute alerts** — a submenu: **For 1 hour**, **For 8 hours**, or **Until I unmute**. While a mute is running the item reads *Alerts muted* and **Unmute now** inside it becomes clickable; it is greyed out the rest of the time, so the menu answers "am I muted" without your having to remember.
-- **Settings…** — opens a normal window: when to hide the widget, which display to use, whether to sit in the notch, the sound and its three alert events, the 5h limit, background jobs, crazy mode, launch at login
+- **Settings…** — opens a normal window: when to hide the widget, which display to use, whether to sit in the notch, the sound and its four alert events, the 5h limit, background jobs, crazy mode, launch at login
 - **Quit claude-buddy**
 
 The toggles and the form write the same file, so a change made in either place shows up in the other immediately.
@@ -175,7 +186,7 @@ It starts at the top centre of the primary display. Pick a different screen unde
 
 The widget floats above fullscreen apps and follows you across Spaces, and clicking it never takes focus from your editor.
 
-Settings → *Hide the widget* takes it off screen when there is nothing to watch: **Never**, **When there are no sessions** (the default), or **When nothing is waiting or working**. The tray menu's **Hide widget** is the manual version and beats all three — a session waking up will not bring the widget back while it is ticked. The tray icon stays either way, so a hidden widget is never unreachable.
+Settings → *Hide the widget* takes it off screen when there is nothing to watch: **Never**, **When there are no sessions** (the default), or **When nothing is waiting, working or on a task**. The tray menu's **Hide widget** is the manual version and beats all three — a session waking up will not bring the widget back while it is ticked. The tray icon stays either way, so a hidden widget is never unreachable.
 
 ### Alerts
 
@@ -183,12 +194,13 @@ macOS asks for notification permission on the first alert. Decline it and the pi
 
 **Alerts fire on transitions, not states.** A session that is already waiting when the widget starts stays silent, because the first reading is a baseline. Without that, every launch would open with a burst of alerts about things you already knew.
 
-*Play a sound* is the switch for all of this, and the three transitions below sit under it in Settings. An alert is a notification with a sound, so silence means no alert: turning it off writes all three off and greys them out, and turning it back on restores the defaults. `notify::should_deliver` gates on it too, so a config file hand-edited to arm an event under a silent parent still delivers nothing.
+*Play a sound* is the switch for all of this, and the four things below sit under it in Settings. An alert is a notification with a sound, so silence means no alert: turning it off writes all four off and greys them out, and turning it back on restores the defaults. `notify::should_deliver` gates on it too, so a config file hand-edited to arm an event under a silent parent still delivers nothing.
 
-Three transitions can interrupt you:
+Four things can interrupt you:
 
 - **A session starts waiting for input.** The notification carries the session's actual pending question, read from its transcript — not just `input needed`. The registry's own reason stands in when the transcript yields nothing.
 - **A session dies.** Its process is gone.
+- **A background task finishes.** The notification names the task and says how it ended, so a failure does not read like a success. On by default; turn it off with the "when a background task finishes" checkbox, or with `alertTaskDone` in the settings file.
 - **A session finishes its turn** — busy to idle. Off by default, since a finished turn is the common case and alerting on it is the noisy choice; enable it in Settings. Only that edge counts: answering a question and going quiet is not a finished turn, and a session first seen idle has finished nothing.
 
 Each notification names the session the same way the row does: by its title, falling back to the folder-derived name for a session Claude Code has not titled.
@@ -206,6 +218,7 @@ Clicking any notification raises that session's window, the same as clicking its
   "alertNeedsInput": true,
   "alertDied": true,
   "alertFinished": false,
+  "alertTaskDone": true,
   "sound": true,
   "muteUntilMs": 0,
   "launchAtLogin": false,
@@ -220,7 +233,7 @@ Clicking any notification raises that session's window, the same as clicking its
 }
 ```
 
-`hideWhen` is one of `never`, `noSessions` or `nothingActive`; anything else falls back to showing the widget. `hidden` is the tray menu's **Hide widget** and is checked before `hideWhen` is even consulted, so `true` here hides the widget whatever the mode says — set it back to `false`, or untick the menu item, to get it back. `keepAwake` is the tray menu's **Keep screen awake**; it only has an effect while a session is working or waiting, so `true` on an idle machine changes nothing. `crazy` is `off` or `ember`; anything else reads as `off`. It is the only setting that changes nothing about what the widget *knows* — only how loudly it says it. `muteUntilMs` is epoch milliseconds; the menu writes an hour or eight hours ahead for a timed mute, and `9223372036854775807` for *Until I unmute*. `placement` is `free` or `notch`; anything else reads as `free`, deliberately, since a hand-edited typo must not strand the widget in a placement it cannot be dragged out of. `viewMode` is vestigial — the view modes are gone, and the field is still parsed only so an existing config file keeps loading.
+`hideWhen` is one of `never`, `noSessions` or `nothingActive`; anything else falls back to showing the widget. `hidden` is the tray menu's **Hide widget** and is checked before `hideWhen` is even consulted, so `true` here hides the widget whatever the mode says — set it back to `false`, or untick the menu item, to get it back. `keepAwake` is the tray menu's **Keep screen awake**; it only has an effect while a session is working, waiting, or waiting on a background task, so `true` on an idle machine changes nothing. `crazy` is `off` or `ember`; anything else reads as `off`. It is the only setting that changes nothing about what the widget *knows* — only how loudly it says it. `muteUntilMs` is epoch milliseconds; the menu writes an hour or eight hours ahead for a timed mute, and `9223372036854775807` for *Until I unmute*. `placement` is `free` or `notch`; anything else reads as `free`, deliberately, since a hand-edited typo must not strand the widget in a placement it cannot be dragged out of. `viewMode` is vestigial — the view modes are gone, and the field is still parsed only so an existing config file keeps loading.
 
 A corrupt or half-written file falls back to defaults rather than refusing to start.
 
