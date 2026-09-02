@@ -226,6 +226,24 @@ describe('SessionPopover', () => {
     expect(screen.queryByTestId('popover-tasks')).toBeNull()
   })
 
+  it('keeps a running task even once it has an endedAtMs', () => {
+    // The contract (types.ts) says filter on `status`, not on `endedAtMs`
+    // being null — a task can carry a stale/non-null endedAtMs while still
+    // `running` (e.g. a restarted watch). An endedAtMs-based filter would
+    // wrongly drop this task; only the status-based filter keeps it.
+    render(
+      <SessionPopover
+        session={{
+          ...session,
+          state: 'tasking',
+          detail: '1 task running',
+          tasks: [{ ...runningTask('t1', 'npm test'), endedAtMs: NOW - 1_000 }],
+        }}
+      />,
+    )
+    expect(screen.getByTestId('popover-tasks')).toHaveTextContent('npm test')
+  })
+
   it('shows no tasks block for a session with none', () => {
     render(<SessionPopover session={{ ...session, tasks: [] }} />)
     expect(screen.queryByTestId('popover-tasks')).toBeNull()
