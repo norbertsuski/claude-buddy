@@ -17,7 +17,7 @@ bundle instead, and any path to a binary works in place of either.
 
 ## The cast
 
-Six entries, chosen to put every state the widget can draw on screen at once —
+Seven entries, chosen to put every state the widget can draw on screen at once —
 the same six the screenshots in the root README show, in the same order.
 
 | | State | Why |
@@ -27,6 +27,7 @@ the same six the screenshots in the root README show, in the same order.
 | `web-app` | working | Reports `busy`, one minute in, on `fix/checkout-totals` with `claude-opus-5` at high effort, mid-`Grep`. |
 | `design-system` | idle | Reports `idle`, three minutes quiet — short of the pause threshold. |
 | `docs-site` | paused | Twenty-six minutes quiet, which is past the ten the threshold wants. Its transcript ends on prose rather than a tool call, so the popover shows the last thing it said. |
+| `test-runner` | tasking | Twenty-six minutes quiet, which would be `paused`, except that its transcript leaves two background shells and a CI watch running. A third task is left finished, which is what shows that the popover lists only what is still going. |
 | `infra-tools` | died | Still claims to be `busy`; its pid is 999999, which is above macOS's PID\_MAX and so cannot be anything. Death outranks whatever the registry says. |
 
 Between them they also cover the fields the popover reads out of a transcript
@@ -80,6 +81,14 @@ widget derives is relative to now:
   that has already reset is dropped rather than shown, so a committed
   `usage.json` would show no meter at all.
 
+One transcript is generated rather than committed: `test-runner`'s. Everything
+else under `projects/` is committed because none of the fields read out of a
+transcript is time-sensitive, and task records are the exception — a task start
+is only believed when it is stamped no earlier than the session's own
+`startedAt`, which is what stops a resumed session inheriting a dead process's
+tasks. A committed timestamp would fall the wrong side of that boundary and the
+session would read `paused`.
+
 So the fixture data proper is the cast table at the bottom of `generate.sh`:
 one line per session, in relative terms — how long it has held its state, how
 long it has been up — and the script turns those into a registry the app will
@@ -106,6 +115,13 @@ working directory the slug was built from, `interactive` or `bg`, a job id when
 it is `bg`, the status word and reason, and the two ages in seconds. Run
 `./fixtures/generate.sh` on its own to see it stamped without launching
 anything.
+
+A session that needs `tasking` is the exception: its task records are only
+believed when stamped no earlier than `startedAt`, which is stamped at run
+time, so the transcript cannot be a committed file. Write it with a function
+like `emit_task_transcript` instead, called from `generate.sh` before the cast
+line that needs it, and add its output directory to `.gitignore` alongside
+`test-runner`'s.
 
 The states are worth reading out of `src-tauri/src/watcher/state.rs` rather than
 guessed at. A session that reports a status is believed; only a statusless one —

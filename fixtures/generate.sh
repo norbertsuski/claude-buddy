@@ -64,8 +64,8 @@ oldest_processes() {
 # It is opt-in and additive: the default cast is byte-for-byte what it was, so
 # every screenshot taken before this still shows what it says it does.
 HOT="${CB_FIXTURE_HOT:-}"
-NEEDED=5
-[ -n "$HOT" ] && NEEDED=7
+NEEDED=6
+[ -n "$HOT" ] && NEEDED=8
 
 BORROWED="$(oldest_processes)"
 BORROWED_COUNT="$(printf '%s\n' "$BORROWED" | grep -c . || true)"
@@ -146,6 +146,41 @@ JSON
     "$name" "${status:-none}" "$pid" "$(printf '%dm%02ds' $((status_age_s / 60)) $((status_age_s % 60)))"
 }
 
+# Write the one transcript that cannot be committed.
+#
+# Everything under projects/ is committed because none of the fields the
+# widget reads out of a transcript is time-sensitive — except these. A task's
+# start record is only believed when it is stamped no earlier than the
+# session's own `startedAt` (`watcher::tasks::apply_events`), which stops a
+# resumed session inheriting a dead process's tasks, and `startedAt` is
+# stamped at run time. A committed timestamp would be dropped by that
+# boundary and the session would read `paused` instead of `tasking`.
+#
+# Two tasks are left running and one is left finished, so the row shows the
+# plural detail, the popover lists two lines, and the finished one proves it
+# is filtered out of both.
+emit_task_transcript() {
+  local session_id="$1" cwd="$2" started_ms="$3"
+  local dir="$PROJECTS/$(printf '%s' "$cwd" | tr './' '--')"
+  mkdir -p "$dir"
+
+  # Comfortably after startedAt and before now, in the format transcripts use.
+  local at
+  at="$(date -u -r "$(( started_ms / 1000 + 60 ))" '+%Y-%m-%dT%H:%M:%S.000Z')"
+
+  cat > "$dir/$session_id.jsonl" <<JSON
+{"type":"user","uuid":"cc000001-0000-4000-8000-000000000001","parentUuid":null,"sessionId":"$session_id","version":"2.1.234","cwd":"$cwd","gitBranch":"ci/flaky-suite","message":{"role":"user","content":[{"type":"text","text":"Run the suite in the background and keep an eye on CI while it goes."}]}}
+{"type":"assistant","uuid":"cc000001-0000-4000-8000-000000000002","parentUuid":"cc000001-0000-4000-8000-000000000001","sessionId":"$session_id","version":"2.1.234","cwd":"$cwd","gitBranch":"ci/flaky-suite","effort":"medium","message":{"role":"assistant","model":"claude-sonnet-5","content":[{"type":"tool_use","id":"toolu_fixture_lint","name":"Bash","input":{"command":"npm run lint","description":"Lint the workspace","run_in_background":true}}]}}
+{"type":"user","uuid":"cc000001-0000-4000-8000-000000000003","parentUuid":"cc000001-0000-4000-8000-000000000002","sessionId":"$session_id","version":"2.1.234","cwd":"$cwd","gitBranch":"ci/flaky-suite","timestamp":"$at","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_fixture_lint"}]},"toolUseResult":{"backgroundTaskId":"bfixlint01"}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"$at","sessionId":"$session_id","content":"<task-notification> <task-id>bfixlint01</task-id> <status>completed</status> <summary>Background command \"npm run lint\" completed</summary> </task-notification>"}
+{"type":"assistant","uuid":"cc000001-0000-4000-8000-000000000004","parentUuid":"cc000001-0000-4000-8000-000000000003","sessionId":"$session_id","version":"2.1.234","cwd":"$cwd","gitBranch":"ci/flaky-suite","effort":"medium","message":{"role":"assistant","model":"claude-sonnet-5","content":[{"type":"tool_use","id":"toolu_fixture_test","name":"Bash","input":{"command":"npm test","description":"Run the whole suite","run_in_background":true}}]}}
+{"type":"user","uuid":"cc000001-0000-4000-8000-000000000005","parentUuid":"cc000001-0000-4000-8000-000000000004","sessionId":"$session_id","version":"2.1.234","cwd":"$cwd","gitBranch":"ci/flaky-suite","timestamp":"$at","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_fixture_test"}]},"toolUseResult":{"backgroundTaskId":"bfixtest01"}}
+{"type":"assistant","uuid":"cc000001-0000-4000-8000-000000000006","parentUuid":"cc000001-0000-4000-8000-000000000005","sessionId":"$session_id","version":"2.1.234","cwd":"$cwd","gitBranch":"ci/flaky-suite","effort":"medium","message":{"role":"assistant","model":"claude-sonnet-5","content":[{"type":"tool_use","id":"toolu_fixture_ci","name":"Monitor","input":{"description":"Watch the CI run"}}]}}
+{"type":"user","uuid":"cc000001-0000-4000-8000-000000000007","parentUuid":"cc000001-0000-4000-8000-000000000006","sessionId":"$session_id","version":"2.1.234","cwd":"$cwd","gitBranch":"ci/flaky-suite","timestamp":"$at","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_fixture_ci"}]},"toolUseResult":{"taskId":"bfixci0001","timeoutMs":600000}}
+{"type": "custom-title", "customTitle": "Flaky suite triage", "sessionId": "$session_id"}
+JSON
+}
+
 mkdir -p "$SESSIONS"
 # Every run borrows different pids, so last run's files have to go: they name
 # processes that have since been reassigned or have gone away, and would show up
@@ -153,6 +188,14 @@ mkdir -p "$SESSIONS"
 rm -f "$SESSIONS"/*.json
 
 echo "registry -> $SESSIONS"
+
+# The tasking session's transcript, written before its registry entry because
+# `emit_session` requires the transcript to be there. 1560 seconds of quiet, so
+# it is past PAUSED_THRESHOLD_MS and would read `paused` if its tasks were not
+# running.
+TASK_UPTIME_S=4200
+emit_task_transcript 6f7a8b9c-8293-4405-9f16-6b8c9dae0fb6 \
+  /Users/n/Code/test-runner "$(( NOW_MS - TASK_UPTIME_S * 1000 ))"
 
 # The cast the README's screenshots show, in the order they appear there.
 #
@@ -166,14 +209,17 @@ emit_session 3    4d3c2b1a-5f60-4172-bc83-2e4f5a6b7c82   web-app           /User
 emit_session 4    1a2b3c4d-6071-4283-8d94-3f5a6b7c8d93   design-system     /Users/n/Code/design-system     interactive   ""                 idle      ""              4800    180
 # Past PAUSED_THRESHOLD_MS, which is ten minutes.
 emit_session 5    5e6f7a8b-7182-4394-8e05-4a6b7c8d9ea4   docs-site         /Users/n/Code/docs-site         interactive   ""                 idle      ""              11100   1560
+# Two background shells and a CI watch are running, so ten minutes of quiet
+# reads `tasking` rather than `paused`.
+emit_session 6    6f7a8b9c-8293-4405-9f16-6b8c9dae0fb6   test-runner       /Users/n/Code/test-runner       interactive   ""                 idle      ""              $TASK_UPTIME_S  1560
 # Still says it is busy; the pid says otherwise, and death outranks status.
 emit_session gone 2c3d4e5f-8293-44a5-8f16-5b7c8d9eafb5   infra-tools       /Users/n/Code/infra-tools       interactive   ""                 busy      ""              3120    480
 
 # Two more working sessions, so the fire in crazy mode reaches its top step.
 # Only under CB_FIXTURE_HOT.
 if [ -n "$HOT" ]; then
-  emit_session 6  8f9e0d1c-a2b3-4c4d-9e5f-6a7b8c9d0e1f   payments-api      /Users/n/Code/payments-api      interactive   ""                 busy      ""              3600    30
-  emit_session 7  3b4c5d6e-f708-4192-a3b4-c5d6e7f80912   search-index      /Users/n/Code/search-index      interactive   ""                 busy      ""              2400    20
+  emit_session 7  8f9e0d1c-a2b3-4c4d-9e5f-6a7b8c9d0e1f   payments-api      /Users/n/Code/payments-api      interactive   ""                 busy      ""              3600    30
+  emit_session 8  3b4c5d6e-f708-4192-a3b4-c5d6e7f80912   search-index      /Users/n/Code/search-index      interactive   ""                 busy      ""              2400    20
 fi
 
 # The five-hour meter: 36% spent, two hours forty to the reset, which is what
