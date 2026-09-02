@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -91,13 +91,31 @@ impl TaskEvent {
 /// Unparseable lines are skipped, as everywhere else: a windowed read almost
 /// always begins mid-record.
 pub fn task_events(bytes: &[u8]) -> Vec<TaskEvent> {
+    task_events_with(bytes, &mut ToolCalls::default())
+}
+
+/// Every task event in these bytes, with a memory of the calls earlier windows
+/// carried.
+///
+/// A task's start is two records: the assistant's `tool_use`, which is the only
+/// place its kind and its description live, and the result that reports the new
+/// task id. The incremental probe hands over only what was appended since the
+/// last tick, so those two records routinely land in different windows — the
+/// spec's own sample pair is seven seconds apart and a tick is two. Without the
+/// carried calls a background agent read one tick late became a nameless
+/// `Watch`, and stayed one for its whole life, since nothing re-derives a kind.
+pub fn task_events_with(bytes: &[u8], calls: &mut ToolCalls) -> Vec<TaskEvent> {
     let text = String::from_utf8_lossy(bytes);
     let records: Vec<serde_json::Value> = text
         .lines()
         .filter_map(|line| serde_json::from_str(line).ok())
         .collect();
 
-    let tools = tool_uses(&records);
+    // A whole window first, so a call later in the file than the result it
+    // belongs to is still found.
+    for record in &records {
+        remember_tool_uses(record, calls);
+    }
 
     records
         .iter()
@@ -106,9 +124,49 @@ pub fn task_events(bytes: &[u8]) -> Vec<TaskEvent> {
                 .get("timestamp")
                 .and_then(|v| v.as_str())
                 .and_then(crate::rfc3339::epoch_ms)?;
-            started_event(record, &tools, at_ms).or_else(|| ended_event(record, at_ms))
+            started_event(record, calls, at_ms).or_else(|| ended_event(record, at_ms))
         })
         .collect()
+}
+
+/// How many tool calls are remembered between reads.
+///
+/// Only the last call of a window can still be missing its result, so one
+/// would nearly always do; this is deep enough that a burst of calls issued in
+/// one assistant turn cannot push the pending one out, and small enough that a
+/// per-session cache entry stays a few kilobytes.
+const REMEMBERED_CALLS: usize = 64;
+
+/// Tool calls seen so far, by `tool_use` id.
+///
+/// Owned rather than borrowed from the records, because it outlives the window
+/// it was read from. Bounded and oldest-out, so following a session for hours
+/// costs a fixed amount of memory.
+#[derive(Debug, Clone, Default)]
+pub struct ToolCalls {
+    by_id: HashMap<String, (String, Option<String>)>,
+    order: VecDeque<String>,
+}
+
+impl ToolCalls {
+    fn insert(&mut self, id: &str, name: &str, description: Option<&str>) {
+        let call = (name.to_string(), description.map(str::to_string));
+        if self.by_id.insert(id.to_string(), call).is_some() {
+            return;
+        }
+        self.order.push_back(id.to_string());
+        if self.order.len() > REMEMBERED_CALLS {
+            if let Some(oldest) = self.order.pop_front() {
+                self.by_id.remove(&oldest);
+            }
+        }
+    }
+
+    fn get(&self, id: &str) -> Option<(&str, Option<&str>)> {
+        self.by_id
+            .get(id)
+            .map(|(name, description)| (name.as_str(), description.as_deref()))
+    }
 }
 
 /// How many tasks one session's list may hold.
@@ -213,6 +271,9 @@ struct CachedTasks {
     /// How much of the file has been folded in. The next read starts here.
     consumed: u64,
     tasks: Vec<Task>,
+    /// The tool calls the consumed bytes named, for the results that have not
+    /// arrived yet.
+    calls: ToolCalls,
 }
 
 /// Follows a session transcript for task events.
@@ -261,14 +322,16 @@ impl TranscriptTasks {
         let mtime = Self::modified_ms(&path)?;
         let len = std::fs::metadata(&path).ok()?.len();
 
-        let (mut tasks, from) = {
+        let (mut tasks, mut calls, from) = {
             let cache = self.cache.lock().expect("task cache poisoned");
             match cache.get(session_id) {
                 Some(entry) if entry.at_ms == mtime => return Some(entry.tasks.clone()),
                 // A file shorter than what has been consumed is not the file
                 // that was consumed. Start again rather than splicing two.
-                Some(entry) if entry.consumed <= len => (entry.tasks.clone(), entry.consumed),
-                _ => (Vec::new(), 0),
+                Some(entry) if entry.consumed <= len => {
+                    (entry.tasks.clone(), entry.calls.clone(), entry.consumed)
+                }
+                _ => (Vec::new(), ToolCalls::default(), 0),
             }
         };
 
@@ -291,7 +354,8 @@ impl TranscriptTasks {
             .map(|i| i + 1)
             .unwrap_or(0);
 
-        apply_events(&mut tasks, &task_events(&bytes[..complete]), started_at_ms);
+        let events = task_events_with(&bytes[..complete], &mut calls);
+        apply_events(&mut tasks, &events, started_at_ms);
 
         // Bytes past `complete` (an unterminated trailing line) are left
         // unconsumed on both paths, so they are re-read — not lost — once
@@ -304,6 +368,7 @@ impl TranscriptTasks {
                 at_ms: mtime,
                 consumed,
                 tasks: tasks.clone(),
+                calls,
             },
         );
 
@@ -359,35 +424,31 @@ impl TaskProbe for FakeTasks {
     }
 }
 
-/// Every `tool_use` id in these records, paired with its tool name and the
-/// `description` its input carried.
+/// Record every `tool_use` this record carries, with its tool name and the
+/// `description` its input held.
 ///
 /// A task's start record names only its own new task id; what kind of task it
 /// is, and what it is for, live on the call that produced it.
-fn tool_uses<'a>(records: &'a [serde_json::Value]) -> HashMap<&'a str, (&'a str, Option<&'a str>)> {
-    let mut out = HashMap::new();
-    for record in records {
-        let Some(content) = assistant_content(record) else {
+fn remember_tool_uses(record: &serde_json::Value, calls: &mut ToolCalls) {
+    let Some(content) = assistant_content(record) else {
+        return;
+    };
+    for block in content {
+        if block.get("type").and_then(|t| t.as_str()) != Some("tool_use") {
+            continue;
+        }
+        let Some(id) = block.get("id").and_then(|v| v.as_str()) else {
             continue;
         };
-        for block in content {
-            if block.get("type").and_then(|t| t.as_str()) != Some("tool_use") {
-                continue;
-            }
-            let Some(id) = block.get("id").and_then(|v| v.as_str()) else {
-                continue;
-            };
-            let Some(name) = block.get("name").and_then(|v| v.as_str()) else {
-                continue;
-            };
-            let description = block
-                .get("input")
-                .and_then(|i| i.get("description"))
-                .and_then(|v| v.as_str());
-            out.insert(id, (name, description));
-        }
+        let Some(name) = block.get("name").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let description = block
+            .get("input")
+            .and_then(|i| i.get("description"))
+            .and_then(|v| v.as_str());
+        calls.insert(id, name, description);
     }
-    out
 }
 
 /// The `tool_use_id` this record is a result for, if it is one.
@@ -411,11 +472,7 @@ fn kind_for_tool(name: &str, fallback: TaskKind) -> TaskKind {
     }
 }
 
-fn started_event(
-    record: &serde_json::Value,
-    tools: &HashMap<&str, (&str, Option<&str>)>,
-    at_ms: i64,
-) -> Option<TaskEvent> {
+fn started_event(record: &serde_json::Value, calls: &ToolCalls, at_ms: i64) -> Option<TaskEvent> {
     let result = record.get("toolUseResult")?;
     let (id, fallback) = match result.get("backgroundTaskId").and_then(|v| v.as_str()) {
         Some(id) => (id, TaskKind::Shell),
@@ -425,7 +482,7 @@ fn started_event(
         ),
     };
 
-    let call = result_for(record).and_then(|id| tools.get(id));
+    let call = result_for(record).and_then(|id| calls.get(id));
     let (kind, label) = match call {
         Some((name, description)) => (
             kind_for_tool(name, fallback),
@@ -936,6 +993,37 @@ mod tests {
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].id, "bmd0i64ke");
         assert_eq!(tasks[0].status, TaskStatus::Running);
+    }
+
+    #[test]
+    fn a_task_id_read_after_its_call_keeps_the_call_kind_and_label() {
+        // The `tool_use` and the result that reports the task id are separate
+        // records, and a tick can fall between them: the spec's own sample
+        // records are seven seconds apart against a two-second tick. The
+        // window carrying the result then holds no call to look the kind and
+        // the description up in, and the task landed as a nameless `Watch`.
+        let call = concat!(
+            r#"{"type":"assistant","timestamp":"2026-08-28T09:00:00.000Z","message":{"content":[{"type":"tool_use","id":"toolu_5","name":"Agent","input":{"description":"Audit the payment flow"}}]}}"#,
+            "\n",
+        );
+        let result = concat!(
+            r#"{"type":"user","timestamp":"2026-08-28T09:00:07.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_5"}]},"toolUseResult":{"taskId":"agent9","timeoutMs":600000}}"#,
+            "\n",
+        );
+
+        let fixture = Fixture::new("split-call", call);
+        let probe = fixture.probe();
+        assert!(fixture.ask(&probe).is_empty(), "no task has started yet");
+
+        fixture.append(result);
+        let tasks = fixture.ask(&probe);
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(
+            tasks[0].kind,
+            TaskKind::Subagent,
+            "an agent read a tick after its call is still an agent"
+        );
+        assert_eq!(tasks[0].label.as_deref(), Some("Audit the payment flow"));
     }
 
     #[test]
