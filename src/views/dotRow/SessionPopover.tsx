@@ -128,9 +128,14 @@ export function SessionPopover({
                 {running.map((task: Task) => (
                   <li key={task.id}>
                     <span className="popover-task-kind">{TASK_KIND_LABEL[task.kind]}</span>
-                    {task.label ?? task.id}
-                    {' · '}
-                    {formatElapsed(now - task.startedAtMs)}
+                    {/* The name is the part that can be arbitrarily long — a
+                        whole shell command — and the age is the part you came
+                        for. Only the name shrinks, so a long one is clipped
+                        rather than pushing the age off the line. */}
+                    <span className="popover-task-label">{task.label ?? task.id}</span>
+                    <span className="popover-task-age">
+                      {formatElapsed(now - task.startedAtMs)}
+                    </span>
                   </li>
                 ))}
               </ul>
