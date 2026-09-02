@@ -110,6 +110,7 @@ describe('SettingsPanel', () => {
           alertNeedsInput: false,
           alertDied: false,
           alertFinished: false,
+          alertTaskDone: false,
         }),
       }),
     )
@@ -167,6 +168,7 @@ describe('SettingsPanel', () => {
           alertNeedsInput: true,
           alertDied: true,
           alertFinished: false,
+          alertTaskDone: true,
         }),
       }),
     )
@@ -233,6 +235,27 @@ describe('SettingsPanel', () => {
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith('set_config', {
         config: expect.objectContaining({ alertFinished: true }),
+      }),
+    )
+  })
+
+  it('saves the task-done alert switch', async () => {
+    invoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_config') return Promise.resolve(config)
+      if (cmd === 'list_displays') return Promise.resolve(displays)
+      return Promise.resolve()
+    })
+    render(<SettingsPanel onClose={vi.fn()} />)
+    await waitFor(() =>
+      expect(screen.getByLabelText('when a background task finishes')).not.toBeChecked(),
+    )
+
+    await userEvent.click(screen.getByLabelText('when a background task finishes'))
+
+    expect(invoke).toHaveBeenCalledWith(
+      'set_config',
+      expect.objectContaining({
+        config: expect.objectContaining({ alertTaskDone: true }),
       }),
     )
   })

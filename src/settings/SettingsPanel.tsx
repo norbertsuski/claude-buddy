@@ -5,13 +5,19 @@ import { CONFIG_EVENT, HIDE_MODES, type AppConfig, type DisplayInfo } from '../t
 import './settings.css'
 
 /**
- * What the three alert checkboxes become when the sound is switched off: all
+ * What the four alert checkboxes become when the sound is switched off: all
  * off, and disabled with it. They are the events that raise a notification, and
  * the notification is the sound, so leaving one armed under a silent parent
  * would be a setting with nothing behind it.
  */
 function soundOff(): Partial<AppConfig> {
-  return { sound: false, alertNeedsInput: false, alertDied: false, alertFinished: false }
+  return {
+    sound: false,
+    alertNeedsInput: false,
+    alertDied: false,
+    alertFinished: false,
+    alertTaskDone: false,
+  }
 }
 
 /**
@@ -20,7 +26,13 @@ function soundOff(): Partial<AppConfig> {
  * nothing would read as a broken toggle.
  */
 function soundOn(): Partial<AppConfig> {
-  return { sound: true, alertNeedsInput: true, alertDied: true, alertFinished: false }
+  return {
+    sound: true,
+    alertNeedsInput: true,
+    alertDied: true,
+    alertFinished: false,
+    alertTaskDone: true,
+  }
 }
 
 export function SettingsPanel({ onClose }: { onClose: () => void }) {
@@ -224,6 +236,16 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
                 onChange={(e) => update({ alertDied: e.target.checked })}
               />
               when a session dies
+            </label>
+
+            <label>
+              <input
+                type="checkbox"
+                checked={config.sound && config.alertTaskDone}
+                disabled={!config.sound}
+                onChange={(e) => update({ alertTaskDone: e.target.checked })}
+              />
+              when a background task finishes
             </label>
 
             <label>
