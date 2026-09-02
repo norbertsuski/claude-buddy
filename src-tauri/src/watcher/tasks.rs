@@ -407,10 +407,16 @@ mod tests {
 
     #[test]
     fn escaped_entities_in_a_summary_are_decoded() {
-        let body = r#"{"type":"queue-operation","timestamp":"2026-08-28T08:49:13.537Z","content":"<task-notification> <task-id>x</task-id> <status>failed</status> <summary>python3 &lt;&lt; &#39;PY&#39; &amp; wait</summary> </task-notification>"}"#;
+        let body = r#"{"type":"queue-operation","timestamp":"2026-08-28T08:49:13.537Z","content":"<task-notification> <task-id>x</task-id> <status>failed</status> <summary>python3 &lt;&lt; &#39;PY&#39; &amp; wait &quot;file&quot; &amp;lt;</summary> </task-notification>"}"#;
         match &events(body)[0] {
             TaskEvent::Ended { label, .. } => {
-                assert_eq!(label.as_deref(), Some("python3 << 'PY' & wait"))
+                // &amp;lt; must decode to &lt;, not <. This pins the ordering:
+                // &amp; must be replaced last, so an escaped ampersand cannot
+                // be re-read as the start of another entity.
+                assert_eq!(
+                    label.as_deref(),
+                    Some("python3 << 'PY' & wait \"file\" &lt;")
+                )
             }
             other => panic!("expected an end, got {other:?}"),
         }
