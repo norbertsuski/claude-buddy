@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Mutex;
 
 use serde::Serialize;
 
@@ -188,6 +190,173 @@ pub fn tasks_from_events(events: &[TaskEvent], since_ms: i64) -> Vec<Task> {
     let mut tasks = Vec::new();
     apply_events(&mut tasks, events, since_ms);
     tasks
+}
+
+/// A session's background tasks.
+///
+/// Injected rather than called directly, matching `PidLiveness`,
+/// `ActivityProbe`, `BlockedProbe`, `WorkProbe` and `TitleProbe`, so the state
+/// machine stays testable without a transcript on disk.
+///
+/// `started_at_ms` is the session's registry `startedAt`, and is the phantom
+/// boundary: nothing before it can still be running. It is a parameter rather
+/// than something the probe looks up because only the registry knows it, and
+/// the probe never reads the registry.
+pub trait TaskProbe {
+    fn tasks(&self, cwd: &str, session_id: &str, started_at_ms: i64) -> Vec<Task>;
+}
+
+/// One session's cached answer.
+struct CachedTasks {
+    /// Transcript mtime the answer was read at.
+    at_ms: i64,
+    /// How much of the file has been folded in. The next read starts here.
+    consumed: u64,
+    tasks: Vec<Task>,
+}
+
+/// Follows a session transcript for task events.
+///
+/// The other transcript probes read a fixed tail, and this one cannot: a task's
+/// start and its completion are separate records that can be minutes and
+/// megabytes apart, so a tail can hold either half or neither. It is the same
+/// shape of problem `title.rs` records — a title 1.8MB from the end of a 1.9MB
+/// transcript — and the same one-full-scan answer, except that a transcript is
+/// append-only, so after the first scan everything new is one window.
+///
+/// So: one scan when a session is first seen, then a read of the appended bytes
+/// whenever mtime moves, and no read at all when it has not.
+pub struct TranscriptTasks {
+    projects_dir: PathBuf,
+    cache: Mutex<HashMap<String, CachedTasks>>,
+}
+
+impl TranscriptTasks {
+    pub fn new(projects_dir: PathBuf) -> Self {
+        Self {
+            projects_dir,
+            cache: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn modified_ms(path: &std::path::Path) -> Option<i64> {
+        let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+        let since_epoch = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
+        Some(since_epoch.as_millis() as i64)
+    }
+
+    /// The size guard, taken as an argument so a test can exercise the
+    /// fall-back without writing a 32MB file.
+    fn read_within(
+        &self,
+        cwd: &str,
+        session_id: &str,
+        started_at_ms: i64,
+        max_scan_bytes: u64,
+    ) -> Option<Vec<Task>> {
+        use crate::bridge::transcript::{find_transcript, read_range, read_tail, TAIL_BYTES};
+
+        let path = find_transcript(&self.projects_dir, cwd, session_id)?;
+        // No mtime means no cache key, so read rather than guess.
+        let mtime = Self::modified_ms(&path)?;
+        let len = std::fs::metadata(&path).ok()?.len();
+
+        let (mut tasks, from) = {
+            let cache = self.cache.lock().expect("task cache poisoned");
+            match cache.get(session_id) {
+                Some(entry) if entry.at_ms == mtime => return Some(entry.tasks.clone()),
+                // A file shorter than what has been consumed is not the file
+                // that was consumed. Start again rather than splicing two.
+                Some(entry) if entry.consumed <= len => (entry.tasks.clone(), entry.consumed),
+                _ => (Vec::new(), 0),
+            }
+        };
+
+        let (bytes, window_from) = if from == 0 && len > max_scan_bytes {
+            // Too big to read whole. The tail still holds anything started
+            // recently, and the offset is set past it so the follow continues
+            // from here — reporting nothing at all would take the state with
+            // it.
+            (read_tail(&path, TAIL_BYTES).ok()?, len)
+        } else {
+            (read_range(&path, from, len).ok()?, from)
+        };
+
+        // Stop at the last newline. A transcript can be read mid-write, and
+        // consuming the fragment would lose the record it belongs to.
+        let complete = bytes
+            .iter()
+            .rposition(|b| *b == b'\n')
+            .map(|i| i + 1)
+            .unwrap_or(0);
+
+        apply_events(&mut tasks, &task_events(&bytes[..complete]), started_at_ms);
+
+        let consumed = if window_from == len {
+            len
+        } else {
+            window_from + complete as u64
+        };
+
+        self.cache.lock().expect("task cache poisoned").insert(
+            session_id.to_string(),
+            CachedTasks {
+                at_ms: mtime,
+                consumed,
+                tasks: tasks.clone(),
+            },
+        );
+
+        Some(tasks)
+    }
+}
+
+impl TaskProbe for TranscriptTasks {
+    fn tasks(&self, cwd: &str, session_id: &str, started_at_ms: i64) -> Vec<Task> {
+        use crate::bridge::transcript::FULL_SCAN_MAX_BYTES;
+
+        self.read_within(cwd, session_id, started_at_ms, FULL_SCAN_MAX_BYTES)
+            .unwrap_or_default()
+    }
+}
+
+/// Reports nothing, for callers that do not care.
+pub struct NoTasks;
+
+impl TaskProbe for NoTasks {
+    fn tasks(&self, _cwd: &str, _session_id: &str, _started_at_ms: i64) -> Vec<Task> {
+        Vec::new()
+    }
+}
+
+/// Test double keyed by session id.
+pub struct FakeTasks {
+    tasks: HashMap<String, Vec<Task>>,
+}
+
+impl FakeTasks {
+    pub fn new() -> Self {
+        Self {
+            tasks: HashMap::new(),
+        }
+    }
+
+    pub fn with(mut self, session_id: &str, tasks: Vec<Task>) -> Self {
+        self.tasks.insert(session_id.to_string(), tasks);
+        self
+    }
+}
+
+impl Default for FakeTasks {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TaskProbe for FakeTasks {
+    fn tasks(&self, _cwd: &str, session_id: &str, _started_at_ms: i64) -> Vec<Task> {
+        self.tasks.get(session_id).cloned().unwrap_or_default()
+    }
 }
 
 /// Every `tool_use` id in these records, paired with its tool name and the
@@ -678,5 +847,204 @@ mod tests {
         assert_eq!(tasks.len(), MAX_TASKS);
         // The oldest went, not the newest.
         assert_eq!(tasks[0].id, "t10");
+    }
+
+    struct Fixture {
+        root: PathBuf,
+        transcript: PathBuf,
+    }
+
+    impl Fixture {
+        fn new(tag: &str, body: &str) -> Self {
+            let root = std::env::temp_dir().join(format!("cb-tasks-{}-{tag}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            let dir = root.join("-Users-n-Code-proj");
+            std::fs::create_dir_all(&dir).unwrap();
+            let transcript = dir.join("session-1.jsonl");
+            std::fs::write(&transcript, body).unwrap();
+            Self { root, transcript }
+        }
+
+        fn probe(&self) -> TranscriptTasks {
+            TranscriptTasks::new(self.root.clone())
+        }
+
+        fn ask(&self, probe: &TranscriptTasks) -> Vec<Task> {
+            probe.tasks("/Users/n/Code/proj", "session-1", 0)
+        }
+
+        fn mtime(&self) -> std::time::SystemTime {
+            std::fs::metadata(&self.transcript)
+                .unwrap()
+                .modified()
+                .unwrap()
+        }
+
+        /// Append, and move mtime on by a second.
+        ///
+        /// Setting the mtime rather than hoping for one, for the reason
+        /// `working.rs` records: the cache key is whole milliseconds and two
+        /// writes in a row land inside the same one often enough to matter.
+        fn append(&self, body: &str) {
+            let was = self.mtime();
+            let existing = std::fs::read_to_string(&self.transcript).unwrap();
+            std::fs::write(&self.transcript, format!("{existing}{body}")).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&self.transcript)
+                .unwrap()
+                .set_modified(was + std::time::Duration::from_secs(1))
+                .unwrap();
+        }
+
+        /// Replace the whole file with something shorter, mtime advanced.
+        fn truncate_to(&self, body: &str) {
+            let was = self.mtime();
+            std::fs::write(&self.transcript, body).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&self.transcript)
+                .unwrap()
+                .set_modified(was + std::time::Duration::from_secs(1))
+                .unwrap();
+        }
+
+        /// Rewrite while pinning mtime, so a re-read would be visible in the
+        /// answer and a cache hit would not.
+        fn rewrite_keeping_mtime(&self, body: &str) {
+            let was = self.mtime();
+            std::fs::write(&self.transcript, body).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&self.transcript)
+                .unwrap()
+                .set_modified(was)
+                .unwrap();
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn a_running_task_is_reported_from_the_transcript() {
+        let fixture = Fixture::new("running", SHELL_START);
+        let tasks = fixture.ask(&fixture.probe());
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, "bmd0i64ke");
+        assert_eq!(tasks[0].status, TaskStatus::Running);
+    }
+
+    #[test]
+    fn a_completion_appended_later_is_picked_up() {
+        let fixture = Fixture::new("appended", SHELL_START);
+        let probe = fixture.probe();
+        assert_eq!(fixture.ask(&probe)[0].status, TaskStatus::Running);
+
+        fixture.append(SHELL_DONE);
+        assert_eq!(fixture.ask(&probe)[0].status, TaskStatus::Completed);
+    }
+
+    #[test]
+    fn an_unchanged_transcript_is_answered_from_cache() {
+        let fixture = Fixture::new("cache-hit", SHELL_START);
+        let probe = fixture.probe();
+        assert_eq!(fixture.ask(&probe).len(), 1);
+
+        fixture.rewrite_keeping_mtime("");
+        assert_eq!(
+            fixture.ask(&probe).len(),
+            1,
+            "same mtime should not be re-read"
+        );
+    }
+
+    #[test]
+    fn a_truncated_transcript_is_re_scanned_rather_than_read_from_where_it_was() {
+        // Reading from the old offset would either fail or splice two
+        // different files together.
+        let fixture = Fixture::new("truncated", &format!("{SHELL_START}{SHELL_DONE}"));
+        let probe = fixture.probe();
+        assert_eq!(fixture.ask(&probe)[0].status, TaskStatus::Completed);
+
+        fixture.truncate_to(SHELL_START);
+        let tasks = fixture.ask(&probe);
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].status, TaskStatus::Running);
+    }
+
+    #[test]
+    fn a_partial_trailing_line_is_not_consumed() {
+        // A transcript can be read mid-write. Consuming the fragment would
+        // lose the record it belongs to when the rest of it lands.
+        let fixture = Fixture::new("partial", SHELL_START);
+        let probe = fixture.probe();
+        assert_eq!(fixture.ask(&probe).len(), 1);
+
+        // The completion arrives without its newline, then completed.
+        let half = SHELL_DONE.trim_end_matches('\n');
+        fixture.append(half);
+        assert_eq!(
+            fixture.ask(&probe)[0].status,
+            TaskStatus::Running,
+            "an unterminated line is not a record yet"
+        );
+
+        fixture.append("\n");
+        assert_eq!(fixture.ask(&probe)[0].status, TaskStatus::Completed);
+    }
+
+    #[test]
+    fn a_start_before_the_session_began_is_not_reported() {
+        let fixture = Fixture::new("boundary", SHELL_START);
+        // The start record is stamped 2026-08-28T08:42:47.177Z.
+        let after = 1_787_906_567_178;
+        assert!(fixture
+            .probe()
+            .tasks("/Users/n/Code/proj", "session-1", after)
+            .is_empty());
+    }
+
+    #[test]
+    fn a_missing_transcript_reports_nothing() {
+        let probe = TranscriptTasks::new(std::env::temp_dir().join("cb-tasks-missing"));
+        assert!(probe.tasks("/Users/n/Code/proj", "session-1", 0).is_empty());
+    }
+
+    #[test]
+    fn a_transcript_past_the_size_guard_falls_back_to_its_tail() {
+        // Reporting nothing for a huge transcript would take the state with
+        // it; the tail still holds anything started recently.
+        let fixture = Fixture::new("huge", SHELL_START);
+        let tasks = TranscriptTasks::new(fixture.root.clone()).read_within(
+            "/Users/n/Code/proj",
+            "session-1",
+            0,
+            1,
+        );
+        assert_eq!(tasks.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn the_fake_answers_from_its_table() {
+        let task = Task {
+            id: "t".into(),
+            kind: TaskKind::Shell,
+            label: None,
+            started_at_ms: 1,
+            ended_at_ms: None,
+            status: TaskStatus::Running,
+        };
+        let fake = FakeTasks::new().with("session-1", vec![task.clone()]);
+        assert_eq!(fake.tasks("/any", "session-1", 0), vec![task]);
+        assert!(fake.tasks("/any", "session-2", 0).is_empty());
+    }
+
+    #[test]
+    fn the_no_op_probe_reports_nothing() {
+        assert!(NoTasks.tasks("/any", "session-1", 0).is_empty());
     }
 }
