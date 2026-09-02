@@ -43,6 +43,14 @@ is missing here leaves that tag with nothing but the download boilerplate.
   to see. The ending is dated to when the marker was written rather than when
   the widget noticed, and a missing output file leaves the task alone, since
   absence is not an ending.
+- **Notch mode's row detail says what the popover says.** Hovering a row in the
+  slab used to give four unlabelled lines. It now carries the popover's own
+  fields — what the session is doing, the background tasks it is waiting on,
+  its name, working directory, branch, model and process — omitting only the
+  three the row and the footer already say. The task list is the same one the
+  popover draws, so it names each task and its age, and it is right whether or
+  not background jobs are given rows of their own; the count it replaces was
+  blind to subagents and reported zero whenever that setting was off.
 
 ## v0.9.0 — 2026-08-28
 

@@ -239,39 +239,17 @@ describe('rowAtPoint', () => {
   })
 })
 
-describe('backgroundCounts', () => {
-  it('counts agents against the session they follow', async () => {
-    const { backgroundCounts } = await import('./NotchPanel')
-    const job = (name: string) => ({ ...session(name, 'busy'), background: true })
-    expect(
-      backgroundCounts([
-        session('a-11', 'waiting'),
-        job('agent-1'),
-        job('agent-2'),
-        session('b-22', 'busy'),
-        job('agent-3'),
-      ]),
-    ).toEqual({ 'id-a-11': 2, 'id-b-22': 1 })
-  })
-
-  it('counts an agent with nothing before it against nobody', async () => {
-    const { backgroundCounts } = await import('./NotchPanel')
-    const orphan = { ...session('orphan', 'busy'), background: true }
-    expect(backgroundCounts([orphan, session('a-11', 'busy')])).toEqual({})
-  })
-})
-
 describe('NotchFlanks rows', () => {
-  it('lists own sessions only, with agents counted in the detail', async () => {
+  it('lists own sessions only', async () => {
     // Four agents rendered as four more rows buried the sessions they belong to.
+    // The work itself is the parent's `tasks` field, drawn in its detail.
     const job = { ...session('agent-1', 'busy'), background: true }
     render(<NotchFlanks sessions={[session('api-service-55', 'waiting'), job]} usage={null} />)
     await screen.findByTestId('rest-left')
     open()
 
     expect(screen.queryByTestId('row-id-agent-1')).not.toBeInTheDocument()
-    pointAt(screen.getByTestId('row-id-api-service-55'))
-    expect(await screen.findByTestId('agent-count')).toHaveTextContent('1 background agent')
+    expect(screen.getByTestId('row-id-api-service-55')).toBeInTheDocument()
   })
 
   it('opens the hovered row\'s detail rather than a card', async () => {

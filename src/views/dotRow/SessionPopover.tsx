@@ -1,49 +1,24 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { formatCountdown, formatElapsed } from '../../format'
-import type { SessionSnapshot, Task, TaskKind, TranscriptDetail, Usage } from '../../types'
+import type { SessionSnapshot, Usage } from '../../types'
+import { SessionFields, useNow, useSessionDetail, type FieldName } from './SessionFields'
 import './dotRow.css'
 
-const EMPTY: TranscriptDetail = { branch: null, model: null, effort: null, activity: null }
-
 /**
- * How each kind of task is introduced in the popover.
- *
- * A word rather than an icon: the block is a list of lines of text, and one
- * glyph in a column of prose reads as a bullet rather than as a category.
+ * Everything there is to say. The popover is the surface with room for it —
+ * the notch's row detail asks for the subset its own row cannot already say.
  */
-const TASK_KIND_LABEL: Record<TaskKind, string> = {
-  shell: 'shell',
-  watch: 'watch',
-  subagent: 'agent',
-  job: 'job',
-}
-
-/** How often the popover recomputes its ages. */
-const TICK_MS = 1000
-
-/**
- * Wall-clock now, refreshed on an interval.
- *
- * The watcher deliberately does not re-emit for the passage of time — its
- * change fingerprint ignores clock-derived fields so the row does not re-render
- * twice a second. That means `elapsedMs` on a snapshot is the age at the moment
- * state last changed, which for anything sitting still is wrong and stays
- * wrong. The clock therefore lives here, where the value is displayed, and only
- * the open popover re-renders.
- */
-function useNow(): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), TICK_MS)
-    return () => clearInterval(timer)
-  }, [])
-  return now
-}
-
-function dash(value: string | null | undefined): string {
-  return value && value.length > 0 ? value : '—'
-}
+const ALL_FIELDS: FieldName[] = [
+  'state',
+  'doing',
+  'tasks',
+  'session',
+  'cwd',
+  'branch',
+  'model',
+  'proc',
+  'usage',
+]
 
 export function SessionPopover({
   session,
@@ -58,25 +33,9 @@ export function SessionPopover({
    */
   usage?: Usage | null
 }) {
-  const [detail, setDetail] = useState<TranscriptDetail>(EMPTY)
   const [error, setError] = useState<string | null>(null)
+  const detail = useSessionDetail(session)
   const now = useNow()
-
-  // Transcript fields are fetched per hover rather than for every session on
-  // every tick: reading them eagerly would tail a file per session twice a
-  // second for data the user is usually not looking at.
-  useEffect(() => {
-    let live = true
-    invoke<TranscriptDetail>('session_detail', {
-      cwd: session.cwd,
-      sessionId: session.sessionId,
-    })
-      .then((result) => live && setDetail(result))
-      .catch(() => live && setDetail(EMPTY))
-    return () => {
-      live = false
-    }
-  }, [session.cwd, session.sessionId])
 
   const raise = () => {
     setError(null)
@@ -84,16 +43,6 @@ export function SessionPopover({
       setError(e instanceof Error ? e.message : String(e)),
     )
   }
-
-  const elapsedMs = Math.max(0, now - session.statusTimeMs)
-  const uptimeMs = Math.max(0, now - session.startedAtMs)
-  // Finished tasks stay in the snapshot for a minute so the alert diff can see
-  // them end. The popover is about what is happening now.
-  const running = session.tasks.filter((t) => t.status === 'running')
-  const stateLine = `${session.detail ?? session.state} · ${formatElapsed(elapsedMs)}`
-  const modelLine = detail.model
-    ? `${detail.model}${detail.effort ? ` · ${detail.effort}` : ''}`
-    : '—'
 
   return (
     <div
@@ -112,59 +61,13 @@ export function SessionPopover({
         </span>
       </div>
       <dl className="popover-fields">
-        <dt>state</dt>
-        <dd className={session.state === 'waiting' ? 'hot' : undefined} data-testid="popover-state">
-          {stateLine}
-        </dd>
-        <dt>doing</dt>
-        <dd className="popover-activity" data-testid="popover-activity">
-          {dash(detail.activity)}
-        </dd>
-        {running.length > 0 && (
-          <>
-            <dt>tasks</dt>
-            <dd className="popover-tasks-field" data-testid="popover-tasks">
-              <ul className="popover-tasks">
-                {running.map((task: Task) => (
-                  <li key={task.id}>
-                    <span className="popover-task-kind">{TASK_KIND_LABEL[task.kind]}</span>
-                    {/* The name is the part that can be arbitrarily long — a
-                        whole shell command — and the age is the part you came
-                        for. Only the name shrinks, so a long one is clipped
-                        rather than pushing the age off the line. */}
-                    <span className="popover-task-label">{task.label ?? task.id}</span>
-                    <span className="popover-task-age">
-                      {formatElapsed(now - task.startedAtMs)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </dd>
-          </>
-        )}
-        <dt>session</dt>
-        <dd data-testid="popover-session-name">{session.name}</dd>
-        <dt>cwd</dt>
-        <dd data-testid="popover-cwd">{session.cwd}</dd>
-        <dt>branch</dt>
-        <dd data-testid="popover-branch">{dash(detail.branch)}</dd>
-        <dt>model</dt>
-        <dd data-testid="popover-model">{modelLine}</dd>
-        <dt>proc</dt>
-        <dd data-testid="popover-proc">
-          {session.entrypoint} · pid {session.pid} · {formatElapsed(uptimeMs)}
-        </dd>
-        {usage !== null && (
-          <>
-            <dt>5h limit</dt>
-            <dd
-              className={usage.severity === 'critical' ? 'hot' : undefined}
-              data-testid="popover-usage"
-            >
-              {usage.percent}% used · resets in {formatCountdown(usage.resetsAtMs - now)}
-            </dd>
-          </>
-        )}
+        <SessionFields
+          session={session}
+          detail={detail}
+          now={now}
+          fields={ALL_FIELDS}
+          usage={usage}
+        />
       </dl>
       {error === null ? (
         <div className="popover-foot">click → raise this window</div>

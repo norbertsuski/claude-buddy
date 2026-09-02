@@ -8,31 +8,11 @@ import './notchFlanks.css'
 /**
  * Rows before the rest collapse into a count.
  *
- * A row costs height rather than width here, and there is 400pt reserved below
- * the bar, so this is generous. The list is what the notch is for.
+ * A row costs height rather than width here, and `notch::POPOVER_ALLOWANCE` is
+ * reserved below the bar for the list and one open detail, so this is
+ * generous. The list is what the notch is for.
  */
 export const MAX_ROWS = 8
-
-/**
- * How many background agents each session has, keyed by session id.
- *
- * `SessionSnapshot` carries no parent field: a background entry belongs to the
- * nearest own session earlier in the list, which is the same convention the
- * free-mode row reads its continuation arrows from. An agent before any session
- * has no parent and is counted against none.
- */
-export function backgroundCounts(sessions: SessionSnapshot[]): Record<string, number> {
-  const counts: Record<string, number> = {}
-  let parent: string | null = null
-  for (const session of sessions) {
-    if (session.background) {
-      if (parent !== null) counts[parent] = (counts[parent] ?? 0) + 1
-      continue
-    }
-    parent = session.sessionId
-  }
-  return counts
-}
 
 /** Which row the cursor is on. */
 export interface RowTarget {
@@ -156,10 +136,9 @@ export function NotchPanel({
     onMeasure?.(listHeight)
   }, [listHeight, onMeasure])
 
-  // Own sessions are the rows; their background agents are counted into the
-  // parent's detail instead of sitting beside it as peers. Four agents rendered
-  // as four more rows buried the three sessions they belonged to.
-  const agents = backgroundCounts(sessions)
+  // Own sessions are the rows; the background work under them is the detail's
+  // `tasks` field, not a peer row. Four agents rendered as four more rows
+  // buried the three sessions they belonged to.
   const own = sessions.filter((session) => !session.background)
   const visible = own.slice(0, MAX_ROWS)
   const hidden = own.length - visible.length
@@ -224,11 +203,7 @@ export function NotchPanel({
               <span className="notch-elapsed">{formatElapsed(session.elapsedMs)}</span>
             </div>
             {(session.sessionId === hovered || session.sessionId === leaving) && (
-              <RowDetailSlot
-                session={session}
-                agents={agents[session.sessionId] ?? 0}
-                open={session.sessionId === hovered}
-              />
+              <RowDetailSlot session={session} open={session.sessionId === hovered} />
             )}
           </div>
         ))}
