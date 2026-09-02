@@ -635,15 +635,34 @@ body {
   list-style: none;
 }
 
+/* A row rather than one run of text, so the three parts can be given
+   different licence to shrink: only the name does. */
 .popover-tasks li {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .popover-task-kind {
   color: var(--idle);
-  margin-right: 5px;
+  flex: none;
+}
+
+/* min-width: 0 for the same reason .popover-tasks-field needs it — a flex
+   item's automatic minimum is its min-content width, which for a nowrap line
+   is the whole string, so without this the name refuses to shrink and pushes
+   the age out of the popover instead of ellipsizing. */
+.popover-task-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The age never shrinks: a clipped "1h…" is worse than no name at all. */
+.popover-task-age {
+  color: var(--muted);
+  flex: none;
 }
 
 .popover-foot {
