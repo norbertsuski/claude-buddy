@@ -274,10 +274,11 @@ impl TranscriptTasks {
 
         let (bytes, window_from) = if from == 0 && len > max_scan_bytes {
             // Too big to read whole. The tail still holds anything started
-            // recently, and the offset is set past it so the follow continues
-            // from here — reporting nothing at all would take the state with
-            // it.
-            (read_tail(&path, TAIL_BYTES).ok()?, len)
+            // recently, and the offset is the tail read's true start — not
+            // `len` — so the trailing-newline trim below still lands on a
+            // real boundary within the window instead of being discarded.
+            let tail_from = len.saturating_sub(TAIL_BYTES);
+            (read_tail(&path, TAIL_BYTES).ok()?, tail_from)
         } else {
             (read_range(&path, from, len).ok()?, from)
         };
@@ -292,11 +293,10 @@ impl TranscriptTasks {
 
         apply_events(&mut tasks, &task_events(&bytes[..complete]), started_at_ms);
 
-        let consumed = if window_from == len {
-            len
-        } else {
-            window_from + complete as u64
-        };
+        // Bytes past `complete` (an unterminated trailing line) are left
+        // unconsumed on both paths, so they are re-read — not lost — once
+        // the rest of the line lands.
+        let consumed = window_from + complete as u64;
 
         self.cache.lock().expect("task cache poisoned").insert(
             session_id.to_string(),
@@ -1026,6 +1026,37 @@ mod tests {
             1,
         );
         assert_eq!(tasks.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_fallback_read_defers_its_partial_trailing_line_instead_of_losing_it() {
+        // The fallback used to set `consumed` to the whole file length
+        // regardless of where the tail read actually stopped, so a line
+        // still being written when the fallback fired was marked consumed
+        // without ever being parsed — silently dropped instead of deferred.
+        let half = SHELL_DONE.trim_end_matches('\n');
+        let fixture = Fixture::new("huge-partial", &format!("{SHELL_START}{half}"));
+        let probe = TranscriptTasks::new(fixture.root.clone());
+
+        let tasks = probe
+            .read_within("/Users/n/Code/proj", "session-1", 0, 1)
+            .unwrap();
+        assert_eq!(
+            tasks[0].status,
+            TaskStatus::Running,
+            "the completion's line is not terminated yet"
+        );
+
+        // Complete the line that fell past the fallback's boundary.
+        fixture.append("\n");
+        let tasks = probe
+            .read_within("/Users/n/Code/proj", "session-1", 0, 1)
+            .unwrap();
+        assert_eq!(
+            tasks[0].status,
+            TaskStatus::Completed,
+            "the deferred line should be picked up on the next read, not lost"
+        );
     }
 
     #[test]
