@@ -133,6 +133,15 @@ describe('CollapsedPill', () => {
     render(<CollapsedPill sessions={[session('a', 'tasking')]} />)
     expect(screen.getByTestId('collapsed-pill').textContent).not.toBe('')
   })
+
+  it('still keeps background jobs out of the tasking count', () => {
+    // Regression: the tasking chip must read from counts (ownSessions only),
+    // not urgent (all sessions including jobs), or a background job in tasking
+    // state would double-count the entry as both a task and a job.
+    render(<CollapsedPill sessions={[session('a', 'tasking'), job('j', 'tasking')]} />)
+    expect(screen.getByTestId('tasking')).toHaveTextContent('1 on a task')
+    expect(screen.getByTestId('jobs')).toHaveTextContent('1 job')
+  })
 })
 
 
