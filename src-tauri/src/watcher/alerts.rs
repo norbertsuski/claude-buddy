@@ -10,6 +10,7 @@ pub enum AlertKind {
     NeedsInput,
     Died,
     Finished,
+    TaskDone,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -36,6 +37,67 @@ fn alert_kind(was: Option<SessionState>, now: SessionState) -> Option<AlertKind>
     }
 }
 
+/// How a finished task reads in a notification.
+fn task_outcome(task: &crate::watcher::tasks::Task) -> String {
+    use crate::watcher::tasks::TaskStatus;
+
+    let verb = match task.status {
+        TaskStatus::Completed => "completed",
+        TaskStatus::Failed => "failed",
+        TaskStatus::Killed => "was killed",
+        TaskStatus::Stopped => "was stopped",
+        // Not reachable: only terminal tasks are alerted about.
+        TaskStatus::Running => "is running",
+    };
+    match task.label.as_deref() {
+        Some(label) => format!("{label} {verb}"),
+        None => format!("a background task {verb}"),
+    }
+}
+
+/// Alerts for tasks that finished between two consecutive snapshots.
+///
+/// Not derived from the state edge, which is what every other alert here is.
+/// A finishing task wakes its session, so the same tick that retires the task
+/// usually moves the session out of `Tasking` and into `Busy` — a state diff
+/// would report that as a session starting work and would say nothing about
+/// the task, which is the part the user was waiting for.
+fn task_alerts(prev: &[SessionSnapshot], next: &[SessionSnapshot]) -> Vec<Alert> {
+    let mut was_running: HashMap<(&str, &str), ()> = HashMap::new();
+    for session in prev {
+        for task in &session.tasks {
+            if task.status == crate::watcher::tasks::TaskStatus::Running {
+                was_running.insert((session.session_id.as_str(), task.id.as_str()), ());
+            }
+        }
+    }
+
+    let mut alerts = Vec::new();
+    for session in next {
+        for task in &session.tasks {
+            if !task.status.terminal() {
+                continue;
+            }
+            // Only the transition is news. A finished task sits in several
+            // consecutive snapshots while its retention window runs.
+            if !was_running.contains_key(&(session.session_id.as_str(), task.id.as_str())) {
+                continue;
+            }
+            alerts.push(Alert {
+                session_id: session.session_id.clone(),
+                pid: session.pid,
+                name: session
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| session.name.clone()),
+                kind: AlertKind::TaskDone,
+                detail: Some(task_outcome(task)),
+            });
+        }
+    }
+    alerts
+}
+
 /// Alerts for transitions between two consecutive snapshots.
 ///
 /// Edge-triggered: a session that was already in an alerting state stays quiet.
@@ -52,7 +114,8 @@ pub fn diff_alerts(prev: Option<&[SessionSnapshot]>, next: &[SessionSnapshot]) -
         .map(|s| (s.session_id.as_str(), s.state))
         .collect();
 
-    next.iter()
+    let mut alerts: Vec<Alert> = next
+        .iter()
         .filter_map(|s| {
             let was = before.get(s.session_id.as_str()).copied();
             // Fire on entry only: unchanged alerting state is not an edge.
@@ -71,7 +134,10 @@ pub fn diff_alerts(prev: Option<&[SessionSnapshot]>, next: &[SessionSnapshot]) -
                 detail: s.detail.clone(),
             })
         })
-        .collect()
+        .collect();
+
+    alerts.extend(task_alerts(prev, next));
+    alerts
 }
 
 #[cfg(test)]
@@ -269,5 +335,178 @@ mod tests {
 
         assert_eq!(json["sessionId"], "a");
         assert_eq!(json["kind"], "needsInput");
+    }
+
+    use crate::watcher::tasks::{Task, TaskKind, TaskStatus};
+
+    fn task(id: &str, status: TaskStatus, label: Option<&str>) -> Task {
+        Task {
+            id: id.to_string(),
+            kind: TaskKind::Shell,
+            label: label.map(str::to_string),
+            started_at_ms: 0,
+            ended_at_ms: match status {
+                TaskStatus::Running => None,
+                _ => Some(1_000),
+            },
+            status,
+        }
+    }
+
+    /// A snapshot of one session carrying the given tasks.
+    fn with_tasks(id: &str, state: SessionState, tasks: Vec<Task>) -> Vec<SessionSnapshot> {
+        let mut snap = snap(id, state);
+        snap.tasks = tasks;
+        vec![snap]
+    }
+
+    #[test]
+    fn a_task_finishing_fires_an_alert_naming_it() {
+        let prev = with_tasks(
+            "a",
+            SessionState::Tasking,
+            vec![task("t1", TaskStatus::Running, Some("npm test"))],
+        );
+        // The session wakes as the task lands, so its own state moves too.
+        let next = with_tasks(
+            "a",
+            SessionState::Busy,
+            vec![task("t1", TaskStatus::Completed, Some("npm test"))],
+        );
+
+        let alerts = diff_alerts(Some(&prev), &next);
+        let done: Vec<&Alert> = alerts
+            .iter()
+            .filter(|a| a.kind == AlertKind::TaskDone)
+            .collect();
+
+        assert_eq!(done.len(), 1);
+        assert_eq!(done[0].session_id, "a");
+        assert_eq!(done[0].detail.as_deref(), Some("npm test completed"));
+    }
+
+    #[test]
+    fn a_failed_task_reads_as_failed() {
+        let prev = with_tasks(
+            "a",
+            SessionState::Tasking,
+            vec![task("t1", TaskStatus::Running, Some("npm test"))],
+        );
+        let next = with_tasks(
+            "a",
+            SessionState::Tasking,
+            vec![task("t1", TaskStatus::Failed, Some("npm test"))],
+        );
+
+        let alerts = diff_alerts(Some(&prev), &next);
+        assert_eq!(
+            alerts[0].detail.as_deref(),
+            Some("npm test failed"),
+            "a failure must not read like a success"
+        );
+    }
+
+    #[test]
+    fn a_task_with_no_label_still_alerts() {
+        let prev = with_tasks(
+            "a",
+            SessionState::Tasking,
+            vec![task("t1", TaskStatus::Running, None)],
+        );
+        let next = with_tasks(
+            "a",
+            SessionState::Idle,
+            vec![task("t1", TaskStatus::Completed, None)],
+        );
+
+        let alerts = diff_alerts(Some(&prev), &next);
+        let done: Vec<&Alert> = alerts
+            .iter()
+            .filter(|a| a.kind == AlertKind::TaskDone)
+            .collect();
+        assert_eq!(
+            done[0].detail.as_deref(),
+            Some("a background task completed")
+        );
+    }
+
+    #[test]
+    fn a_task_that_was_already_finished_does_not_alert_again() {
+        // Finished tasks linger for a retention window, so the same terminal
+        // task is in several consecutive snapshots.
+        let finished = with_tasks(
+            "a",
+            SessionState::Idle,
+            vec![task("t1", TaskStatus::Completed, Some("npm test"))],
+        );
+        assert!(diff_alerts(Some(&finished), &finished).is_empty());
+    }
+
+    #[test]
+    fn a_task_still_running_does_not_alert() {
+        let running = with_tasks(
+            "a",
+            SessionState::Tasking,
+            vec![task("t1", TaskStatus::Running, Some("npm test"))],
+        );
+        assert!(diff_alerts(Some(&running), &running).is_empty());
+    }
+
+    #[test]
+    fn a_task_that_vanished_without_a_terminal_status_does_not_alert() {
+        // The retention window drops a finished task eventually, and a session
+        // being resumed drops its predecessor's tasks. Neither is news.
+        let prev = with_tasks(
+            "a",
+            SessionState::Tasking,
+            vec![task("t1", TaskStatus::Running, Some("npm test"))],
+        );
+        let next = with_tasks("a", SessionState::Idle, vec![]);
+        assert!(diff_alerts(Some(&prev), &next).is_empty());
+    }
+
+    #[test]
+    fn cold_start_fires_no_task_alerts() {
+        let next = with_tasks(
+            "a",
+            SessionState::Idle,
+            vec![task("t1", TaskStatus::Completed, Some("npm test"))],
+        );
+        assert!(diff_alerts(None, &next).is_empty());
+    }
+
+    #[test]
+    fn several_tasks_finishing_at_once_each_alert() {
+        let prev = with_tasks(
+            "a",
+            SessionState::Tasking,
+            vec![
+                task("t1", TaskStatus::Running, Some("npm test")),
+                task("t2", TaskStatus::Running, Some("cargo test")),
+            ],
+        );
+        let next = with_tasks(
+            "a",
+            SessionState::Idle,
+            vec![
+                task("t1", TaskStatus::Completed, Some("npm test")),
+                task("t2", TaskStatus::Killed, Some("cargo test")),
+            ],
+        );
+
+        let alerts = diff_alerts(Some(&prev), &next);
+        let done = alerts
+            .iter()
+            .filter(|a| a.kind == AlertKind::TaskDone)
+            .count();
+        assert_eq!(done, 2);
+    }
+
+    #[test]
+    fn task_done_serialises_as_camel_case() {
+        assert_eq!(
+            serde_json::to_string(&AlertKind::TaskDone).unwrap(),
+            "\"taskDone\""
+        );
     }
 }

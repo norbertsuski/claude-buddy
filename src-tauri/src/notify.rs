@@ -44,6 +44,8 @@ pub fn should_deliver(alert: &Alert, config: &Config, now_ms: i64) -> bool {
         AlertKind::NeedsInput => config.alert_needs_input,
         AlertKind::Died => config.alert_died,
         AlertKind::Finished => config.alert_finished,
+        // Placeholder: Task 9 adds the config switch this alert is gated on.
+        AlertKind::TaskDone => false,
     }
 }
 
@@ -63,6 +65,15 @@ pub fn alert_text(alert: &Alert) -> (String, String) {
         AlertKind::Finished => (
             format!("{} finished", alert.name),
             "the session is idle again".to_string(),
+        ),
+        // Placeholder text: Task 9 replaces this with the real notification
+        // copy once the alert is wired up to a config switch.
+        AlertKind::TaskDone => (
+            format!("{} task done", alert.name),
+            alert
+                .detail
+                .clone()
+                .unwrap_or_else(|| "a background task finished".to_string()),
         ),
     }
 }
@@ -161,7 +172,7 @@ mod tests {
             kind,
             detail: match kind {
                 AlertKind::NeedsInput => Some("input needed".into()),
-                AlertKind::Died | AlertKind::Finished => None,
+                AlertKind::Died | AlertKind::Finished | AlertKind::TaskDone => None,
             },
         }
     }
