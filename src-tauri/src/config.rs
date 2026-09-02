@@ -17,6 +17,11 @@ pub struct Config {
     /// Whether finishing a turn interrupts you. Off by default: a finished turn
     /// is the common case, and alerting on it is the noisy choice.
     pub alert_finished: bool,
+    /// Whether a background task finishing interrupts you. On by default,
+    /// unlike `alert_finished`: a task the user launched and walked away from
+    /// is the case where they asked to be told, and it fires once per task
+    /// rather than once per turn.
+    pub alert_task_done: bool,
     /// Whether alerts are delivered at all, and the sound they arrive with. The
     /// parent of the three switches above, in the form and in
     /// `notify::should_deliver` alike: an alert *is* a sound here, so silence
@@ -73,6 +78,7 @@ impl Default for Config {
             alert_needs_input: true,
             alert_died: true,
             alert_finished: false,
+            alert_task_done: true,
             sound: true,
             mute_until_ms: 0,
             launch_at_login: false,
