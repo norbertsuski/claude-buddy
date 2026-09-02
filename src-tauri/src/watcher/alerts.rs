@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
 
@@ -71,25 +71,39 @@ fn task_outcome(task: &crate::watcher::tasks::Task) -> String {
 /// usually moves the session out of `Tasking` and into `Busy` — a state diff
 /// would report that as a session starting work and would say nothing about
 /// the task, which is the part the user was waiting for.
+///
+/// The edge is "not already finished last time", not "was running last time":
+/// a background command that fails fast writes its start and its notification
+/// inside one tick, so the first snapshot that sees it already has it terminal
+/// and it was never observed running. Any terminal task in `next` ended within
+/// `TERMINAL_TASK_RETENTION_MS`, since `snapshot` has already dropped the
+/// older ones — which is what keeps this from needing a clock of its own.
+///
+/// A session that was not in `prev` at all is skipped, for the reason the cold
+/// start is: its task list predates any knowledge of it.
 fn task_alerts(prev: &[SessionSnapshot], next: &[SessionSnapshot]) -> Vec<Alert> {
-    let mut was_running: HashMap<(&str, &str), ()> = HashMap::new();
+    let known: HashSet<&str> = prev.iter().map(|s| s.session_id.as_str()).collect();
+    let mut already_done: HashSet<(&str, &str)> = HashSet::new();
     for session in prev {
         for task in &session.tasks {
-            if task.status == crate::watcher::tasks::TaskStatus::Running {
-                was_running.insert((session.session_id.as_str(), task.id.as_str()), ());
+            if task.status.terminal() {
+                already_done.insert((session.session_id.as_str(), task.id.as_str()));
             }
         }
     }
 
     let mut alerts = Vec::new();
     for session in next {
+        if !known.contains(session.session_id.as_str()) {
+            continue;
+        }
         for task in &session.tasks {
             if !task.status.terminal() {
                 continue;
             }
-            // Only the transition is news. A finished task sits in several
-            // consecutive snapshots while its retention window runs.
-            if !was_running.contains_key(&(session.session_id.as_str(), task.id.as_str())) {
+            // A finished task sits in several consecutive snapshots while its
+            // retention window runs. Only the first of them is news.
+            if already_done.contains(&(session.session_id.as_str(), task.id.as_str())) {
                 continue;
             }
             alerts.push(Alert {
@@ -461,6 +475,44 @@ mod tests {
             done[0].detail.as_deref(),
             Some("a background task completed")
         );
+    }
+
+    #[test]
+    fn a_task_that_starts_and_ends_inside_one_tick_still_alerts() {
+        // A background command that fails fast writes its start and its
+        // notification inside one two-second tick, so the first snapshot that
+        // sees the task already has it terminal. It was never `Running` in any
+        // `prev` — and it is exactly the outcome this alert promises to
+        // surface.
+        let prev = with_tasks("a", SessionState::Busy, vec![]);
+        let next = with_tasks(
+            "a",
+            SessionState::Busy,
+            vec![task("t1", TaskStatus::Failed, Some("npm test"))],
+        );
+
+        let alerts = diff_alerts(Some(&prev), &next);
+        let done: Vec<&Alert> = alerts
+            .iter()
+            .filter(|a| a.kind == AlertKind::TaskDone)
+            .collect();
+
+        assert_eq!(done.len(), 1);
+        assert_eq!(done[0].detail.as_deref(), Some("npm test failed"));
+    }
+
+    #[test]
+    fn a_session_first_seen_with_a_finished_task_does_not_alert() {
+        // Same reasoning as the cold start: a session that was not in the
+        // previous snapshot has a task list that predates our knowledge of it,
+        // and none of it is news.
+        let prev = vec![snap("a", SessionState::Busy)];
+        let mut newcomer = snap("b", SessionState::Idle);
+        newcomer.tasks = vec![task("t1", TaskStatus::Completed, Some("npm test"))];
+        let next = vec![snap("a", SessionState::Busy), newcomer];
+
+        let alerts = diff_alerts(Some(&prev), &next);
+        assert!(!alerts.iter().any(|a| a.kind == AlertKind::TaskDone));
     }
 
     #[test]
