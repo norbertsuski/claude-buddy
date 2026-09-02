@@ -44,8 +44,7 @@ pub fn should_deliver(alert: &Alert, config: &Config, now_ms: i64) -> bool {
         AlertKind::NeedsInput => config.alert_needs_input,
         AlertKind::Died => config.alert_died,
         AlertKind::Finished => config.alert_finished,
-        // Placeholder: Task 9 adds the config switch this alert is gated on.
-        AlertKind::TaskDone => false,
+        AlertKind::TaskDone => config.alert_task_done,
     }
 }
 
@@ -66,10 +65,8 @@ pub fn alert_text(alert: &Alert) -> (String, String) {
             format!("{} finished", alert.name),
             "the session is idle again".to_string(),
         ),
-        // Placeholder text: Task 9 replaces this with the real notification
-        // copy once the alert is wired up to a config switch.
         AlertKind::TaskDone => (
-            format!("{} task done", alert.name),
+            format!("{} finished a task", alert.name),
             alert
                 .detail
                 .clone()
@@ -287,5 +284,43 @@ mod tests {
         let (title, body) = alert_text(&a);
         assert_eq!(title, "api-service-55 finished");
         assert_eq!(body, "the session is idle again");
+    }
+
+    #[test]
+    fn a_task_done_alert_is_gated_on_its_own_switch() {
+        let alert = Alert {
+            session_id: "a".into(),
+            pid: 1,
+            name: "api-service".into(),
+            kind: AlertKind::TaskDone,
+            detail: Some("npm test completed".into()),
+        };
+
+        let mut config = Config::default();
+        config.sound = true;
+        config.alert_task_done = true;
+        assert!(should_deliver(&alert, &config, 0));
+
+        config.alert_task_done = false;
+        assert!(!should_deliver(&alert, &config, 0));
+
+        // The sound is the parent of every event switch.
+        config.alert_task_done = true;
+        config.sound = false;
+        assert!(!should_deliver(&alert, &config, 0));
+    }
+
+    #[test]
+    fn a_task_done_alert_says_which_session_and_which_task() {
+        let alert = Alert {
+            session_id: "a".into(),
+            pid: 1,
+            name: "api-service".into(),
+            kind: AlertKind::TaskDone,
+            detail: Some("npm test failed".into()),
+        };
+        let (title, body) = alert_text(&alert);
+        assert_eq!(title, "api-service finished a task");
+        assert_eq!(body, "npm test failed");
     }
 }
