@@ -51,7 +51,17 @@ export function deriveHeat(
   const own = sessions.filter((s) => !s.background)
 
   const busy = own.filter((s) => s.state === 'busy').length
-  const fire = Math.min(3, busy) as Heat['fire']
+
+  // A task you launched yourself is work in progress and stokes the fire. A
+  // registry job is not: the comment above stands, and a session whose only
+  // running task is a job would be the same exclusion dodged by one hop.
+  const tasking = own.filter(
+    (s) =>
+      s.state === 'tasking' &&
+      s.tasks.some((t) => t.status === 'running' && t.kind !== 'job'),
+  ).length
+
+  const fire = Math.min(3, busy + tasking) as Heat['fire']
 
   const waited = own
     .filter((s) => s.state === 'waiting')

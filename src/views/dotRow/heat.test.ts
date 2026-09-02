@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Alert, SessionSnapshot, Usage } from '../../types'
+import type { Alert, SessionSnapshot, Task, Usage } from '../../types'
 import { deriveHeat, isCalm, JITTER_FULL_MS, JITTER_START_MS } from './heat'
 
 function session(over: Partial<SessionSnapshot>): SessionSnapshot {
@@ -30,6 +30,17 @@ function died(sessionId: string): Alert {
   return { sessionId, name: 'repo', kind: 'died', detail: null }
 }
 
+const shellTask = (): Task => ({
+  id: 't1',
+  kind: 'shell',
+  label: 'npm test',
+  startedAtMs: 0,
+  endedAtMs: null,
+  status: 'running',
+})
+
+const jobTask = (): Task => ({ ...shellTask(), id: 'job_1', kind: 'job' })
+
 describe('fire', () => {
   it('counts busy sessions', () => {
     const sessions = [
@@ -59,6 +70,33 @@ describe('fire', () => {
   it('is zero when only background jobs are working', () => {
     const sessions = [session({ sessionId: 'a', state: 'busy', background: true })]
     expect(deriveHeat(sessions, null, []).fire).toBe(0)
+  })
+
+  it('counts a tasking session towards the fire', () => {
+    const heat = deriveHeat([session({ state: 'tasking', tasks: [shellTask()] })], null, [])
+    expect(heat.fire).toBe(1)
+  })
+
+  it('does not count a session whose only task is a registry job', () => {
+    // Background jobs are already excluded from heat because they are work you
+    // did not start. Counting the parent instead would be the same mistake in
+    // a louder voice.
+    const heat = deriveHeat([session({ state: 'tasking', tasks: [jobTask()] })], null, [])
+    expect(heat.fire).toBe(0)
+  })
+
+  it('caps the fire at three across busy and tasking together', () => {
+    const heat = deriveHeat(
+      [
+        session({ state: 'busy' }),
+        session({ state: 'busy' }),
+        session({ state: 'tasking', tasks: [shellTask()] }),
+        session({ state: 'tasking', tasks: [shellTask()] }),
+      ],
+      null,
+      [],
+    )
+    expect(heat.fire).toBe(3)
   })
 })
 
