@@ -338,6 +338,12 @@ body {
   border: 1px solid rgba(63, 185, 80, 0.32);
 }
 
+.chip-tasking {
+  color: var(--tasking);
+  background: rgba(55, 184, 196, 0.14);
+  border: 1px solid rgba(55, 184, 196, 0.32);
+}
+
 .chip-dead {
   color: var(--dead);
   background: rgba(224, 83, 61, 0.14);
