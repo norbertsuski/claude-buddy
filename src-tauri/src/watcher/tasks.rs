@@ -183,6 +183,10 @@ pub const MAX_TASKS: usize = 50;
 /// window of a transcript to the list it already had, and a window can be read
 /// twice when a file is truncated and re-scanned.
 ///
+/// `events` must be oldest-first, as `task_events` emits them: an `Ended`
+/// ahead of its own `Started` in the same slice finds no running task and is
+/// dropped, leaving the task stuck `Running`.
+///
 /// `since_ms` is the session's `startedAt`. Starts older than it belong to a
 /// previous process — a resumed session appends to the same transcript — and
 /// are dropped, which is what stops a dead process's unfinished tasks reading
@@ -237,6 +241,23 @@ pub fn apply_events(tasks: &mut Vec<Task>, events: &[TaskEvent], since_ms: i64) 
     }
 
     tasks.sort_by_key(|t| t.started_at_ms);
+
+    // Over the cap, finished tasks go first. Draining by age alone let fifty
+    // completed shells evict a dev server that was still running and had been
+    // started before all of them — the session left `tasking` while its one
+    // real task was still going. By position among the terminal tasks rather
+    // than by age, because nothing here may read the clock.
+    let over = tasks.len().saturating_sub(MAX_TASKS);
+    if over > 0 {
+        let mut dropped = 0;
+        tasks.retain(|t| {
+            let expendable = dropped < over && t.status.terminal();
+            if expendable {
+                dropped += 1;
+            }
+            !expendable
+        });
+    }
     if tasks.len() > MAX_TASKS {
         tasks.drain(..tasks.len() - MAX_TASKS);
     }
@@ -921,6 +942,28 @@ mod tests {
         assert_eq!(tasks.len(), MAX_TASKS);
         // The oldest went, not the newest.
         assert_eq!(tasks[0].id, "t10");
+    }
+
+    #[test]
+    fn a_running_task_survives_a_crowd_of_finished_ones() {
+        // The dev server launched first, then fifty shells came and went. The
+        // cap drained the oldest and the still-running server went with them:
+        // the session dropped out of `tasking` and the popover forgot the one
+        // task it was actually waiting on.
+        let mut events = vec![started("dev-server", SESSION_START)];
+        for i in 0..MAX_TASKS + 10 {
+            let at = SESSION_START + 1 + i as i64;
+            events.push(started(&format!("t{i}"), at));
+            events.push(ended(&format!("t{i}"), TaskStatus::Completed, at));
+        }
+
+        let tasks = tasks_from_events(&events, SESSION_START);
+
+        assert_eq!(tasks.len(), MAX_TASKS);
+        assert!(
+            tasks.iter().any(|t| t.id == "dev-server"),
+            "a finished task must not evict a running one"
+        );
     }
 
     struct Fixture {
