@@ -55,10 +55,19 @@ pub fn slab_width(geo: &NotchGeometry) -> f64 {
 /// capped rather than clamped, and a chip occludes whatever is under it for as
 /// long as the cursor is on it.
 ///
-/// Only the resting chips live here now — 96pt of counts and 70pt of limit,
-/// measured. The chips retract into the notch on hover rather than expanding
-/// outward, so nothing needs room to grow and this no longer bounds the window.
-pub const FLANK_BUDGET: f64 = 160.0;
+/// Only the resting chips live here now — the counts on the left and 70pt of
+/// limit on the right, measured. The chips retract into the notch on hover
+/// rather than expanding outward, so nothing needs room to grow and this no
+/// longer bounds the window.
+///
+/// It does still bound the *counts*, which is easy to miss: `NotchFlanks`
+/// places the resting band at `notchLeft - restWidths.left`, and `notchLeft`
+/// is this figure, so a counts chip measuring wider than this gets a negative
+/// left edge and the window clips it. It was 160 while there were five states
+/// and 96pt of counts; the sixth, `tasking`, took them past it and cut the
+/// leading waiting count in half. Raised with headroom for a count reaching
+/// double digits rather than to the measured width of six single digits.
+pub const FLANK_BUDGET: f64 = 200.0;
 
 /// Height reserved below the menu bar for a popover, whether or not one is open.
 ///
