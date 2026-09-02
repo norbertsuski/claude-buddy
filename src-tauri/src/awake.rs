@@ -21,15 +21,20 @@ use crate::watcher::state::{SessionSnapshot, SessionState};
 /// `Waiting` counts alongside `Busy` on purpose: a session blocked on a
 /// permission prompt is the case where a sleeping, locked display costs the
 /// user the most — the question is behind it and the run is going nowhere.
+/// `Tasking` counts for the mirror-image reason: the session is going
+/// somewhere, just not in its own transcript.
 ///
 /// Background jobs need no clause here. `snapshot()` has already filtered the
 /// list by the `show_background_jobs` setting, so a subagent the user has
 /// chosen not to see is not in `sessions` and cannot hold the display on.
 pub fn should_stay_awake(sessions: &[SessionSnapshot], keep_awake: bool) -> bool {
     keep_awake
-        && sessions
-            .iter()
-            .any(|s| matches!(s.state, SessionState::Waiting | SessionState::Busy))
+        && sessions.iter().any(|s| {
+            matches!(
+                s.state,
+                SessionState::Waiting | SessionState::Busy | SessionState::Tasking
+            )
+        })
 }
 
 /// What `pmset -g assertions` prints while this is held. It has to say who is
@@ -198,5 +203,10 @@ mod tests {
             session(SessionState::Busy),
         ];
         assert!(should_stay_awake(&sessions, true));
+    }
+
+    #[test]
+    fn a_tasking_session_holds_the_display_on() {
+        assert!(should_stay_awake(&[session(SessionState::Tasking)], true));
     }
 }

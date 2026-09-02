@@ -18,9 +18,12 @@ pub fn should_hide(sessions: &[SessionSnapshot], hide_when: &str, hidden: bool) 
     }
     match hide_when {
         "noSessions" => sessions.is_empty(),
-        "nothingActive" => !sessions
-            .iter()
-            .any(|s| matches!(s.state, SessionState::Waiting | SessionState::Busy)),
+        "nothingActive" => !sessions.iter().any(|s| {
+            matches!(
+                s.state,
+                SessionState::Waiting | SessionState::Busy | SessionState::Tasking
+            )
+        }),
         // "never", and anything unrecognised: showing is the safe failure.
         _ => false,
     }
@@ -111,5 +114,12 @@ mod tests {
         // A hand-edited config must not be able to make the widget vanish with
         // no way to reason about why.
         assert!(!auto(&[], "hologram"));
+    }
+
+    #[test]
+    fn a_tasking_session_counts_as_active() {
+        // Hiding the widget while a task cooks would hide it at exactly the
+        // moment its answer is wanted.
+        assert!(!auto(&[session(SessionState::Tasking)], "nothingActive"));
     }
 }
