@@ -6,6 +6,7 @@ use crate::watcher::activity::ActivityProbe;
 use crate::watcher::blocked::BlockedProbe;
 use crate::watcher::liveness::PidLiveness;
 use crate::watcher::registry::RegistryFile;
+use crate::watcher::tasks::{Task, TaskKind, TaskProbe, TaskStatus};
 use crate::watcher::title::TitleProbe;
 use crate::watcher::working::WorkProbe;
 
@@ -20,6 +21,14 @@ pub const BUSY_WINDOW_MS: i64 = 30 * 1000;
 /// a dead pid, and claude-buddy never unlinks anything under `~/.claude`, so the
 /// entry ages out of the display instead.
 pub const DEAD_RETENTION_MS: i64 = 5 * 60 * 1000;
+
+/// How long a finished task stays in the snapshot.
+///
+/// Long enough for the alert diff to see the `Running`-to-terminal edge, which
+/// it would otherwise miss: a finishing task wakes its session, so the same
+/// tick usually moves the session's own state as well. Mirrors
+/// `DEAD_RETENTION_MS` — a thing that happened once is worth showing once.
+pub const TERMINAL_TASK_RETENTION_MS: i64 = 60 * 1000;
 
 /// Entrypoints the user can actually answer. Everything else — notably
 /// `sdk-cli`, which is plugin machinery — is dropped before any other layer
@@ -53,6 +62,7 @@ pub fn is_shown(kind: Option<&str>, job_id: Option<&str>, include_background: bo
 pub enum SessionState {
     Waiting,
     Busy,
+    Tasking,
     Idle,
     Paused,
     Dead,
@@ -64,9 +74,10 @@ impl SessionState {
         match self {
             SessionState::Waiting => 0,
             SessionState::Busy => 1,
-            SessionState::Idle => 2,
-            SessionState::Paused => 3,
-            SessionState::Dead => 4,
+            SessionState::Tasking => 2,
+            SessionState::Idle => 3,
+            SessionState::Paused => 4,
+            SessionState::Dead => 5,
         }
     }
 }
@@ -98,6 +109,11 @@ pub struct SessionSnapshot {
     pub started_at_ms: i64,
     /// A background job or subagent, not a session the user answers.
     pub background: bool,
+    /// Background work this session is waiting on: background shells, watches,
+    /// subagents, and the registry jobs that share its working directory.
+    /// Finished tasks linger for `TERMINAL_TASK_RETENTION_MS` so the alert diff
+    /// can see them end.
+    pub tasks: Vec<Task>,
 }
 
 /// Clock skew and stale files can both produce timestamps in the future.
@@ -129,6 +145,60 @@ pub struct SnapshotResult {
     pub dead_now: Vec<String>,
 }
 
+/// Every live registry job, paired with the working directory it shares with
+/// its parent.
+///
+/// Jobs are separate processes and appear in no transcript, so this is the only
+/// place they can come from. Matched by `cwd` because that is the only link the
+/// registry offers — the same pairing `group_jobs_with_parents` performs for
+/// the row itself.
+///
+/// Taken from the unfiltered registry deliberately: `show_background_jobs`
+/// governs whether a job gets a row of its own, not whether its parent is
+/// waiting on it.
+fn job_tasks<'a>(
+    files: &'a [RegistryFile],
+    liveness: &dyn PidLiveness,
+    now_ms: i64,
+) -> Vec<(&'a str, Task)> {
+    files
+        .iter()
+        .filter(|f| is_background_job(f.kind.as_deref(), f.job_id.as_deref()))
+        .filter(|f| liveness.is_alive(f.pid, Some(f.started_at), now_ms))
+        .map(|f| {
+            (
+                f.cwd.as_str(),
+                Task {
+                    id: f.job_id.clone().unwrap_or_default(),
+                    kind: TaskKind::Job,
+                    label: Some(display_name(f)),
+                    started_at_ms: f.started_at,
+                    ended_at_ms: None,
+                    status: TaskStatus::Running,
+                },
+            )
+        })
+        .collect()
+}
+
+/// What a tasking session's row says it is waiting on.
+///
+/// One task names itself; several are counted, because the popover lists them
+/// and the row has no space to.
+fn task_detail(tasks: &[Task]) -> String {
+    let running: Vec<&Task> = tasks
+        .iter()
+        .filter(|t| t.status == TaskStatus::Running)
+        .collect();
+    match running.as_slice() {
+        [one] => one
+            .label
+            .clone()
+            .unwrap_or_else(|| "1 task running".to_string()),
+        many => format!("{} tasks running", many.len()),
+    }
+}
+
 /// Derive every session's state. Pure: all time and all liveness are injected,
 /// so the whole state machine is testable without a filesystem or a clock.
 // Eight injected dependencies and settings, all of them load-bearing, is the
@@ -140,12 +210,15 @@ pub fn snapshot(
     activity: &dyn ActivityProbe,
     blocked: &dyn BlockedProbe,
     work: &dyn WorkProbe,
+    tasks: &dyn TaskProbe,
     titles: &dyn TitleProbe,
     now_ms: i64,
     paused_threshold_ms: i64,
     include_background: bool,
     first_seen_dead: &HashMap<String, i64>,
 ) -> SnapshotResult {
+    let jobs = job_tasks(files, liveness, now_ms);
+
     let derived: Vec<SessionSnapshot> = files
         .iter()
         .filter(|f| {
@@ -187,6 +260,29 @@ pub fn snapshot(
             // forever, still settles rather than reading busy for good.
             let work_in_flight = !reported_status && work.in_flight(&f.cwd, &f.session_id);
 
+            // The probe's own tasks, minus the ones that finished long enough
+            // ago to have been alerted about, plus any registry job sharing
+            // this session's working directory. A job entry gets no jobs of
+            // its own: it is one.
+            let mut session_tasks: Vec<Task> = tasks
+                .tasks(&f.cwd, &f.session_id, f.started_at)
+                .into_iter()
+                .filter(|t| match t.ended_at_ms {
+                    None => true,
+                    Some(ended) => age(now_ms, ended) <= TERMINAL_TASK_RETENTION_MS,
+                })
+                .collect();
+            if !is_background_job(f.kind.as_deref(), f.job_id.as_deref()) {
+                session_tasks.extend(
+                    jobs.iter()
+                        .filter(|(cwd, _)| *cwd == f.cwd.as_str())
+                        .map(|(_, task)| task.clone()),
+                );
+            }
+            let has_running_task = session_tasks
+                .iter()
+                .any(|t| t.status == TaskStatus::Running);
+
             let state = if !alive {
                 // Death outranks everything, including an unanswered question:
                 // there is no longer anyone to answer.
@@ -208,6 +304,17 @@ pub fn snapshot(
                 }
             };
 
+            // Only stillness becomes tasking. `Waiting` is the one state that
+            // needs the user and must never be buried; `Busy` is the session
+            // working on its own turn, which is the more immediate fact; and a
+            // dead session is waiting on nothing.
+            let state = match state {
+                SessionState::Idle | SessionState::Paused if has_running_task => {
+                    SessionState::Tasking
+                }
+                settled => settled,
+            };
+
             SessionSnapshot {
                 pid: f.pid,
                 session_id: f.session_id.clone(),
@@ -218,6 +325,7 @@ pub fn snapshot(
                 state,
                 detail: match state {
                     SessionState::Waiting => pending_prompt.or_else(|| f.waiting_for.clone()),
+                    SessionState::Tasking => Some(task_detail(&session_tasks)),
                     _ => None,
                 },
                 elapsed_ms,
@@ -225,6 +333,7 @@ pub fn snapshot(
                 status_time_ms: status_time,
                 started_at_ms: f.started_at,
                 background: is_background_job(f.kind.as_deref(), f.job_id.as_deref()),
+                tasks: session_tasks,
             }
         })
         .collect();
@@ -306,6 +415,7 @@ mod tests {
     use crate::watcher::blocked::{FakeBlocked, NoBlocked};
     use crate::watcher::liveness::FakeLiveness;
     use crate::watcher::registry::RegistryFile;
+    use crate::watcher::tasks::{FakeTasks, NoTasks};
     use crate::watcher::title::{FakeTitle, NoTitle};
     use crate::watcher::working::{FakeWork, NoWork};
 
@@ -346,6 +456,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -372,6 +483,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -395,6 +507,7 @@ mod tests {
                 &NoActivity,
                 &NoBlocked,
                 &NoWork,
+                &NoTasks,
                 &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
@@ -419,6 +532,7 @@ mod tests {
                 &NoActivity,
                 &NoBlocked,
                 &NoWork,
+                &NoTasks,
                 &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
@@ -443,6 +557,7 @@ mod tests {
                 &NoActivity,
                 &NoBlocked,
                 &NoWork,
+                &NoTasks,
                 &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
@@ -466,6 +581,7 @@ mod tests {
                 &NoActivity,
                 &NoBlocked,
                 &NoWork,
+                &NoTasks,
                 &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
@@ -489,6 +605,7 @@ mod tests {
                 &NoActivity,
                 &NoBlocked,
                 &NoWork,
+                &NoTasks,
                 &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
@@ -513,6 +630,7 @@ mod tests {
                 &NoActivity,
                 &NoBlocked,
                 &NoWork,
+                &NoTasks,
                 &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
@@ -538,6 +656,7 @@ mod tests {
                 &NoActivity,
                 &NoBlocked,
                 &NoWork,
+                &NoTasks,
                 &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
@@ -560,6 +679,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -583,6 +703,7 @@ mod tests {
             &activity,
             &NoBlocked,
             &FakeWork::new().with("session-1"),
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -605,6 +726,7 @@ mod tests {
             &activity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -629,6 +751,7 @@ mod tests {
             &activity,
             &NoBlocked,
             &FakeWork::new().with("session-1"),
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -651,6 +774,7 @@ mod tests {
             &activity,
             &FakeBlocked::new().with("session-1", "question pending"),
             &FakeWork::new().with("session-1"),
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -677,6 +801,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &FakeWork::new().with("session-1"),
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -706,6 +831,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -745,6 +871,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -771,6 +898,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -800,6 +928,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -823,6 +952,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -842,6 +972,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -863,6 +994,7 @@ mod tests {
                 &NoActivity,
                 &NoBlocked,
                 &NoWork,
+                &NoTasks,
                 &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
@@ -885,6 +1017,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -905,6 +1038,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -925,6 +1059,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -944,6 +1079,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -966,6 +1102,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -988,6 +1125,7 @@ mod tests {
                 &NoActivity,
                 &NoBlocked,
                 &NoWork,
+                &NoTasks,
                 &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
@@ -1010,6 +1148,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &FakeTitle::new().with(&session_id, "Rebase and conflicts"),
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1032,6 +1171,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1066,6 +1206,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1099,6 +1240,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1126,6 +1268,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1151,6 +1294,7 @@ mod tests {
             &probe,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1174,6 +1318,7 @@ mod tests {
             &probe,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1197,6 +1342,7 @@ mod tests {
                 &probe,
                 &NoBlocked,
                 &NoWork,
+                &NoTasks,
                 &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
@@ -1219,6 +1365,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1247,6 +1394,7 @@ mod tests {
             &probe,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1274,6 +1422,7 @@ mod tests {
             &activity,
             &blocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1299,6 +1448,7 @@ mod tests {
             &activity,
             &blocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1323,6 +1473,7 @@ mod tests {
             &activity,
             &blocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1348,6 +1499,7 @@ mod tests {
                 &busy,
                 &quiet,
                 &NoWork,
+                &NoTasks,
                 &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
@@ -1367,6 +1519,7 @@ mod tests {
                 &idle,
                 &quiet,
                 &NoWork,
+                &NoTasks,
                 &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
@@ -1386,6 +1539,7 @@ mod tests {
                 &paused,
                 &quiet,
                 &NoWork,
+                &NoTasks,
                 &NoTitle,
                 NOW,
                 PAUSED_THRESHOLD_MS,
@@ -1413,6 +1567,7 @@ mod tests {
             &NoActivity,
             &blocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1437,6 +1592,7 @@ mod tests {
             &NoActivity,
             &blocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1466,6 +1622,7 @@ mod tests {
             &NoActivity,
             &blocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1492,6 +1649,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1516,6 +1674,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1542,6 +1701,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1560,6 +1720,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1580,6 +1741,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1601,6 +1763,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1622,6 +1785,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1644,6 +1808,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1663,6 +1828,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1684,6 +1850,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             NOW,
             PAUSED_THRESHOLD_MS,
@@ -1696,5 +1863,349 @@ mod tests {
         assert_eq!(json["state"], "waiting");
         assert_eq!(json["sessionId"], "session-1");
         assert_eq!(json["elapsedMs"], 60_000);
+    }
+
+    fn running_task(id: &str) -> crate::watcher::tasks::Task {
+        crate::watcher::tasks::Task {
+            id: id.to_string(),
+            kind: crate::watcher::tasks::TaskKind::Shell,
+            label: Some(format!("run {id}")),
+            started_at_ms: NOW - 30_000,
+            ended_at_ms: None,
+            status: crate::watcher::tasks::TaskStatus::Running,
+        }
+    }
+
+    fn finished_task(id: &str, ended_at_ms: i64) -> crate::watcher::tasks::Task {
+        crate::watcher::tasks::Task {
+            id: id.to_string(),
+            kind: crate::watcher::tasks::TaskKind::Shell,
+            label: Some(format!("{id} done")),
+            started_at_ms: NOW - 60_000,
+            ended_at_ms: Some(ended_at_ms),
+            status: crate::watcher::tasks::TaskStatus::Completed,
+        }
+    }
+
+    #[test]
+    fn a_paused_session_with_a_running_task_is_tasking() {
+        let mut f = file(1, "cli");
+        f.status = Some("idle".into());
+        f.status_updated_at = Some(NOW - PAUSED_THRESHOLD_MS - 1);
+
+        let out = snapshot(
+            &[f],
+            &FakeLiveness::new().with_alive_any_start(1),
+            &NoActivity,
+            &NoBlocked,
+            &NoWork,
+            &FakeTasks::new().with("session-1", vec![running_task("a")]),
+            &NoTitle,
+            NOW,
+            PAUSED_THRESHOLD_MS,
+            true,
+            &HashMap::new(),
+        )
+        .sessions;
+
+        assert_eq!(out[0].state, SessionState::Tasking);
+        assert_eq!(out[0].detail.as_deref(), Some("run a"));
+    }
+
+    #[test]
+    fn an_idle_session_with_a_running_task_is_tasking() {
+        let mut f = file(1, "cli");
+        f.status = Some("idle".into());
+        f.status_updated_at = Some(NOW - 60_000);
+
+        let out = snapshot(
+            &[f],
+            &FakeLiveness::new().with_alive_any_start(1),
+            &NoActivity,
+            &NoBlocked,
+            &NoWork,
+            &FakeTasks::new().with("session-1", vec![running_task("a")]),
+            &NoTitle,
+            NOW,
+            PAUSED_THRESHOLD_MS,
+            true,
+            &HashMap::new(),
+        )
+        .sessions;
+
+        assert_eq!(out[0].state, SessionState::Tasking);
+    }
+
+    #[test]
+    fn more_than_one_running_task_is_counted_in_the_detail() {
+        let mut f = file(1, "cli");
+        f.status = Some("idle".into());
+        f.status_updated_at = Some(NOW - 60_000);
+
+        let out = snapshot(
+            &[f],
+            &FakeLiveness::new().with_alive_any_start(1),
+            &NoActivity,
+            &NoBlocked,
+            &NoWork,
+            &FakeTasks::new().with(
+                "session-1",
+                vec![running_task("a"), running_task("b"), running_task("c")],
+            ),
+            &NoTitle,
+            NOW,
+            PAUSED_THRESHOLD_MS,
+            true,
+            &HashMap::new(),
+        )
+        .sessions;
+
+        assert_eq!(out[0].detail.as_deref(), Some("3 tasks running"));
+    }
+
+    #[test]
+    fn waiting_and_busy_and_dead_all_outrank_a_running_task() {
+        // A session asking a question must never be relabelled as merely
+        // tasking; a session working on its own turn is the more immediate
+        // fact; and a dead session has nothing running at all.
+        for (status, alive, expected) in [
+            ("waiting", true, SessionState::Waiting),
+            ("busy", true, SessionState::Busy),
+            ("busy", false, SessionState::Dead),
+        ] {
+            let mut f = file(1, "cli");
+            f.status = Some(status.into());
+            f.waiting_for = Some("input needed".into());
+            f.status_updated_at = Some(NOW - 60_000);
+
+            let liveness = if alive {
+                FakeLiveness::new().with_alive_any_start(1)
+            } else {
+                FakeLiveness::new()
+            };
+
+            let out = snapshot(
+                &[f],
+                &liveness,
+                &NoActivity,
+                &NoBlocked,
+                &NoWork,
+                &FakeTasks::new().with("session-1", vec![running_task("a")]),
+                &NoTitle,
+                NOW,
+                PAUSED_THRESHOLD_MS,
+                true,
+                &HashMap::new(),
+            )
+            .sessions;
+
+            assert_eq!(out[0].state, expected, "status {status}, alive {alive}");
+        }
+    }
+
+    #[test]
+    fn a_session_whose_tasks_have_all_finished_is_not_tasking() {
+        let mut f = file(1, "cli");
+        f.status = Some("idle".into());
+        f.status_updated_at = Some(NOW - 60_000);
+
+        let out = snapshot(
+            &[f],
+            &FakeLiveness::new().with_alive_any_start(1),
+            &NoActivity,
+            &NoBlocked,
+            &NoWork,
+            &FakeTasks::new().with("session-1", vec![finished_task("a", NOW - 1_000)]),
+            &NoTitle,
+            NOW,
+            PAUSED_THRESHOLD_MS,
+            true,
+            &HashMap::new(),
+        )
+        .sessions;
+
+        assert_eq!(out[0].state, SessionState::Idle);
+        // Still carried, so the alert diff can see the edge.
+        assert_eq!(out[0].tasks.len(), 1);
+    }
+
+    #[test]
+    fn a_task_that_finished_long_ago_is_dropped_from_the_snapshot() {
+        let mut f = file(1, "cli");
+        f.status = Some("idle".into());
+        f.status_updated_at = Some(NOW - 60_000);
+
+        let out = snapshot(
+            &[f],
+            &FakeLiveness::new().with_alive_any_start(1),
+            &NoActivity,
+            &NoBlocked,
+            &NoWork,
+            &FakeTasks::new().with(
+                "session-1",
+                vec![finished_task("a", NOW - TERMINAL_TASK_RETENTION_MS - 1)],
+            ),
+            &NoTitle,
+            NOW,
+            PAUSED_THRESHOLD_MS,
+            true,
+            &HashMap::new(),
+        )
+        .sessions;
+
+        assert!(out[0].tasks.is_empty());
+    }
+
+    #[test]
+    fn a_live_registry_job_is_a_task_on_the_session_sharing_its_cwd() {
+        let mut parent = file(1, "cli");
+        parent.status = Some("idle".into());
+        parent.status_updated_at = Some(NOW - 60_000);
+
+        let mut job = file(2, "cli");
+        job.cwd = parent.cwd.clone();
+        job.kind = Some("bg".into());
+        job.job_id = Some("job_01hq8w2n4k".into());
+        job.name = Some("migrate-schemas".into());
+        job.status = Some("busy".into());
+        job.status_updated_at = Some(NOW - 5_000);
+
+        let out = snapshot(
+            &[parent, job],
+            &FakeLiveness::new()
+                .with_alive_any_start(1)
+                .with_alive_any_start(2),
+            &NoActivity,
+            &NoBlocked,
+            &NoWork,
+            &NoTasks,
+            &NoTitle,
+            NOW,
+            PAUSED_THRESHOLD_MS,
+            true,
+            &HashMap::new(),
+        )
+        .sessions;
+
+        let session = out.iter().find(|s| !s.background).expect("parent shown");
+        assert_eq!(session.state, SessionState::Tasking);
+        assert_eq!(session.tasks.len(), 1);
+        assert_eq!(session.tasks[0].kind, crate::watcher::tasks::TaskKind::Job);
+        assert_eq!(session.tasks[0].label.as_deref(), Some("migrate-schemas"));
+    }
+
+    #[test]
+    fn a_hidden_registry_job_is_still_a_task_on_its_parent() {
+        // `showBackgroundJobs` governs whether a job gets a row of its own, not
+        // whether its parent is waiting on it.
+        let mut parent = file(1, "cli");
+        parent.status = Some("idle".into());
+        parent.status_updated_at = Some(NOW - 60_000);
+
+        let mut job = file(2, "cli");
+        job.cwd = parent.cwd.clone();
+        job.kind = Some("bg".into());
+        job.job_id = Some("job_01hq8w2n4k".into());
+
+        let out = snapshot(
+            &[parent, job],
+            &FakeLiveness::new()
+                .with_alive_any_start(1)
+                .with_alive_any_start(2),
+            &NoActivity,
+            &NoBlocked,
+            &NoWork,
+            &NoTasks,
+            &NoTitle,
+            NOW,
+            PAUSED_THRESHOLD_MS,
+            false,
+            &HashMap::new(),
+        )
+        .sessions;
+
+        assert_eq!(out.len(), 1, "the job itself is hidden");
+        assert_eq!(out[0].state, SessionState::Tasking);
+    }
+
+    #[test]
+    fn a_dead_registry_job_is_not_a_task() {
+        let mut parent = file(1, "cli");
+        parent.status = Some("idle".into());
+        parent.status_updated_at = Some(NOW - 60_000);
+
+        let mut job = file(2, "cli");
+        job.cwd = parent.cwd.clone();
+        job.kind = Some("bg".into());
+        job.job_id = Some("job_01hq8w2n4k".into());
+
+        let out = snapshot(
+            &[parent, job],
+            &FakeLiveness::new().with_alive_any_start(1),
+            &NoActivity,
+            &NoBlocked,
+            &NoWork,
+            &NoTasks,
+            &NoTitle,
+            NOW,
+            PAUSED_THRESHOLD_MS,
+            false,
+            &HashMap::new(),
+        )
+        .sessions;
+
+        assert_eq!(out[0].state, SessionState::Idle);
+        assert!(out[0].tasks.is_empty());
+    }
+
+    #[test]
+    fn tasking_sorts_between_busy_and_idle() {
+        let mut busy = file(1, "cli");
+        busy.status = Some("busy".into());
+        busy.status_updated_at = Some(NOW - 1_000);
+
+        let mut tasking = file(2, "cli");
+        tasking.status = Some("idle".into());
+        tasking.status_updated_at = Some(NOW - 60_000);
+
+        let mut idle = file(3, "cli");
+        idle.status = Some("idle".into());
+        idle.status_updated_at = Some(NOW - 60_000);
+
+        let out = snapshot(
+            &[idle, tasking, busy],
+            &FakeLiveness::new()
+                .with_alive_any_start(1)
+                .with_alive_any_start(2)
+                .with_alive_any_start(3),
+            &NoActivity,
+            &NoBlocked,
+            &NoWork,
+            &FakeTasks::new().with("session-2", vec![running_task("a")]),
+            &NoTitle,
+            NOW,
+            PAUSED_THRESHOLD_MS,
+            true,
+            &HashMap::new(),
+        )
+        .sessions;
+
+        let states: Vec<SessionState> = out.iter().map(|s| s.state).collect();
+        assert_eq!(
+            states,
+            [
+                SessionState::Busy,
+                SessionState::Tasking,
+                SessionState::Idle
+            ]
+        );
+    }
+
+    #[test]
+    fn tasking_serialises_as_lowercase() {
+        assert_eq!(
+            serde_json::to_string(&SessionState::Tasking).unwrap(),
+            "\"tasking\""
+        );
     }
 }

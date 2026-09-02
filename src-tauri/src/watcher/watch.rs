@@ -15,6 +15,7 @@ use crate::watcher::liveness::PidLiveness;
 use crate::watcher::question::QuestionProbe;
 use crate::watcher::registry::read_registry_dir;
 use crate::watcher::state::{snapshot, SessionSnapshot, SessionState};
+use crate::watcher::tasks::TaskProbe;
 use crate::watcher::title::TitleProbe;
 use crate::watcher::working::WorkProbe;
 
@@ -116,6 +117,7 @@ pub fn spawn_watcher(
     activity: Arc<dyn ActivityProbe + Send + Sync>,
     blocked: Arc<dyn BlockedProbe + Send + Sync>,
     work: Arc<dyn WorkProbe + Send + Sync>,
+    tasks: Arc<dyn TaskProbe + Send + Sync>,
     titles: Arc<dyn TitleProbe + Send + Sync>,
     question: Arc<dyn QuestionProbe + Send + Sync>,
     on_update: impl Fn(Update) + Send + 'static,
@@ -157,6 +159,7 @@ pub fn spawn_watcher(
                 activity.as_ref(),
                 blocked.as_ref(),
                 work.as_ref(),
+                tasks.as_ref(),
                 titles.as_ref(),
                 now,
                 crate::watcher::state::PAUSED_THRESHOLD_MS,
@@ -227,6 +230,7 @@ mod tests {
     use crate::watcher::liveness::FakeLiveness;
     use crate::watcher::question::{FakeQuestion, NoQuestion};
     use crate::watcher::state::{SessionState, PAUSED_THRESHOLD_MS};
+    use crate::watcher::tasks::NoTasks;
     use crate::watcher::title::NoTitle;
     use crate::watcher::working::NoWork;
 
@@ -296,6 +300,7 @@ mod tests {
             &NoActivity,
             &NoBlocked,
             &NoWork,
+            &NoTasks,
             &NoTitle,
             now_ms(),
             PAUSED_THRESHOLD_MS,
@@ -320,6 +325,7 @@ mod tests {
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
             Arc::new(NoWork),
+            Arc::new(NoTasks),
             Arc::new(NoTitle),
             Arc::new(NoQuestion),
             move |u| {
@@ -352,6 +358,7 @@ mod tests {
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
             Arc::new(NoWork),
+            Arc::new(NoTasks),
             Arc::new(NoTitle),
             Arc::new(NoQuestion),
             move |u| {
@@ -381,6 +388,7 @@ mod tests {
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
             Arc::new(NoWork),
+            Arc::new(NoTasks),
             Arc::new(NoTitle),
             Arc::new(NoQuestion),
             move |u| {
@@ -413,6 +421,7 @@ mod tests {
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
             Arc::new(NoWork),
+            Arc::new(NoTasks),
             Arc::new(NoTitle),
             Arc::new(FakeQuestion::new().with("session-4242", "Shall I delete the branch?")),
             move |u| {
@@ -448,6 +457,7 @@ mod tests {
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
             Arc::new(NoWork),
+            Arc::new(NoTasks),
             Arc::new(NoTitle),
             Arc::new(NoQuestion),
             move |u| {
@@ -476,6 +486,7 @@ mod tests {
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
             Arc::new(NoWork),
+            Arc::new(NoTasks),
             Arc::new(NoTitle),
             Arc::new(NoQuestion),
             move |u| {
@@ -502,6 +513,7 @@ mod tests {
             Arc::new(NoActivity),
             Arc::new(NoBlocked),
             Arc::new(NoWork),
+            Arc::new(NoTasks),
             Arc::new(NoTitle),
             Arc::new(NoQuestion),
             move |u| {

@@ -115,6 +115,9 @@ pub fn run() {
                 Arc::new(crate::watcher::working::TranscriptWork::new(
                     crate::bridge::transcript::projects_dir(),
                 )),
+                Arc::new(crate::watcher::tasks::TranscriptTasks::new(
+                    crate::bridge::transcript::projects_dir(),
+                )),
                 Arc::new(crate::watcher::title::TranscriptTitle::new(
                     crate::bridge::transcript::projects_dir(),
                 )),
