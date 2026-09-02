@@ -11,6 +11,7 @@
   --muted: #98a1b5;
   --waiting: #f5a524;
   --busy: #3fb950;
+  --tasking: #37b8c4;
   --idle: #5b6479;
   --paused: #3d4454;
   --dead: #e0533d;
@@ -181,6 +182,35 @@ body {
 .dot-idle {
   background: transparent;
   border: 2px solid var(--idle);
+}
+
+/* Tasking: idle's hollow ring with an arc turning inside it. Present, not
+   working, waiting on something that is. The ring is the same shape as idle on
+   purpose — the session is idle, in the sense that nobody is at the keyboard —
+   and the arc is what says the stillness has an end.
+
+   The arc animates `transform` on a pseudo-element rather than the dot's
+   `box-shadow`, for the reason recorded on `.dot-waiting::after`: shadow
+   keyframes repaint the whole pill every frame and read as choppiness. */
+.dot-tasking {
+  background: transparent;
+  border: 2px solid var(--tasking);
+}
+
+.dot-tasking::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: var(--tasking);
+  animation: task-turn 1.4s linear infinite;
+}
+
+@keyframes task-turn {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Paused: the two-bar pause glyph. A dashed circle was the first attempt and
@@ -609,6 +639,11 @@ body {
   .popover,
   .chip,
   .dot-waiting::after {
+    animation: none;
+  }
+
+  /* The arc still marks the state, it just stops turning. */
+  .dot-tasking::before {
     animation: none;
   }
 
