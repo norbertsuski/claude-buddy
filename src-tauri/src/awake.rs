@@ -24,9 +24,12 @@ use crate::watcher::state::{SessionSnapshot, SessionState};
 /// `Tasking` counts for the mirror-image reason: the session is going
 /// somewhere, just not in its own transcript.
 ///
-/// Background jobs need no clause here. `snapshot()` has already filtered the
-/// list by the `show_background_jobs` setting, so a subagent the user has
-/// chosen not to see is not in `sessions` and cannot hold the display on.
+/// Background jobs need no clause here, but not because hiding one silences
+/// it: `snapshot()` folds a `bg` job onto its parent as a task whatever
+/// `show_background_jobs` says, so a job with no row of its own still holds
+/// the display on through the parent it makes `Tasking`. That is the wanted
+/// behaviour — the work is running either way — and it needs no clause because
+/// `Tasking` above already covers it.
 pub fn should_stay_awake(sessions: &[SessionSnapshot], keep_awake: bool) -> bool {
     keep_awake
         && sessions.iter().any(|s| {
