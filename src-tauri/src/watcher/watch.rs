@@ -15,7 +15,7 @@ use crate::watcher::liveness::PidLiveness;
 use crate::watcher::question::QuestionProbe;
 use crate::watcher::registry::read_registry_dir;
 use crate::watcher::state::{snapshot, SessionSnapshot, SessionState};
-use crate::watcher::tasks::TaskProbe;
+use crate::watcher::tasks::{TaskProbe, TaskStatus};
 use crate::watcher::title::TitleProbe;
 use crate::watcher::working::WorkProbe;
 
@@ -55,9 +55,19 @@ pub fn now_ms() -> i64 {
 /// Identity of a snapshot for change detection: everything the UI renders
 /// except the clock-derived fields. Without this, elapsed time alone would make
 /// every tick look like a change and the UI would re-render twice a second.
-fn fingerprint(
-    sessions: &[SessionSnapshot],
-) -> Vec<(String, SessionState, Option<String>, Option<String>)> {
+///
+/// Tasks are in it by id and status, never by age. A task starting or finishing
+/// is a change to draw — on a session whose own state does not move, it is the
+/// *only* change — and a task getting a second older is not.
+type Fingerprint = (
+    String,
+    SessionState,
+    Option<String>,
+    Option<String>,
+    Vec<(String, TaskStatus)>,
+);
+
+fn fingerprint(sessions: &[SessionSnapshot]) -> Vec<Fingerprint> {
     sessions
         .iter()
         .map(|s| {
@@ -69,6 +79,10 @@ fn fingerprint(
                 // this the row would keep the name it was first given until
                 // something else moved.
                 s.title.clone(),
+                s.tasks
+                    .iter()
+                    .map(|t| (t.id.clone(), t.status))
+                    .collect::<Vec<_>>(),
             )
         })
         .collect()
@@ -230,7 +244,7 @@ mod tests {
     use crate::watcher::liveness::FakeLiveness;
     use crate::watcher::question::{FakeQuestion, NoQuestion};
     use crate::watcher::state::{SessionState, PAUSED_THRESHOLD_MS};
-    use crate::watcher::tasks::NoTasks;
+    use crate::watcher::tasks::{NoTasks, Task, TaskKind, TaskStatus};
     use crate::watcher::title::NoTitle;
     use crate::watcher::working::NoWork;
 
@@ -287,6 +301,70 @@ mod tests {
             }
         }
         panic!("no matching update within {WAIT:?}");
+    }
+
+    /// One tasking session holding one running task.
+    fn tasking_snapshot() -> Vec<SessionSnapshot> {
+        vec![SessionSnapshot {
+            pid: 1,
+            session_id: "s".into(),
+            name: "proj".into(),
+            title: None,
+            cwd: "/Users/n/Code/proj".into(),
+            entrypoint: "cli".into(),
+            state: SessionState::Tasking,
+            detail: Some("run tests".into()),
+            elapsed_ms: 0,
+            uptime_ms: 0,
+            status_time_ms: 0,
+            started_at_ms: 0,
+            background: false,
+            tasks: vec![Task {
+                id: "t1".into(),
+                kind: TaskKind::Shell,
+                label: Some("run tests".into()),
+                started_at_ms: 0,
+                ended_at_ms: None,
+                status: TaskStatus::Running,
+            }],
+        }]
+    }
+
+    #[test]
+    fn a_task_finishing_re_emits_even_though_nothing_else_moved() {
+        // Two snapshots differing only in a task's status are two different
+        // things to draw. `fingerprint` ignores the clock on purpose, so
+        // without hashing tasks this would be filtered out as unchanged.
+        let before = tasking_snapshot();
+        let mut after = before.clone();
+        after[0].tasks[0].status = TaskStatus::Completed;
+        after[0].tasks[0].ended_at_ms = Some(1_000);
+
+        assert_ne!(fingerprint(&before), fingerprint(&after));
+    }
+
+    #[test]
+    fn a_new_task_appearing_re_emits() {
+        let before = tasking_snapshot();
+        let mut after = before.clone();
+        let mut second = after[0].tasks[0].clone();
+        second.id = "t2".into();
+        after[0].tasks.push(second);
+
+        assert_ne!(fingerprint(&before), fingerprint(&after));
+    }
+
+    #[test]
+    fn the_clock_moving_under_an_unchanged_task_does_not_re_emit() {
+        // The whole point of the filter: a task getting a second older is not
+        // a change, and hashing its age would re-emit every tick.
+        let before = tasking_snapshot();
+        let mut after = before.clone();
+        after[0].elapsed_ms = 90_000;
+        after[0].uptime_ms = 90_000;
+        after[0].status_time_ms = 90_000;
+
+        assert_eq!(fingerprint(&before), fingerprint(&after));
     }
 
     #[test]
