@@ -5,6 +5,26 @@ section out of this file, and the release workflow uses it as the body of the
 GitHub release and as the notes in the in-app update dialog — so a section that
 is missing here leaves that tag with nothing but the download boilerplate.
 
+## Unreleased
+
+- **A session waiting on a background task says so.** A session that started a
+  background test run, a dev server, a watch or a background subagent goes
+  quiet, and after ten minutes it read `paused` — the same as a session nobody
+  was driving. There is now a sixth state, `tasking`, drawn as a hollow ring
+  with a turning arc, and the popover lists every task the session is waiting
+  on: what kind it is, what it is, and how long it has been going. Registry
+  background jobs count as tasks on the session they belong to, so a parent
+  reads the same way whether or not the job is shown as its own row. The
+  collapsed pill counts it too, with a new chip between the working count and
+  the died count. The widget stays on screen and the display stays awake while
+  a task runs, and in crazy mode a task you launched stokes the fire the way a
+  working session does — a registry job still does not, for the same reason a
+  background job never has.
+- **A notification when a background task finishes.** It names the task and how
+  it ended, so a failure does not read like a success. On by default, and
+  switched off with the new "when a background task finishes" checkbox in
+  Settings.
+
 ## v0.9.0 — 2026-08-28
 
 - **Sessions are named by what they are about.** The row used to label every
