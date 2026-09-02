@@ -42,6 +42,12 @@ export function CollapsedPill({ sessions, usage = null }: SessionViewProps) {
           {counts.busy} working
         </span>
       )}
+      {counts.tasking > 0 && (
+        <span className="chip chip-tasking" data-testid="tasking">
+          <span className="dot dot-tasking" />
+          {counts.tasking} on {counts.tasking === 1 ? 'a task' : 'tasks'}
+        </span>
+      )}
       {urgent.dead > 0 && (
         <span className="chip chip-dead" data-testid="died">
           <span className="dot dot-dead" />

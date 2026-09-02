@@ -149,7 +149,7 @@ export const CRAZY_LEVELS = [
 export const HIDE_MODES = [
   { id: 'never', label: 'Never' },
   { id: 'noSessions', label: 'When there are no sessions' },
-  { id: 'nothingActive', label: 'When nothing is waiting or working' },
+  { id: 'nothingActive', label: 'When nothing is waiting, working or on a task' },
 ] as const
 
 /** One attached display, from the `list_displays` command. */

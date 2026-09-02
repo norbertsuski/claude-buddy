@@ -50,7 +50,11 @@ export function stateLabel(session: SessionSnapshot): string {
     paused: 'paused',
     dead: 'died',
   }
-  return session.state === 'waiting' && session.detail !== null
+  // `detail` says what a session is waiting on — the reason, for a waiting
+  // session, and the task's own name for a tasking one. Either beats the
+  // static word for the state.
+  return (session.state === 'waiting' || session.state === 'tasking') &&
+    session.detail !== null
     ? session.detail
     : labels[session.state]
 }

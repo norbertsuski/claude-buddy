@@ -101,6 +101,38 @@ describe('CollapsedPill', () => {
     render(<CollapsedPill sessions={[]} />)
     expect(screen.getByTestId('summary')).toHaveTextContent('no sessions')
   })
+
+  it('shows tasking as its own chip, between working and died', () => {
+    render(
+      <CollapsedPill
+        sessions={[session('a', 'busy'), session('b', 'tasking'), session('c', 'dead')]}
+      />,
+    )
+    expect(screen.getByTestId('tasking')).toHaveTextContent('1 on a task')
+    const chips = screen.getAllByTestId(/^(needs-you|working|tasking|died)$/)
+    expect(chips.map((c) => c.getAttribute('data-testid'))).toEqual([
+      'working',
+      'tasking',
+      'died',
+    ])
+  })
+
+  it('pluralises the tasking chip', () => {
+    render(<CollapsedPill sessions={[session('a', 'tasking'), session('b', 'tasking')]} />)
+    expect(screen.getByTestId('tasking')).toHaveTextContent('2 on tasks')
+  })
+
+  it('omits the tasking chip when nothing is tasking', () => {
+    render(<CollapsedPill sessions={[session('a', 'idle')]} />)
+    expect(screen.queryByTestId('tasking')).toBeNull()
+  })
+
+  it('does not let a tasking session go unmentioned', () => {
+    // The gap this task closes: a tasking session used to contribute to no
+    // chip and no summary, so the resting pill said nothing about it at all.
+    render(<CollapsedPill sessions={[session('a', 'tasking')]} />)
+    expect(screen.getByTestId('collapsed-pill').textContent).not.toBe('')
+  })
 })
 
 

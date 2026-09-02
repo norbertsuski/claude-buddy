@@ -35,7 +35,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 }))
 
 const { NotchFlanks, ROW_GRACE_MS } = await import('./NotchFlanks')
-const { MAX_ROWS } = await import('./NotchPanel')
+const { MAX_ROWS, stateLabel } = await import('./NotchPanel')
 
 function session(name: string, state: SessionState): SessionSnapshot {
   return {
@@ -417,5 +417,17 @@ describe('NotchFlanks rows', () => {
     expect(document.body.classList.contains('notch-mode')).toBe(true)
     unmount()
     expect(document.body.classList.contains('notch-mode')).toBe(false)
+  })
+})
+
+describe('stateLabel', () => {
+  it('shows a tasking row what it is waiting on, not the generic label', () => {
+    // Rust puts the task's own name in `detail` for a tasking session, the way
+    // it puts the reason in `detail` for a waiting one.
+    expect(stateLabel({ ...session('a-11', 'tasking'), detail: 'npm test' })).toBe('npm test')
+  })
+
+  it('falls back to the generic tasking label when there is no detail', () => {
+    expect(stateLabel({ ...session('a-11', 'tasking'), detail: null })).toBe('running a task')
   })
 })
