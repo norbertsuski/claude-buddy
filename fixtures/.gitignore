@@ -2,3 +2,6 @@
 # pids that are only true for a few minutes. See README.md in this directory.
 /sessions/
 /usage.json
+# And the one transcript that carries timestamps too — task start records are
+# only believed when stamped after the session's own startedAt.
+/projects/-Users-n-Code-test-runner/
