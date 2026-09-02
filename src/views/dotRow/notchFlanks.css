@@ -207,3 +207,54 @@ body.notch-mode {
 .notch-detail-path {
   opacity: 0.72;
 }
+
+/* The popover's field list at the notch's scale. The grid, the labels and the
+   task list are `.popover-fields`' own; only the type size, the label column
+   and the spacing differ, because a row detail sits inside a list rather than
+   in a card of its own. */
+.notch-fields {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 3px 8px;
+  margin: 0;
+  padding: 0;
+}
+
+.notch-fields dt {
+  font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #69738a;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  line-height: 1.55;
+}
+
+.notch-fields dd {
+  margin: 0;
+  font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* The detail's height is measured and written inline, so a field that wrapped
+   to a second line would still be drawn correctly — but the band would grow by
+   a line for a path nobody needs in full. Clipped, as the row above is. */
+.notch-fields dd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The task list is the one field that is deliberately several lines: it is why
+   the detail exists. `nowrap` is inherited from the dd above; min-width: 0 is
+   what lets a long label ellipsize instead of pushing the age out of the slab,
+   for the reason `.popover-tasks-field` records at length. */
+.notch-fields .popover-tasks-field {
+  min-width: 0;
+  white-space: normal;
+}
+
+.notch-detail-hint {
+  padding-top: 7px;
+  font-size: 10px;
+  color: #69738a;
+}

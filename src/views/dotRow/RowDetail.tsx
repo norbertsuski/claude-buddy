@@ -1,58 +1,43 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
-import type { SessionSnapshot, TranscriptDetail } from '../../types'
+import type { SessionSnapshot } from '../../types'
+import { SessionFields, useNow, useSessionDetail, type FieldName } from './SessionFields'
+// The task list's own classes are the popover's, since the markup is. Loaded
+// here rather than relied on through `NotchPanel`, which is only ever the
+// caller by convention.
+import './dotRow.css'
 import './notchFlanks.css'
 
-const EMPTY: TranscriptDetail = { branch: null, model: null, effort: null, activity: null }
+/**
+ * What the row cannot already say.
+ *
+ * The popover's own head is this row's name, its `state` field is this row's
+ * status and elapsed columns, and its `5h limit` is the list's footer row. The
+ * rest is what the detail is for.
+ */
+const NOTCH_FIELDS: FieldName[] = ['doing', 'tasks', 'session', 'cwd', 'branch', 'model', 'proc']
 
 /**
- * What the popover used to say, under the row it belongs to.
+ * What the popover says, under the row it belongs to.
  *
- * Fetched per hovered row rather than for every row, for the reason
- * `SessionPopover` gives: reading transcript fields eagerly would tail a file
- * per session twice a second for data nobody is looking at. That is also why
- * this cannot simply be shown under every row at once.
+ * The same fields drawn by the same component, so the two surfaces cannot drift
+ * apart and a field added to one arrives in both. Only the type scale differs,
+ * and that is `.notch-fields`'s to set.
  */
-export function RowDetail({
-  session,
-  agents = 0,
-}: {
-  session: SessionSnapshot
-  /** Background agents this session has running. */
-  agents?: number
-}) {
-  const [detail, setDetail] = useState<TranscriptDetail>(EMPTY)
-
-  useEffect(() => {
-    let live = true
-    setDetail(EMPTY)
-    invoke<TranscriptDetail>('session_detail', {
-      cwd: session.cwd,
-      sessionId: session.sessionId,
-    })
-      .then((next) => {
-        if (live) setDetail(next)
-      })
-      .catch(() => {
-        // The row above still says everything essential; detail is a bonus.
-      })
-    return () => {
-      live = false
-    }
-  }, [session.cwd, session.sessionId])
-
-  const where = [detail.branch, detail.model].filter(Boolean).join(' · ')
+export function RowDetail({ session }: { session: SessionSnapshot }) {
+  const detail = useSessionDetail(session)
+  const now = useNow()
 
   return (
     <div className="notch-detail" data-testid={`detail-${session.sessionId}`}>
-      {detail.activity !== null && <div className="notch-detail-line">{detail.activity}</div>}
-      {agents > 0 && (
-        <div className="notch-detail-line" data-testid="agent-count">
-          {agents} background {agents === 1 ? 'agent' : 'agents'}
-        </div>
-      )}
-      {where.length > 0 && <div className="notch-detail-line">{where}</div>}
-      <div className="notch-detail-line notch-detail-path">{session.cwd}</div>
+      <dl className="notch-fields">
+        <SessionFields session={session} detail={detail} now={now} fields={NOTCH_FIELDS} />
+      </dl>
+      {/* The click already raises the session — `NotchFlanks` listens for
+          `ui://click` and acts on whichever row the cursor is over. It has
+          simply never been advertised, which the popover always was. */}
+      <div className="notch-detail-hint" data-testid="notch-detail-hint">
+        click → raise this window
+      </div>
     </div>
   )
 }
@@ -72,21 +57,15 @@ export const DETAIL_MORPH_MS = 200
  *
  * The height is measured rather than left at `auto`, which cannot be
  * transitioned, and re-measured as the fetched fields land — the activity line
- * arrives well after the row is hovered and changes how tall this is.
+ * arrives well after the row is hovered and changes how tall this is. The
+ * one-second clock inside changes nothing about the height, since every age it
+ * redraws is one line either way.
  *
  * Mounting with `open` already true is deliberate: the first paint is at height
  * 0 because that is the state's initial value, and the measurement that follows
  * in a layout effect is what the transition runs from.
  */
-export function RowDetailSlot({
-  session,
-  agents = 0,
-  open,
-}: {
-  session: SessionSnapshot
-  agents?: number
-  open: boolean
-}) {
+export function RowDetailSlot({ session, open }: { session: SessionSnapshot; open: boolean }) {
   const inner = useRef<HTMLDivElement>(null)
   const [height, setHeight] = useState(0)
 
@@ -110,7 +89,7 @@ export function RowDetailSlot({
       style={{ height: open ? height : 0 }}
     >
       <div ref={inner}>
-        <RowDetail session={session} agents={agents} />
+        <RowDetail session={session} />
       </div>
     </div>
   )

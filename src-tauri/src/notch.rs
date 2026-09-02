@@ -69,13 +69,19 @@ pub fn slab_width(geo: &NotchGeometry) -> f64 {
 /// double digits rather than to the measured width of six single digits.
 pub const FLANK_BUDGET: f64 = 200.0;
 
-/// Height reserved below the menu bar for a popover, whether or not one is open.
+/// Height reserved below the menu bar for the slab, whether or not it is open.
 ///
-/// Mirrors `useWidgetSize.POPOVER_ALLOWANCE`, and reserved for the same reason:
-/// resizing a transparent panel shows one unpainted frame, so a popover opening
-/// must not change the window. The reserved area stays transparent and
-/// click-through, because the chips are the only rects reported as the widget.
-pub const POPOVER_ALLOWANCE: f64 = 400.0;
+/// Reserved for the reason `useWidgetSize.POPOVER_ALLOWANCE` is: resizing a
+/// transparent panel shows one unpainted frame, so opening must not change the
+/// window. The reserved area stays transparent and click-through, because the
+/// chips are the only rects reported as the widget.
+///
+/// Larger than the free-mode figure, and no longer a mirror of it. That one
+/// sizes a different window around a popover that has not grown; this one has
+/// to hold `MAX_ROWS` rows, the usage row and one open row detail, and the
+/// detail now carries the popover's whole field list. Eight rows and the
+/// footer come to roughly 344, which left about 56 for a detail that is 150.
+pub const POPOVER_ALLOWANCE: f64 = 560.0;
 
 /// The notched display, in the top-left-origin, y-down space that Tauri's
 /// `set_position` uses.
@@ -370,6 +376,22 @@ mod tests {
             geo.left_flank() + geo.notch_width + geo.right_flank(),
             geo.screen_width
         );
+    }
+
+    #[test]
+    fn the_reserve_holds_a_full_list_and_an_open_detail() {
+        // Eight rows, the usage row and the bar come to roughly 344, and a row
+        // detail carrying the popover's whole field list is about 150. The old
+        // 400 left about 56 for it, which clipped the detail it was reserved
+        // for. Deliberately not the free-mode figure any more.
+        assert!(POPOVER_ALLOWANCE >= 344.0 + 150.0);
+    }
+
+    #[test]
+    fn the_window_reserves_the_allowance_below_the_bar() {
+        let geo = built_in();
+        let (_, size) = window_frame(&geo, FLANK_BUDGET, POPOVER_ALLOWANCE);
+        assert_eq!(size.1, geo.bar_height + POPOVER_ALLOWANCE);
     }
 
     #[test]
