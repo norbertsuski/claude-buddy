@@ -19,7 +19,9 @@ is missing here leaves that tag with nothing but the download boilerplate.
   the died count. The widget stays on screen and the display stays awake while
   a task runs, and in crazy mode a task you launched stokes the fire the way a
   working session does — a registry job still does not, for the same reason a
-  background job never has.
+  background job never has. A job is the one kind of task that never raises
+  the finished notification either: it stops being a task the moment its
+  process is gone, rather than ending with a status to report.
 - **A notification when a background task finishes.** It names the task and how
   it ended, so a failure does not read like a success. On by default, and
   switched off with the new "when a background task finishes" checkbox in

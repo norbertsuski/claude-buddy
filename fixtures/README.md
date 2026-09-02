@@ -27,7 +27,7 @@ the same six the screenshots in the root README show, in the same order.
 | `web-app` | working | Reports `busy`, one minute in, on `fix/checkout-totals` with `claude-opus-5` at high effort, mid-`Grep`. |
 | `design-system` | idle | Reports `idle`, three minutes quiet — short of the pause threshold. |
 | `docs-site` | paused | Twenty-six minutes quiet, which is past the ten the threshold wants. Its transcript ends on prose rather than a tool call, so the popover shows the last thing it said. |
-| `test-runner` | tasking | Twenty-six minutes quiet, which would be `paused`, except that its transcript leaves two background shells and a CI watch running. A third task is left finished, which is what shows that the popover lists only what is still going. |
+| `test-runner` | tasking | Twenty-six minutes quiet, which would be `paused`, except that its transcript leaves two background shells and a CI watch running. A third task is left finished, stamped far enough back that `TERMINAL_TASK_RETENTION_MS` has already dropped it — so what it shows is the retention filter, not the popover's own filtering of finished tasks. |
 | `infra-tools` | died | Still claims to be `busy`; its pid is 999999, which is above macOS's PID\_MAX and so cannot be anything. Death outranks whatever the registry says. |
 
 Between them they also cover the fields the popover reads out of a transcript
@@ -94,11 +94,19 @@ one line per session, in relative terms — how long it has held its state, how
 long it has been up — and the script turns those into a registry the app will
 accept.
 
-## Two things that will look like bugs
+## Three things that will look like bugs
 
 The dead session disappears about five minutes in. That is `DEAD_RETENTION_MS`:
 a crash is worth showing once rather than forever, measured from when the widget
 first saw it. Take the screenshot that needs a red cross early, or restart.
+
+Re-running `generate.sh` while the widget is already up leaves the tasking
+session's task ages where they were. The task probe follows a transcript by
+reading whatever has been appended since it last looked, because a real
+transcript only ever grows; regenerating rewrites this one in place at nearly
+the same length, so there is nothing new to read and the previous run's tasks
+stand. Restart the widget — `dev-fixtures.sh` regenerates before it launches,
+so a fresh run is always right.
 
 The background job only appears if your own config has `showBackgroundJobs` on,
 which is the default. The fixtures cannot override that — the settings file is
