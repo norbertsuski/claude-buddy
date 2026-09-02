@@ -326,6 +326,7 @@ mod tests {
                 started_at_ms: 0,
                 ended_at_ms: None,
                 status: TaskStatus::Running,
+                output: None,
             }],
         }]
     }

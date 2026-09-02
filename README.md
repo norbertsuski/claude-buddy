@@ -52,7 +52,10 @@ chip and the died chip. The popover lists what it is waiting on: each running
 task's kind, what it is, and how long it has been going. Registry jobs count
 too, so a session waiting on one of those reads the same way whether or not
 the job has a row of its own. When a task ends, a notification says which one
-and how it went; turn that off with `alertTaskDone`.
+and how it went; turn that off with `alertTaskDone`. A task you kill from
+Claude Code's task list ends the row too: that kill is written only into the
+task's own output file and never into the transcript, so the file is read as
+well as the transcript.
 
 Hover a name and a popover opens centred beneath it, headed by the session's full title, with the state and how long it has held, what the session is *doing* — the newest tool it reached for, or failing that the last thing it said — plus its registry name, the working directory, git branch, model, effort, entrypoint, pid and uptime. Click it to bring that session's editor to the front.
 

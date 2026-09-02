@@ -54,6 +54,11 @@ pub struct Task {
     pub started_at_ms: i64,
     pub ended_at_ms: Option<i64>,
     pub status: TaskStatus,
+    /// The file this task's output is being written to, when its start named
+    /// one. Not sent to the frontend — it is a temp path nothing draws — but
+    /// it is the only place a killed task's ending is ever recorded.
+    #[serde(skip)]
+    pub output: Option<String>,
 }
 
 /// One half of a task's life, as recorded in a transcript.
@@ -63,6 +68,8 @@ pub enum TaskEvent {
         id: String,
         kind: TaskKind,
         label: Option<String>,
+        /// Where the task writes, from the text of its own start result.
+        output: Option<String>,
         at_ms: i64,
     },
     Ended {
@@ -177,6 +184,13 @@ impl ToolCalls {
 /// it takes to alert about it, and a running one is always among the newest.
 pub const MAX_TASKS: usize = 50;
 
+/// How much of a task's output file is read to find its closing marker.
+///
+/// The marker is the last line, so this only has to be longer than one line of
+/// output. Generous, because the line before it can be arbitrarily long and a
+/// read that lands mid-line still finds the marker after it.
+const OUTPUT_TAIL_BYTES: u64 = 4096;
+
 /// Fold events into an existing task list.
 ///
 /// Additive and repeatable, because the probe applies each newly appended
@@ -200,6 +214,7 @@ pub fn apply_events(tasks: &mut Vec<Task>, events: &[TaskEvent], since_ms: i64) 
                 id,
                 kind,
                 label,
+                output,
                 at_ms,
             } => {
                 if *at_ms < since_ms || tasks.iter().any(|t| t.id == *id) {
@@ -212,6 +227,7 @@ pub fn apply_events(tasks: &mut Vec<Task>, events: &[TaskEvent], since_ms: i64) 
                     started_at_ms: *at_ms,
                     ended_at_ms: None,
                     status: TaskStatus::Running,
+                    output: output.clone(),
                 });
             }
             TaskEvent::Ended {
@@ -342,6 +358,50 @@ impl TranscriptTasks {
         Some(since_epoch.as_millis() as i64)
     }
 
+    /// End any task whose own output file says it is over.
+    ///
+    /// The transcript is authoritative for everything except a kill, which it
+    /// never records at all — so for a task still believed to be running, the
+    /// file it writes to is the only witness. Returns whether anything changed,
+    /// so the caller knows whether its cache is now stale.
+    ///
+    /// Only running tasks with a known output file are read, which in practice
+    /// is none of them: a session with nothing in the background reads no files
+    /// here at all.
+    ///
+    /// A missing or unreadable file leaves the task alone. Absence is not an
+    /// ending — a swept temp directory would otherwise retire everything.
+    fn retire_by_output(tasks: &mut [Task]) -> bool {
+        let mut changed = false;
+
+        for task in tasks.iter_mut() {
+            if task.status.terminal() {
+                continue;
+            }
+            let Some(path) = task.output.as_deref() else {
+                continue;
+            };
+            let path = std::path::Path::new(path);
+            // The marker is the last line, so the tail is all that is needed
+            // however long the task has been logging.
+            let Ok(bytes) = crate::bridge::transcript::read_tail(path, OUTPUT_TAIL_BYTES) else {
+                continue;
+            };
+            let Some(status) = status_from_output(&bytes) else {
+                continue;
+            };
+
+            task.status = status;
+            // When the marker was written, not when it was noticed: a widget
+            // that was not running while a task ended would otherwise date
+            // every one of them to its own start.
+            task.ended_at_ms = Self::modified_ms(path);
+            changed = true;
+        }
+
+        changed
+    }
+
     /// The size guard, taken as an argument so a test can exercise the
     /// fall-back without writing a 32MB file.
     fn read_within(
@@ -362,7 +422,18 @@ impl TranscriptTasks {
             let cache = self.cache.lock().expect("task cache poisoned");
             match cache.get(session_id) {
                 Some(entry) if entry.at_ms == mtime => {
-                    return Some(since_start(entry.tasks.clone(), started_at_ms))
+                    // Still read the output files. A kill writes nothing to the
+                    // transcript, so the mtime that answers everything else
+                    // says nothing about whether a task is still alive.
+                    let mut tasks = entry.tasks.clone();
+                    drop(cache);
+                    if Self::retire_by_output(&mut tasks) {
+                        let mut cache = self.cache.lock().expect("task cache poisoned");
+                        if let Some(entry) = cache.get_mut(session_id) {
+                            entry.tasks = tasks.clone();
+                        }
+                    }
+                    return Some(since_start(tasks, started_at_ms));
                 }
                 // A file shorter than what has been consumed is not the file
                 // that was consumed. Start again rather than splicing two.
@@ -394,6 +465,7 @@ impl TranscriptTasks {
 
         let events = task_events_with(&bytes[..complete], &mut calls);
         apply_events(&mut tasks, &events, started_at_ms);
+        Self::retire_by_output(&mut tasks);
 
         // Bytes past `complete` (an unterminated trailing line) are left
         // unconsumed on both paths, so they are re-read — not lost — once
@@ -498,9 +570,8 @@ fn result_for(record: &serde_json::Value) -> Option<&str> {
         .as_str()
 }
 
-/// Which kind of task a tool produces. The id field alone cannot tell a
-/// background agent from a watch — both report `taskId` — so the tool name
-/// decides, and the id field is only the fallback for a call this window of the
+/// Which kind of task a tool produces. The tool name decides where it is
+/// known, and the id field is the fallback for a call this window of the
 /// transcript did not include.
 fn kind_for_tool(name: &str, fallback: TaskKind) -> TaskKind {
     match name {
@@ -512,13 +583,17 @@ fn kind_for_tool(name: &str, fallback: TaskKind) -> TaskKind {
 
 fn started_event(record: &serde_json::Value, calls: &ToolCalls, at_ms: i64) -> Option<TaskEvent> {
     let result = record.get("toolUseResult")?;
-    let (id, fallback) = match result.get("backgroundTaskId").and_then(|v| v.as_str()) {
-        Some(id) => (id, TaskKind::Shell),
-        None => (
-            result.get("taskId").and_then(|v| v.as_str())?,
-            TaskKind::Watch,
-        ),
-    };
+    // Three tools, three id fields. A launched agent reports `agentId`, and
+    // nothing else in its result is named like a task — reading only the other
+    // two left every background agent out of the list, and left the
+    // notification that ends one with no running task to retire.
+    let (id, fallback) = [
+        ("backgroundTaskId", TaskKind::Shell),
+        ("agentId", TaskKind::Subagent),
+        ("taskId", TaskKind::Watch),
+    ]
+    .into_iter()
+    .find_map(|(field, kind)| Some((result.get(field)?.as_str()?, kind)))?;
 
     let call = result_for(record).and_then(|id| calls.get(id));
     let (kind, label) = match call {
@@ -526,15 +601,106 @@ fn started_event(record: &serde_json::Value, calls: &ToolCalls, at_ms: i64) -> O
             kind_for_tool(name, fallback),
             description.map(|d| clip_to(d, LABEL_MAX_CHARS)),
         ),
-        None => (fallback, None),
+        // An agent's launch result repeats the description its call carried, so
+        // one read a window late is still named. A shell's result says nothing
+        // about what it ran, so there is nothing there to fall back to.
+        None => (
+            fallback,
+            result
+                .get("description")
+                .and_then(|v| v.as_str())
+                .map(|d| clip_to(d, LABEL_MAX_CHARS)),
+        ),
     };
 
     Some(TaskEvent::Started {
         id: id.to_string(),
         kind,
         label,
+        output: output_file(record, id),
         at_ms,
     })
+}
+
+/// The file a background task writes to, as named by its own start result.
+///
+/// Claude Code says it in prose rather than in a field of `toolUseResult`:
+///
+/// ```text
+/// Command running in background with ID: b0b5tfx9k. Output is being written
+/// to: /private/tmp/.../tasks/b0b5tfx9k.output. You will be notified when it
+/// completes. To check interim output, use Read on that file path.
+/// ```
+///
+/// Worth reading because that file is the *only* record of a task being
+/// killed: a kill appends `[killed]` to it and writes nothing whatever to the
+/// transcript.
+///
+/// The end of the path is found by looking for the task's own id rather than
+/// by running to the end of the line, which is what the sentence above makes
+/// clear it cannot do — two more sentences follow the path, unpunctuated by any
+/// newline. `<id>.output` is how every one of these files is named, and a
+/// result that does not contain it yields nothing rather than a guess.
+///
+/// The content of a `tool_result` is a bare string for a shell and an array of
+/// blocks for an agent; both are handled, though only a shell has ever carried
+/// this line.
+fn output_file(record: &serde_json::Value, id: &str) -> Option<String> {
+    const MARKER: &str = "Output is being written to: ";
+
+    let content = message_content(record)?
+        .iter()
+        .find(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_result"))?
+        .get("content")?;
+
+    let text = match content {
+        serde_json::Value::String(s) => std::borrow::Cow::Borrowed(s.as_str()),
+        serde_json::Value::Array(blocks) => std::borrow::Cow::Owned(
+            blocks
+                .iter()
+                .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+        _ => return None,
+    };
+
+    let start = text.find(MARKER)? + MARKER.len();
+    let rest = &text[start..];
+    let end = rest.find(&format!("{id}.output"))? + id.len() + ".output".len();
+    let path = rest[..end].trim();
+    (!path.is_empty()).then(|| path.to_string())
+}
+
+/// How a task ended, read from the last line of its own output file.
+///
+/// Claude Code closes the file with one of two markers, and only one of them
+/// is also reported as a notification: a task that exits announces itself, and
+/// a task that is *killed* does not. Without this a killed task stayed
+/// `Running` for the life of the session, holding it in `tasking`.
+///
+/// The marker must be the whole of the last line. A task whose own output
+/// contains the word must not retire itself by printing it.
+fn status_from_output(bytes: &[u8]) -> Option<TaskStatus> {
+    let text = String::from_utf8_lossy(bytes);
+    let last = text.lines().filter(|l| !l.trim().is_empty()).next_back()?;
+
+    match last.trim() {
+        "[killed]" => Some(TaskStatus::Killed),
+        line => {
+            let code = line
+                .strip_prefix("[exited with code ")?
+                .strip_suffix(']')?
+                .trim()
+                .parse::<i32>()
+                .ok()?;
+            Some(if code == 0 {
+                TaskStatus::Completed
+            } else {
+                TaskStatus::Failed
+            })
+        }
+    }
 }
 
 fn ended_event(record: &serde_json::Value, at_ms: i64) -> Option<TaskEvent> {
@@ -553,10 +719,12 @@ fn ended_event(record: &serde_json::Value, at_ms: i64) -> Option<TaskEvent> {
 
 /// A task notification's text, wherever this record carries it.
 ///
-/// Claude Code writes each notification twice — once as a `queue-operation`
-/// with the text in `content`, once as an `attachment` with the same text in
-/// `attachment.prompt`. Both are read: which one lands first is not something
-/// to depend on, and the fold deduplicates them anyway.
+/// Claude Code writes each notification three times — as a `queue-operation`
+/// with `operation: "enqueue"` and the text in `content`, as an `attachment`
+/// with the same text in `attachment.prompt`, and again as a `queue-operation`
+/// with `operation: "remove"` once the turn has absorbed it. All three are
+/// read: which lands first is not something to depend on, and the fold
+/// deduplicates them anyway, since only a running task can end.
 fn notification_text(record: &serde_json::Value) -> Option<String> {
     [
         record.get("content"),
@@ -646,6 +814,7 @@ mod tests {
                 kind,
                 label,
                 at_ms,
+                ..
             } => {
                 assert_eq!(id, "bmd0i64ke");
                 assert_eq!(*kind, TaskKind::Shell);
@@ -675,9 +844,9 @@ mod tests {
 
     #[test]
     fn a_background_agent_start_is_a_subagent_not_a_watch() {
-        // The id field says `taskId` for an Agent exactly as it does for a
-        // watch, so the tool name behind the call is the only thing that
-        // separates them.
+        // The tool name wins over the id field's own fallback: a result whose
+        // only id is a `taskId` is a watch by default, but not when the call
+        // behind it was an Agent.
         let body = concat!(
             r#"{"type":"assistant","timestamp":"2026-08-28T09:00:00.000Z","message":{"content":[{"type":"tool_use","id":"toolu_3","name":"Agent","input":{"description":"Review the diff"}}]}}"#,
             "\n",
@@ -691,6 +860,70 @@ mod tests {
             }
             other => panic!("expected a start, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_background_agent_start_is_read_from_its_agent_id() {
+        // A launched agent reports `agentId`, not `taskId`: the two id fields
+        // belong to different tools. Reading only `taskId` left every
+        // background agent out of the list, so a session running four of them
+        // read `idle`, and the notification that ended one found no running
+        // task to retire.
+        let body = concat!(
+            r#"{"type":"assistant","timestamp":"2026-09-02T19:36:50.000Z","message":{"content":[{"type":"tool_use","id":"toolu_4","name":"Agent","input":{"description":"Check the guard"}}]}}"#,
+            "\n",
+            r#"{"type":"user","timestamp":"2026-09-02T19:36:51.564Z","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_4"}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"a745d48aa8c8c4839","description":"Check the guard"}}"#,
+            "\n",
+        );
+        match &events(body)[0] {
+            TaskEvent::Started {
+                id,
+                kind,
+                label,
+                at_ms,
+                ..
+            } => {
+                assert_eq!(id, "a745d48aa8c8c4839");
+                assert_eq!(*kind, TaskKind::Subagent);
+                assert_eq!(label.as_deref(), Some("Check the guard"));
+                assert_eq!(*at_ms, 1788377811564);
+            }
+            other => panic!("expected a start, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_agent_start_without_its_call_still_names_itself() {
+        // The launch result carries its own `description`, so an agent whose
+        // `tool_use` landed in an earlier window is still named — unlike a
+        // shell, whose result says nothing about what it ran.
+        let body = concat!(
+            r#"{"type":"user","timestamp":"2026-09-02T19:36:51.564Z","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_4"}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"a745d48aa8c8c4839","description":"Check the guard"}}"#,
+            "\n",
+        );
+        match &events(body)[0] {
+            TaskEvent::Started { kind, label, .. } => {
+                assert_eq!(*kind, TaskKind::Subagent);
+                assert_eq!(label.as_deref(), Some("Check the guard"));
+            }
+            other => panic!("expected a start, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_agent_ends_on_the_notification_that_carries_its_agent_id() {
+        // Claude Code writes the agent's id as the notification's `task-id`,
+        // which is what lets a start read from `agentId` meet its own ending.
+        let body = concat!(
+            r#"{"type":"user","timestamp":"2026-09-02T19:36:51.564Z","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_4"}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"a745d48aa8c8c4839","description":"Check the guard"}}"#,
+            "\n",
+            r#"{"type":"queue-operation","timestamp":"2026-09-02T19:40:00.000Z","content":"<task-notification>\n<task-id>a745d48aa8c8c4839</task-id>\n<status>completed</status>\n<summary>Agent \"Check the guard\" finished</summary>\n</task-notification>"}"#,
+            "\n",
+        );
+        let tasks = tasks_from_events(&events(body), 0);
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].status, TaskStatus::Completed);
+        assert_eq!(tasks[0].kind, TaskKind::Subagent);
     }
 
     #[test]
@@ -817,6 +1050,7 @@ mod tests {
             id: id.to_string(),
             kind: TaskKind::Shell,
             label: Some(format!("run {id}")),
+            output: None,
             at_ms,
         }
     }
@@ -1086,6 +1320,114 @@ mod tests {
         assert_eq!(tasks[0].label.as_deref(), Some("Audit the payment flow"));
     }
 
+    /// A start whose result names the file the task writes to.
+    ///
+    /// The `content` string is Claude Code's own, to the letter: the path is
+    /// mid-sentence with two more sentences after it and no newline anywhere,
+    /// which is what defeated a parser that read to the end of the line.
+    /// `OUTPUT_PATH` is the only substitution.
+    const SHELL_START_WITH_OUTPUT: &str = concat!(
+        r#"{"type":"assistant","timestamp":"2026-08-28T08:42:40.000Z","message":{"content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"npm test","description":"Run the suite","run_in_background":true}}]}}"#,
+        "\n",
+        r#"{"type":"user","timestamp":"2026-08-28T08:42:47.177Z","message":{"content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"Command running in background with ID: bmd0i64ke. Output is being written to: OUTPUT_PATH. You will be notified when it completes. To check interim output, use Read on that file path.","is_error":false}]},"toolUseResult":{"stdout":"","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false,"backgroundTaskId":"bmd0i64ke"}}"#,
+        "\n",
+    );
+
+    #[test]
+    fn a_start_records_the_file_its_task_writes_to() {
+        // The only route to a killed task's ending: the kill is written into
+        // that file and nowhere in the transcript.
+        let body = SHELL_START_WITH_OUTPUT.replace("OUTPUT_PATH", "/tmp/tasks/bmd0i64ke.output");
+        match &events(&body)[0] {
+            TaskEvent::Started { output, .. } => {
+                // Not "…bmd0i64ke.output. You will be notified when it
+                // completes. …", which is what the rest of the line says.
+                assert_eq!(output.as_deref(), Some("/tmp/tasks/bmd0i64ke.output"));
+            }
+            other => panic!("expected a start, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_start_whose_result_never_names_its_file_yields_nothing() {
+        // Rather than the rest of a sentence. A result that does not carry the
+        // `<id>.output` name is one this cannot read, and a wrong path would
+        // be read as a missing file forever.
+        let body = SHELL_START_WITH_OUTPUT.replace("OUTPUT_PATH", "/tmp/tasks/somewhere-else");
+        match &events(&body)[0] {
+            TaskEvent::Started { output, .. } => assert_eq!(*output, None),
+            other => panic!("expected a start, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_start_that_names_no_output_file_has_none() {
+        match &events(SHELL_START)[0] {
+            TaskEvent::Started { output, .. } => assert_eq!(*output, None),
+            other => panic!("expected a start, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_output_tail_reports_how_its_task_ended() {
+        assert_eq!(
+            status_from_output(b"tick 3\n[killed]\n"),
+            Some(TaskStatus::Killed)
+        );
+        assert_eq!(
+            status_from_output(b"tick 3\n[exited with code 0]\n"),
+            Some(TaskStatus::Completed)
+        );
+        assert_eq!(
+            status_from_output(b"tick 3\n[exited with code 2]\n"),
+            Some(TaskStatus::Failed)
+        );
+    }
+
+    #[test]
+    fn an_output_tail_with_no_marker_is_still_running() {
+        assert_eq!(status_from_output(b"dummy-1 tick 4\n"), None);
+        assert_eq!(status_from_output(b""), None);
+        // A line that merely looks like one. The marker is the whole last line.
+        assert_eq!(status_from_output(b"see [killed] in the log\n"), None);
+    }
+
+    #[test]
+    fn a_task_killed_without_a_notification_is_retired() {
+        // The bug: killing a background task writes `[killed]` into its output
+        // file and leaves the transcript untouched, so a task that only ever
+        // ended by notification stayed `Running` for as long as the session did.
+        let fixture = Fixture::new("killed", "");
+        let output = fixture.root.join("bmd0i64ke.output");
+        std::fs::write(&output, "tick 1\n").unwrap();
+        fixture.append(&SHELL_START_WITH_OUTPUT.replace("OUTPUT_PATH", output.to_str().unwrap()));
+
+        let probe = fixture.probe();
+        assert_eq!(fixture.ask(&probe)[0].status, TaskStatus::Running);
+
+        std::fs::write(&output, "tick 1\n[killed]\n").unwrap();
+        // The transcript has not moved — only the output file has, which is
+        // the whole point.
+        let tasks = fixture.ask(&probe);
+        assert_eq!(tasks[0].status, TaskStatus::Killed);
+        assert!(
+            tasks[0].ended_at_ms.is_some(),
+            "ended when the marker landed"
+        );
+    }
+
+    #[test]
+    fn a_task_whose_output_file_is_gone_is_left_alone() {
+        // A missing file says nothing about the task. Retiring on absence
+        // would kill every task whose temp directory had been swept.
+        let fixture = Fixture::new("no-output", "");
+        let missing = fixture.root.join("never-written.output");
+        fixture.append(&SHELL_START_WITH_OUTPUT.replace("OUTPUT_PATH", missing.to_str().unwrap()));
+
+        let probe = fixture.probe();
+        assert_eq!(fixture.ask(&probe)[0].status, TaskStatus::Running);
+    }
+
     #[test]
     fn a_completion_appended_later_is_picked_up() {
         let fixture = Fixture::new("appended", SHELL_START);
@@ -1262,6 +1604,7 @@ mod tests {
             started_at_ms: 1,
             ended_at_ms: None,
             status: TaskStatus::Running,
+            output: None,
         };
         let fake = FakeTasks::new().with("session-1", vec![task.clone()]);
         assert_eq!(fake.tasks("/any", "session-1", 0), vec![task]);
