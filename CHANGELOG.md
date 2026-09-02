@@ -5,7 +5,7 @@ section out of this file, and the release workflow uses it as the body of the
 GitHub release and as the notes in the in-app update dialog — so a section that
 is missing here leaves that tag with nothing but the download boilerplate.
 
-## Unreleased
+## v0.10.0 — 2026-09-02
 
 - **A session waiting on a background task says so.** A session that started a
   background test run, a dev server, a watch or a background subagent goes
