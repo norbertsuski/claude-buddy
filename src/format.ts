@@ -70,6 +70,7 @@ export function countByState(sessions: SessionSnapshot[]): Record<SessionState, 
   const counts: Record<SessionState, number> = {
     waiting: 0,
     busy: 0,
+    tasking: 0,
     idle: 0,
     paused: 0,
     dead: 0,

@@ -25,6 +25,7 @@ const session: SessionSnapshot = {
   statusTimeMs: NOW - 360_000,
   startedAtMs: NOW - 24_900_000,
   background: false,
+  tasks: [],
 }
 
 describe('SessionPopover', () => {

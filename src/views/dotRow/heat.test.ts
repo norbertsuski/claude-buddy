@@ -17,6 +17,7 @@ function session(over: Partial<SessionSnapshot>): SessionSnapshot {
     statusTimeMs: 0,
     startedAtMs: 0,
     background: false,
+    tasks: [],
     ...over,
   }
 }

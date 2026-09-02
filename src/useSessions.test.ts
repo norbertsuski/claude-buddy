@@ -38,6 +38,7 @@ function session(id: string, state: Update['sessions'][number]['state']) {
     statusTimeMs: 0,
     startedAtMs: 0,
     background: false,
+    tasks: [],
   }
 }
 

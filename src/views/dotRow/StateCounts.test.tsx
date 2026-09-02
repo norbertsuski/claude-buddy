@@ -18,6 +18,7 @@ function session(name: string, state: SessionState): SessionSnapshot {
     statusTimeMs: 0,
     startedAtMs: 0,
     background: false,
+    tasks: [],
   }
 }
 
@@ -59,5 +60,21 @@ describe('StateCounts', () => {
   it('renders nothing at all with no sessions', () => {
     const { container } = render(<StateCounts sessions={[]} />)
     expect(container.querySelectorAll('.count')).toHaveLength(0)
+  })
+
+  it('shows a tasking count between busy and idle', () => {
+    render(
+      <StateCounts
+        sessions={[
+          session('a', 'idle'),
+          session('b', 'tasking'),
+          session('c', 'busy'),
+        ]}
+      />,
+    )
+    const rendered = screen
+      .getAllByTestId(/^count-/)
+      .map((el) => el.getAttribute('data-testid'))
+    expect(rendered).toEqual(['count-busy', 'count-tasking', 'count-idle'])
   })
 })

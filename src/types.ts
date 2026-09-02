@@ -1,7 +1,30 @@
 // Mirrors src-tauri/src/watcher/state.rs and alerts.rs. Rust serializes
 // camelCase; these names must match exactly.
 
-export type SessionState = 'waiting' | 'busy' | 'idle' | 'paused' | 'dead'
+export type SessionState = 'waiting' | 'busy' | 'tasking' | 'idle' | 'paused' | 'dead'
+
+/** Mirrors watcher::tasks::TaskKind. */
+export type TaskKind = 'shell' | 'watch' | 'subagent' | 'job'
+
+/** Mirrors watcher::tasks::TaskStatus. */
+export type TaskStatus = 'running' | 'completed' | 'failed' | 'killed' | 'stopped'
+
+/**
+ * One piece of background work a session is waiting on; mirrors
+ * watcher::tasks::Task.
+ *
+ * Finished tasks stay in the snapshot for a minute after they end, so a list
+ * is not the same thing as a list of running tasks — filter on `status`.
+ */
+export interface Task {
+  id: string
+  kind: TaskKind
+  /** What the task is, from its notification or the call that started it. */
+  label: string | null
+  startedAtMs: number
+  endedAtMs: number | null
+  status: TaskStatus
+}
 
 export interface SessionSnapshot {
   pid: number
@@ -23,9 +46,11 @@ export interface SessionSnapshot {
   startedAtMs: number
   /** A background job or subagent, not a session you answer. */
   background: boolean
+  /** Background work this session is waiting on, running and just-finished. */
+  tasks: Task[]
 }
 
-export type AlertKind = 'needsInput' | 'died' | 'finished'
+export type AlertKind = 'needsInput' | 'died' | 'finished' | 'taskDone'
 
 export interface Alert {
   sessionId: string
@@ -77,6 +102,8 @@ export interface AppConfig {
   alertNeedsInput: boolean
   alertDied: boolean
   alertFinished: boolean
+  /** Whether a background task finishing raises a notification. */
+  alertTaskDone: boolean
   sound: boolean
   muteUntilMs: number
   launchAtLogin: boolean

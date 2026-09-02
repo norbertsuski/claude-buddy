@@ -37,6 +37,7 @@ function s(state: SessionState): SessionSnapshot {
     statusTimeMs: 0,
     startedAtMs: 0,
     background: false,
+    tasks: [],
   }
 }
 
@@ -100,6 +101,12 @@ describe('countByState', () => {
   it('returns all zeroes for no sessions', () => {
     const counts = countByState([])
     expect(Object.values(counts).every((n) => n === 0)).toBe(true)
+  })
+
+  it('counts tasking sessions', () => {
+    const counts = countByState([s('tasking'), s('tasking'), s('idle')])
+    expect(counts.tasking).toBe(2)
+    expect(counts.idle).toBe(1)
   })
 })
 
