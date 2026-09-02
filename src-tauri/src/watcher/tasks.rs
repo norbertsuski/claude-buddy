@@ -109,6 +109,87 @@ pub fn task_events(bytes: &[u8]) -> Vec<TaskEvent> {
         .collect()
 }
 
+/// How many tasks one session's list may hold.
+///
+/// A session that has run for hours has run hundreds of background commands,
+/// and every one of them would otherwise sit in a snapshot that is emitted to
+/// the frontend. The newest are kept: a finished task matters for the seconds
+/// it takes to alert about it, and a running one is always among the newest.
+pub const MAX_TASKS: usize = 50;
+
+/// Fold events into an existing task list.
+///
+/// Additive and repeatable, because the probe applies each newly appended
+/// window of a transcript to the list it already had, and a window can be read
+/// twice when a file is truncated and re-scanned.
+///
+/// `since_ms` is the session's `startedAt`. Starts older than it belong to a
+/// previous process — a resumed session appends to the same transcript — and
+/// are dropped, which is what stops a dead process's unfinished tasks reading
+/// as running forever. It needs no timeout to do it, which matters: a dev
+/// server legitimately runs for hours, so any age cap would either retire real
+/// tasks or be too loose to catch anything.
+pub fn apply_events(tasks: &mut Vec<Task>, events: &[TaskEvent], since_ms: i64) {
+    for event in events {
+        match event {
+            TaskEvent::Started {
+                id,
+                kind,
+                label,
+                at_ms,
+            } => {
+                if *at_ms < since_ms || tasks.iter().any(|t| t.id == *id) {
+                    continue;
+                }
+                tasks.push(Task {
+                    id: id.clone(),
+                    kind: *kind,
+                    label: label.clone(),
+                    started_at_ms: *at_ms,
+                    ended_at_ms: None,
+                    status: TaskStatus::Running,
+                });
+            }
+            TaskEvent::Ended {
+                id,
+                status,
+                label,
+                at_ms,
+            } => {
+                // Only a running task can end. The second copy of a duplicated
+                // notification finds it already retired and leaves the first
+                // ending's time in place.
+                let Some(task) = tasks
+                    .iter_mut()
+                    .find(|t| t.id == *id && t.status == TaskStatus::Running)
+                else {
+                    continue;
+                };
+                task.status = *status;
+                task.ended_at_ms = Some(*at_ms);
+                // The notification says what happened; the call's description
+                // only said what was intended.
+                if label.is_some() {
+                    task.label = label.clone();
+                }
+            }
+        }
+    }
+
+    tasks.sort_by_key(|t| t.started_at_ms);
+    if tasks.len() > MAX_TASKS {
+        tasks.drain(..tasks.len() - MAX_TASKS);
+    }
+}
+
+/// The tasks a whole set of events describes, for a session that began at
+/// `since_ms`.
+pub fn tasks_from_events(events: &[TaskEvent], since_ms: i64) -> Vec<Task> {
+    let mut tasks = Vec::new();
+    apply_events(&mut tasks, events, since_ms);
+    tasks
+}
+
 /// Every `tool_use` id in these records, paired with its tool name and the
 /// `description` its input carried.
 ///
@@ -463,5 +544,139 @@ mod tests {
             "\n",
         );
         assert!(events(body).is_empty());
+    }
+
+    const SESSION_START: i64 = 1_787_906_000_000;
+
+    fn started(id: &str, at_ms: i64) -> TaskEvent {
+        TaskEvent::Started {
+            id: id.to_string(),
+            kind: TaskKind::Shell,
+            label: Some(format!("run {id}")),
+            at_ms,
+        }
+    }
+
+    fn ended(id: &str, status: TaskStatus, at_ms: i64) -> TaskEvent {
+        TaskEvent::Ended {
+            id: id.to_string(),
+            status,
+            label: Some(format!("{id} finished")),
+            at_ms,
+        }
+    }
+
+    #[test]
+    fn a_start_with_no_end_is_a_running_task() {
+        let tasks = tasks_from_events(&[started("a", SESSION_START + 1)], SESSION_START);
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, "a");
+        assert_eq!(tasks[0].status, TaskStatus::Running);
+        assert_eq!(tasks[0].ended_at_ms, None);
+        assert_eq!(tasks[0].label.as_deref(), Some("run a"));
+    }
+
+    #[test]
+    fn an_end_retires_its_task_and_takes_over_the_label() {
+        // The notification's summary says what happened; the call's
+        // description only said what was intended.
+        let tasks = tasks_from_events(
+            &[
+                started("a", SESSION_START + 1),
+                ended("a", TaskStatus::Failed, SESSION_START + 500),
+            ],
+            SESSION_START,
+        );
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].status, TaskStatus::Failed);
+        assert_eq!(tasks[0].ended_at_ms, Some(SESSION_START + 500));
+        assert_eq!(tasks[0].label.as_deref(), Some("a finished"));
+    }
+
+    #[test]
+    fn the_duplicate_notification_does_not_change_the_answer() {
+        let tasks = tasks_from_events(
+            &[
+                started("a", SESSION_START + 1),
+                ended("a", TaskStatus::Completed, SESSION_START + 500),
+                ended("a", TaskStatus::Completed, SESSION_START + 501),
+            ],
+            SESSION_START,
+        );
+        assert_eq!(tasks.len(), 1);
+        // The first ending stands, so the age of a finished task does not
+        // creep forward as the second record lands.
+        assert_eq!(tasks[0].ended_at_ms, Some(SESSION_START + 500));
+    }
+
+    #[test]
+    fn a_start_before_the_session_began_is_dropped() {
+        // A resumed session appends to the same transcript, so the previous
+        // process's unfinished tasks would otherwise read as running forever.
+        let tasks = tasks_from_events(&[started("old", SESSION_START - 1)], SESSION_START);
+        assert!(tasks.is_empty());
+    }
+
+    #[test]
+    fn an_end_for_a_task_that_was_never_started_is_ignored() {
+        let tasks = tasks_from_events(
+            &[ended("ghost", TaskStatus::Completed, SESSION_START + 1)],
+            SESSION_START,
+        );
+        assert!(tasks.is_empty());
+    }
+
+    #[test]
+    fn tasks_come_back_oldest_first() {
+        let tasks = tasks_from_events(
+            &[
+                started("b", SESSION_START + 200),
+                started("a", SESSION_START + 100),
+                started("c", SESSION_START + 300),
+            ],
+            SESSION_START,
+        );
+        let ids: Vec<&str> = tasks.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn applying_the_same_events_twice_is_not_two_tasks() {
+        // The probe folds each appended window into the list it already has,
+        // and a window can be re-read after a truncation.
+        let events = [started("a", SESSION_START + 1)];
+        let mut tasks = Vec::new();
+        apply_events(&mut tasks, &events, SESSION_START);
+        apply_events(&mut tasks, &events, SESSION_START);
+        assert_eq!(tasks.len(), 1);
+    }
+
+    #[test]
+    fn an_end_applied_in_a_later_window_retires_the_task_from_an_earlier_one() {
+        let mut tasks = Vec::new();
+        apply_events(
+            &mut tasks,
+            &[started("a", SESSION_START + 1)],
+            SESSION_START,
+        );
+        assert_eq!(tasks[0].status, TaskStatus::Running);
+
+        apply_events(
+            &mut tasks,
+            &[ended("a", TaskStatus::Killed, SESSION_START + 9)],
+            SESSION_START,
+        );
+        assert_eq!(tasks[0].status, TaskStatus::Killed);
+    }
+
+    #[test]
+    fn the_list_is_capped_at_the_newest_tasks() {
+        let events: Vec<TaskEvent> = (0..MAX_TASKS + 10)
+            .map(|i| started(&format!("t{i}"), SESSION_START + i as i64))
+            .collect();
+        let tasks = tasks_from_events(&events, SESSION_START);
+        assert_eq!(tasks.len(), MAX_TASKS);
+        // The oldest went, not the newest.
+        assert_eq!(tasks[0].id, "t10");
     }
 }
