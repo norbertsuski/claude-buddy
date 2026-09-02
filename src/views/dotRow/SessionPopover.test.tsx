@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SessionSnapshot } from '../../types'
+import type { SessionSnapshot, Task } from '../../types'
 
 const invoke = vi.fn()
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }))
@@ -27,6 +27,15 @@ const session: SessionSnapshot = {
   background: false,
   tasks: [],
 }
+
+const runningTask = (id: string, label: string | null): Task => ({
+  id,
+  kind: 'shell',
+  label,
+  startedAtMs: NOW - 120_000,
+  endedAtMs: null,
+  status: 'running',
+})
 
 describe('SessionPopover', () => {
   beforeEach(() => {
@@ -166,6 +175,60 @@ describe('SessionPopover', () => {
     expect(screen.getByTestId('popover-state')).toHaveTextContent('input needed · 2m')
     expect(screen.getByTestId('popover-proc')).toHaveTextContent('6m')
     vi.useRealTimers()
+  })
+
+  it('lists the running tasks with their age', () => {
+    render(
+      <SessionPopover
+        session={{
+          ...session,
+          state: 'tasking',
+          detail: '2 tasks running',
+          tasks: [runningTask('t1', 'npm test'), runningTask('t2', 'cargo test')],
+        }}
+      />,
+    )
+    const tasks = screen.getByTestId('popover-tasks')
+    expect(tasks).toHaveTextContent('npm test')
+    expect(tasks).toHaveTextContent('cargo test')
+    expect(tasks).toHaveTextContent('2m')
+  })
+
+  it('names a task with no label by its id', () => {
+    render(
+      <SessionPopover
+        session={{
+          ...session,
+          state: 'tasking',
+          detail: '1 task running',
+          tasks: [runningTask('bmd0i64ke', null)],
+        }}
+      />,
+    )
+    expect(screen.getByTestId('popover-tasks')).toHaveTextContent('bmd0i64ke')
+  })
+
+  it('leaves out finished tasks', () => {
+    // They are in the snapshot for a minute after they end, so the popover
+    // would otherwise keep showing a build that is over.
+    render(
+      <SessionPopover
+        session={{
+          ...session,
+          state: 'idle',
+          detail: null,
+          tasks: [
+            { ...runningTask('t1', 'npm test'), status: 'completed', endedAtMs: NOW - 1_000 },
+          ],
+        }}
+      />,
+    )
+    expect(screen.queryByTestId('popover-tasks')).toBeNull()
+  })
+
+  it('shows no tasks block for a session with none', () => {
+    render(<SessionPopover session={{ ...session, tasks: [] }} />)
+    expect(screen.queryByTestId('popover-tasks')).toBeNull()
   })
 
 })

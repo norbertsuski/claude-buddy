@@ -616,6 +616,25 @@ body {
   font-weight: 600;
 }
 
+/* The task list is a `ul` inside a `dd` so each task gets its own line without
+   the field labels repeating down the left. */
+.popover-tasks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.popover-tasks li {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popover-task-kind {
+  color: var(--idle);
+  margin-right: 5px;
+}
+
 .popover-foot {
   padding: 9px 15px;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
