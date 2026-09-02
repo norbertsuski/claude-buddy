@@ -38,11 +38,11 @@ claude-buddy reads the session registry Claude Code already maintains and puts i
 
 At rest, a small pill with counts. Each coloured chip carries the dot of the state it counts, and a chip is absent entirely when nothing is in that state — no amber when nothing needs you, no red when nothing has died. What is merely sitting there stays as quiet grey text.
 
-![The collapsed pill reading "1 needs you", "1 working", "1 died", "2 idle", "1 job", then a progress bar and 64%](docs/media/collapsed.png)
+![The collapsed pill reading "1 needs you", "1 working", "1 on a task", "1 died", "2 idle", "1 job", then a progress bar and 64%](docs/media/collapsed.png)
 
 Hover it and the pill morphs into a named row, one dot per session. Each one is labelled with what that session calls *itself* — the title Claude Code gives it, which says what the session is about rather than which folder it is in. Three sessions in one repository are three different labels rather than the same name three times. A session Claude Code has not titled yet falls back to its folder name, and a long title is clipped to keep the pill from growing across the screen.
 
-![The expanded row: api-service waiting behind an amber triangle, its background job migrate-schemas demoted behind an arrow, web-app working behind a green circle, design-system idle behind a hollow ring, docs-site paused behind a two-bar glyph, infra-tools dead behind a red cross, and the limit bar reading 2h40m](docs/media/expanded.png)
+![The expanded row, each session labelled with its own title: "Rate limit bucket key" waiting behind an amber triangle, its background job "Migrate order schemas" demoted behind an arrow, "Checkout totals fix" working behind a green circle, "Flaky suite triage" behind a teal ring with an arc turning inside it, "Token naming cleanup" idle behind a hollow ring, "Rewrite the install gu..." paused behind a two-bar glyph, the untitled infra-tools dead behind a red cross, and the limit bar reading 2h37m](docs/media/expanded.png)
 
 A session that fires off a background test run, a dev server, a watch or a
 background subagent goes quiet, and used to read `paused` after ten minutes —
@@ -56,7 +56,7 @@ and how it went; turn that off with `alertTaskDone`.
 
 Hover a name and a popover opens centred beneath it, headed by the session's full title, with the state and how long it has held, what the session is *doing* — the newest tool it reached for, or failing that the last thing it said — plus its registry name, the working directory, git branch, model, effort, entrypoint, pid and uptime. Click it to bring that session's editor to the front.
 
-![A popover open under web-app, reading: state busy for 1m, doing Grep, cwd /Users/n/Code/web-app, branch fix/checkout-totals, model claude-opus-5 at high effort, cli with pid 927 up 47m, and 36% of the five-hour limit used with 2h40m to the reset](docs/media/popover.png)
+![A popover open under "Flaky suite triage", reading: state 2 tasks running for 26m, doing Monitor, tasks a shell "Run the whole su..." and a watch "Watch the CI run" each 1h9m old, session test-runner, cwd /Users/n/Code/test-runner, branch ci/flaky-suite, model claude-sonnet-5 at medium effort, cli with pid 408 up 1h10m, and 36% of the five-hour limit used with 2h39m to the reset](docs/media/popover.png)
 
 ### Crazy mode
 
@@ -118,11 +118,11 @@ On a MacBook with a notch, the widget can live *in* the menu bar instead of floa
 
 At rest it is a black band the height of the menu bar, hugging the notch: session counts on the left of it, the five-hour limit's progress bar on the right. The notch is part of the band rather than a hole in it, so the three read as one shape.
 
-![The menu bar with a black band across the notch: amber, red, green, grey and paused dots each with a count on the left, and the limit's bar on the right](docs/media/notch-rest.png)
+![The menu bar with a black band across the notch: amber, red, green, teal, grey and paused dots each with a count on the left, and the limit's bar on the right](docs/media/notch-rest.png)
 
 Hover anywhere on the black and that same element grows — down and out to a third of the display's width — into a list of every session with its status and elapsed time, and the detail of the row under the cursor opens beneath it. There is no popover in this mode; the slab is wide enough to say everything the popover said. A tasking session's detail names what it is waiting on — the task's own name — the same way a waiting session's detail names its reason. Leave it and it collapses back into the menu bar.
 
-![The slab open below the notch: api-service needing input and hovered, its detail showing AskUserQuestion, one background agent, branch and model, and cwd; then web-app working, design-system idle, docs-site paused and infra-tools died; a footer reading 64% of the 5h limit left](docs/media/notch-open.png)
+![The slab open below the notch, one row per session with its state and how long it has held: "Rate limit bucket key" input needed 6m, "Checkout totals fix" working 3m, "Flaky suite triage" 2 tasks running 28m behind a teal ring, "Token naming cleanup" idle 5m, "Rewrite the install gu..." paused 28m, infra-tools died 10m; a footer reading 64% of the 5h limit left with 2h35m to go](docs/media/notch-open.png)
 
 Background agents are counted into the detail of the session that owns them rather than listed beside it — four agents rendered as four more rows buried the three sessions they belonged to.
 
