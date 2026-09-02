@@ -7,6 +7,7 @@ pub mod config;
 pub mod cursor;
 pub mod notch;
 pub mod notify;
+pub mod rfc3339;
 pub mod tray;
 pub mod update;
 pub mod usage;
