@@ -392,6 +392,7 @@ mod tests {
             kind: TaskKind::Shell,
             label: label.map(str::to_string),
             started_at_ms: 0,
+            output: None,
             ended_at_ms: match status {
                 TaskStatus::Running => None,
                 _ => Some(1_000),

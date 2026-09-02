@@ -208,6 +208,10 @@ fn job_tasks(
                 started_at_ms: file.started_at,
                 ended_at_ms: None,
                 status: TaskStatus::Running,
+                // A job is a process, not a shell the session launched: it
+                // writes no task output file, and its ending is its process
+                // going away.
+                output: None,
             });
     }
     out
@@ -1902,6 +1906,7 @@ mod tests {
             started_at_ms: NOW - 30_000,
             ended_at_ms: None,
             status: crate::watcher::tasks::TaskStatus::Running,
+            output: None,
         }
     }
 
@@ -1913,6 +1918,7 @@ mod tests {
             started_at_ms: NOW - 60_000,
             ended_at_ms: Some(ended_at_ms),
             status: crate::watcher::tasks::TaskStatus::Completed,
+            output: None,
         }
     }
 

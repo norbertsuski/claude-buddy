@@ -27,6 +27,23 @@ is missing here leaves that tag with nothing but the download boilerplate.
   switched off with the new "when a background task finishes" checkbox in
   Settings.
 
+- **A background subagent counts as a task.** A session that launched agents in
+  the background read `idle` and said nothing about them: the launch record
+  names the agent with a field the widget was not reading, so the agents never
+  entered the session's task list, the pill never counted them, and the
+  notification that should have announced each one finishing had no task to
+  report against. Background shells and watches were unaffected.
+- **A task you kill stops counting.** Killing a background task left the
+  session reading `tasking` for as long as it lived, with the killed task still
+  listed and still ageing. A task that exits announces itself, however it exits
+  — but a task killed from Claude Code's own task list is recorded nowhere in
+  the transcript at all: the only trace is a `[killed]` line appended to the
+  task's own output file. That file is now read for any task still believed to
+  be running, which also settles a task whose ending the widget was not running
+  to see. The ending is dated to when the marker was written rather than when
+  the widget noticed, and a missing output file leaves the task alone, since
+  absence is not an ending.
+
 ## v0.9.0 — 2026-08-28
 
 - **Sessions are named by what they are about.** The row used to label every
