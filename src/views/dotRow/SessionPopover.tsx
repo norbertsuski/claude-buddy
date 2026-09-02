@@ -1,10 +1,23 @@
 import { useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { formatCountdown, formatElapsed } from '../../format'
-import type { SessionSnapshot, TranscriptDetail, Usage } from '../../types'
+import type { SessionSnapshot, Task, TaskKind, TranscriptDetail, Usage } from '../../types'
 import './dotRow.css'
 
 const EMPTY: TranscriptDetail = { branch: null, model: null, effort: null, activity: null }
+
+/**
+ * How each kind of task is introduced in the popover.
+ *
+ * A word rather than an icon: the block is a list of lines of text, and one
+ * glyph in a column of prose reads as a bullet rather than as a category.
+ */
+const TASK_KIND_LABEL: Record<TaskKind, string> = {
+  shell: 'shell',
+  watch: 'watch',
+  subagent: 'agent',
+  job: 'job',
+}
 
 /** How often the popover recomputes its ages. */
 const TICK_MS = 1000
@@ -74,6 +87,9 @@ export function SessionPopover({
 
   const elapsedMs = Math.max(0, now - session.statusTimeMs)
   const uptimeMs = Math.max(0, now - session.startedAtMs)
+  // Finished tasks stay in the snapshot for a minute so the alert diff can see
+  // them end. The popover is about what is happening now.
+  const running = session.tasks.filter((t) => t.status === 'running')
   const stateLine = `${session.detail ?? session.state} · ${formatElapsed(elapsedMs)}`
   const modelLine = detail.model
     ? `${detail.model}${detail.effort ? ` · ${detail.effort}` : ''}`
@@ -104,6 +120,23 @@ export function SessionPopover({
         <dd className="popover-activity" data-testid="popover-activity">
           {dash(detail.activity)}
         </dd>
+        {running.length > 0 && (
+          <>
+            <dt>tasks</dt>
+            <dd data-testid="popover-tasks">
+              <ul className="popover-tasks">
+                {running.map((task: Task) => (
+                  <li key={task.id}>
+                    <span className="popover-task-kind">{TASK_KIND_LABEL[task.kind]}</span>
+                    {task.label ?? task.id}
+                    {' · '}
+                    {formatElapsed(now - task.startedAtMs)}
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </>
+        )}
         <dt>session</dt>
         <dd data-testid="popover-session-name">{session.name}</dd>
         <dt>cwd</dt>
