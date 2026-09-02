@@ -292,6 +292,21 @@ pub struct TranscriptTasks {
     cache: Mutex<HashMap<String, CachedTasks>>,
 }
 
+/// Only the tasks a session that began at `started_at_ms` could have started.
+///
+/// The phantom boundary, applied to what a caller is told rather than only to
+/// the events a read newly parsed. The cache is keyed on the session id alone,
+/// and a session id outlives a process: a resumed session appends to the same
+/// transcript, and during dead retention the dead entry and the new one ask in
+/// the same tick with two different boundaries. Filtering the answer means
+/// neither can inherit the other's.
+fn since_start(tasks: Vec<Task>, started_at_ms: i64) -> Vec<Task> {
+    tasks
+        .into_iter()
+        .filter(|t| t.started_at_ms >= started_at_ms)
+        .collect()
+}
+
 impl TranscriptTasks {
     pub fn new(projects_dir: PathBuf) -> Self {
         Self {
@@ -325,7 +340,9 @@ impl TranscriptTasks {
         let (mut tasks, mut calls, from) = {
             let cache = self.cache.lock().expect("task cache poisoned");
             match cache.get(session_id) {
-                Some(entry) if entry.at_ms == mtime => return Some(entry.tasks.clone()),
+                Some(entry) if entry.at_ms == mtime => {
+                    return Some(since_start(entry.tasks.clone(), started_at_ms))
+                }
                 // A file shorter than what has been consumed is not the file
                 // that was consumed. Start again rather than splicing two.
                 Some(entry) if entry.consumed <= len => {
@@ -372,7 +389,7 @@ impl TranscriptTasks {
             },
         );
 
-        Some(tasks)
+        Some(since_start(tasks, started_at_ms))
     }
 }
 
@@ -1094,6 +1111,52 @@ mod tests {
             .probe()
             .tasks("/Users/n/Code/proj", "session-1", after)
             .is_empty());
+    }
+
+    #[test]
+    fn a_cached_start_before_a_later_session_start_is_dropped() {
+        // A resumed session appends to the same transcript under the same id,
+        // so the cache still holds the previous process's unfinished tasks.
+        // The new process's later `startedAt` has to re-filter them, or the
+        // session reads `tasking` on a dead dev server indefinitely — the
+        // exact failure this boundary exists to remove the need for a timeout
+        // to prevent.
+        let fixture = Fixture::new("resumed", SHELL_START);
+        let probe = fixture.probe();
+        assert_eq!(fixture.ask(&probe).len(), 1);
+
+        // Anything at all, so mtime moves and the probe reads again.
+        fixture.append(concat!(
+            r#"{"type":"assistant","timestamp":"2026-08-28T09:10:00.000Z","message":{"content":[{"type":"text","text":"resumed"}]}}"#,
+            "\n",
+        ));
+
+        // The start record is stamped 2026-08-28T08:42:47.177Z.
+        let resumed_at = 1_787_906_567_178;
+        assert!(
+            probe
+                .tasks("/Users/n/Code/proj", "session-1", resumed_at)
+                .is_empty(),
+            "a task the previous process started is not this one's"
+        );
+    }
+
+    #[test]
+    fn two_boundaries_in_one_tick_each_get_their_own_answer() {
+        // During dead retention the dead entry and the resumed one share a
+        // session id and both ask in the same tick with different `startedAt`.
+        // Whichever reads the file first must not decide for the other.
+        let fixture = Fixture::new("two-boundaries", SHELL_START);
+        let probe = fixture.probe();
+        assert_eq!(fixture.ask(&probe).len(), 1);
+
+        let resumed_at = 1_787_906_567_178;
+        assert!(
+            probe
+                .tasks("/Users/n/Code/proj", "session-1", resumed_at)
+                .is_empty(),
+            "a cache hit still owes the caller its own boundary"
+        );
     }
 
     #[test]
