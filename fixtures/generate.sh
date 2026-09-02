@@ -193,7 +193,34 @@ echo "registry -> $SESSIONS"
 # `emit_session` requires the transcript to be there. 1560 seconds of quiet, so
 # it is past PAUSED_THRESHOLD_MS and would read `paused` if its tasks were not
 # running.
+#
+# TASK_UPTIME_S has to be clamped to slot 6's borrowed process *before* either
+# consumer touches it, and both this transcript and the `emit_session` call
+# below have to be handed that one clamped number. Each used to compute its
+# own: `emit_session` reclamps `uptime_s` to the borrowed pid's age itself,
+# and this transcript derived its task timestamps straight from the raw,
+# unclamped guess. The two agreed as long as the clamp never fired, which held
+# for every other cast member because none of them had a second, independently
+# timestamped artifact for the clamp to leave behind. test-runner does: its
+# task-start records are only believed when they land at or after the
+# registry's `startedAt` (`watcher::tasks::apply_events`), so the moment the
+# borrowed process was younger than 4200s, the transcript kept the old
+# unclamped `startedAt` while the registry wrote the clamped one, the
+# boundary check saw the task starts land before `startedAt` and dropped
+# them, and the session silently read `paused` instead of `tasking` — while
+# `generate.sh` still exited 0 and still listed test-runner in its cast.
 TASK_UPTIME_S=4200
+# The session's status below (slot 6) has been unchanged for 1560s. Uptime
+# can't clamp to less than that without the session claiming to have been
+# quiet longer than it has existed, so the borrowed process for this slot has
+# to be at least that old, or there is no honest fixture to build.
+MIN_TASK_AGE_S=1560
+SLOT6_AGE_S="$(borrowed_age 6)"
+[ "$SLOT6_AGE_S" -ge "$MIN_TASK_AGE_S" ] || {
+  echo "test-runner's borrowed process (pid $(borrowed_pid 6)) is only ${SLOT6_AGE_S}s old, need >= ${MIN_TASK_AGE_S}s to backdate its quiet period — cannot build the fixture" >&2
+  exit 1
+}
+[ "$TASK_UPTIME_S" -le "$SLOT6_AGE_S" ] || TASK_UPTIME_S="$SLOT6_AGE_S"
 emit_task_transcript 6f7a8b9c-8293-4405-9f16-6b8c9dae0fb6 \
   /Users/n/Code/test-runner "$(( NOW_MS - TASK_UPTIME_S * 1000 ))"
 
