@@ -145,40 +145,72 @@ pub struct SnapshotResult {
     pub dead_now: Vec<String>,
 }
 
-/// Every live registry job, paired with the working directory it shares with
-/// its parent.
+/// Whether the user could reach this entry at all.
+fn allowed_entrypoint(file: &RegistryFile) -> bool {
+    file.entrypoint
+        .as_deref()
+        .is_some_and(|e| ALLOWED_ENTRYPOINTS.contains(&e))
+}
+
+/// Whether this entry is a session in its own right: reachable, a shown kind,
+/// and not a background job. The `snapshot` filter is this plus
+/// `show_background_jobs`, which governs job rows only.
+fn is_own_session(file: &RegistryFile) -> bool {
+    allowed_entrypoint(file) && is_shown(file.kind.as_deref(), file.job_id.as_deref(), false)
+}
+
+/// Which session in a directory a job belongs to.
 ///
-/// Jobs are separate processes and appear in no transcript, so this is the only
-/// place they can come from. Matched by `cwd` because that is the only link the
-/// registry offers — the same pairing `group_jobs_with_parents` performs for
-/// the row itself.
-///
-/// Taken from the unfiltered registry deliberately: `show_background_jobs`
-/// governs whether a job gets a row of its own, not whether its parent is
-/// waiting on it.
-fn job_tasks<'a>(
-    files: &'a [RegistryFile],
-    liveness: &dyn PidLiveness,
-    now_ms: i64,
-) -> Vec<(&'a str, Task)> {
+/// The oldest, and the lowest pid among equals. That is also the session
+/// `group_jobs_with_parents` puts the job's *row* under: folding the job on
+/// makes this one `Tasking`, which outranks the `Idle` or `Paused` the others
+/// in the directory keep, so it sorts ahead of them.
+fn job_parent<'a>(files: &'a [RegistryFile], cwd: &str) -> Option<&'a RegistryFile> {
     files
         .iter()
-        .filter(|f| is_background_job(f.kind.as_deref(), f.job_id.as_deref()))
-        .filter(|f| liveness.is_alive(f.pid, Some(f.started_at), now_ms))
-        .map(|f| {
-            (
-                f.cwd.as_str(),
-                Task {
-                    id: f.job_id.clone().unwrap_or_default(),
-                    kind: TaskKind::Job,
-                    label: Some(display_name(f)),
-                    started_at_ms: f.started_at,
-                    ended_at_ms: None,
-                    status: TaskStatus::Running,
-                },
-            )
-        })
-        .collect()
+        .filter(|f| is_own_session(f) && f.cwd == cwd)
+        .min_by_key(|f| (f.started_at, f.pid))
+}
+
+/// Every live registry job, keyed by the session it counts as a task on.
+///
+/// Jobs are separate processes and appear in no transcript, so this is the only
+/// place they can come from. A job carries its parent's `cwd`, the only link
+/// the registry offers — but a directory can hold several sessions and a job is
+/// one session's work, so it goes to exactly one of them, as
+/// `group_jobs_with_parents` does for the row.
+///
+/// Taken from the unfiltered registry deliberately, but only with respect to
+/// `show_background_jobs`: that setting governs whether a job gets a row of its
+/// own, not whether its parent is waiting on it. The entrypoint allowlist still
+/// applies at both ends, so an `sdk-cli` plugin's job cannot reach a `cli`
+/// session's task list.
+fn job_tasks(
+    files: &[RegistryFile],
+    liveness: &dyn PidLiveness,
+    now_ms: i64,
+) -> HashMap<String, Vec<Task>> {
+    let mut out: HashMap<String, Vec<Task>> = HashMap::new();
+    for file in files.iter().filter(|f| {
+        allowed_entrypoint(f)
+            && is_background_job(f.kind.as_deref(), f.job_id.as_deref())
+            && liveness.is_alive(f.pid, Some(f.started_at), now_ms)
+    }) {
+        let Some(parent) = job_parent(files, &file.cwd) else {
+            continue;
+        };
+        out.entry(parent.session_id.clone())
+            .or_default()
+            .push(Task {
+                id: file.job_id.clone().unwrap_or_default(),
+                kind: TaskKind::Job,
+                label: Some(display_name(file)),
+                started_at_ms: file.started_at,
+                ended_at_ms: None,
+                status: TaskStatus::Running,
+            });
+    }
+    out
 }
 
 /// What a tasking session's row says it is waiting on.
@@ -201,8 +233,9 @@ fn task_detail(tasks: &[Task]) -> String {
 
 /// Derive every session's state. Pure: all time and all liveness are injected,
 /// so the whole state machine is testable without a filesystem or a clock.
-// Eight injected dependencies and settings, all of them load-bearing, is the
-// price of keeping this function pure and its whole state machine testable.
+// Eleven parameters — the registry, six injected dependencies, the clock, two
+// settings and the dead-since map — all of them load-bearing, is the price of
+// keeping this function pure and its whole state machine testable.
 #[allow(clippy::too_many_arguments)]
 pub fn snapshot(
     files: &[RegistryFile],
@@ -222,9 +255,7 @@ pub fn snapshot(
     let derived: Vec<SessionSnapshot> = files
         .iter()
         .filter(|f| {
-            f.entrypoint
-                .as_deref()
-                .is_some_and(|e| ALLOWED_ENTRYPOINTS.contains(&e))
+            allowed_entrypoint(f)
                 && is_shown(f.kind.as_deref(), f.job_id.as_deref(), include_background)
         })
         .map(|f| {
@@ -261,9 +292,9 @@ pub fn snapshot(
             let work_in_flight = !reported_status && work.in_flight(&f.cwd, &f.session_id);
 
             // The probe's own tasks, minus the ones that finished long enough
-            // ago to have been alerted about, plus any registry job sharing
-            // this session's working directory. A job entry gets no jobs of
-            // its own: it is one.
+            // ago to have been alerted about, plus any registry job placed
+            // under this session. A job entry gets no jobs of its own: it is
+            // one.
             let mut session_tasks: Vec<Task> = tasks
                 .tasks(&f.cwd, &f.session_id, f.started_at)
                 .into_iter()
@@ -273,11 +304,9 @@ pub fn snapshot(
                 })
                 .collect();
             if !is_background_job(f.kind.as_deref(), f.job_id.as_deref()) {
-                session_tasks.extend(
-                    jobs.iter()
-                        .filter(|(cwd, _)| *cwd == f.cwd.as_str())
-                        .map(|(_, task)| task.clone()),
-                );
+                if let Some(mine) = jobs.get(f.session_id.as_str()) {
+                    session_tasks.extend(mine.iter().cloned());
+                }
             }
             let has_running_task = session_tasks
                 .iter()
@@ -2092,6 +2121,104 @@ mod tests {
         assert_eq!(session.tasks.len(), 1);
         assert_eq!(session.tasks[0].kind, crate::watcher::tasks::TaskKind::Job);
         assert_eq!(session.tasks[0].label.as_deref(), Some("migrate-schemas"));
+    }
+
+    #[test]
+    fn one_job_is_one_session_s_task_even_when_a_directory_holds_two() {
+        // Two interactive sessions in one checkout is normal. Filtering the
+        // jobs by cwd for every session made a single `bg` job read as a task
+        // on both: both rows said tasking, the collapsed pill said "2 on
+        // tasks", and both popovers listed the same job.
+        let mut first = file(1, "cli");
+        first.status = Some("idle".into());
+        first.status_updated_at = Some(NOW - 60_000);
+
+        let mut second = file(2, "cli");
+        second.cwd = first.cwd.clone();
+        second.status = Some("idle".into());
+        second.status_updated_at = Some(NOW - 60_000);
+
+        let mut job = file(3, "cli");
+        job.cwd = first.cwd.clone();
+        job.kind = Some("bg".into());
+        job.job_id = Some("job_01hq8w2n4k".into());
+
+        let out = snapshot(
+            &[first, second, job],
+            &FakeLiveness::new()
+                .with_alive_any_start(1)
+                .with_alive_any_start(2)
+                .with_alive_any_start(3),
+            &NoActivity,
+            &NoBlocked,
+            &NoWork,
+            &NoTasks,
+            &NoTitle,
+            NOW,
+            PAUSED_THRESHOLD_MS,
+            true,
+            &HashMap::new(),
+        )
+        .sessions;
+
+        let jobs_counted: usize = out
+            .iter()
+            .map(|s| {
+                s.tasks
+                    .iter()
+                    .filter(|t| t.kind == crate::watcher::tasks::TaskKind::Job)
+                    .count()
+            })
+            .sum();
+        assert_eq!(jobs_counted, 1, "one job, counted once");
+        assert_eq!(
+            out.iter()
+                .filter(|s| s.state == SessionState::Tasking)
+                .count(),
+            1
+        );
+
+        // And the parent chosen is the one the row grouping puts the job
+        // under, so the popover and the row order tell the same story.
+        let ids: Vec<&str> = out.iter().map(|s| s.session_id.as_str()).collect();
+        assert_eq!(ids, ["session-1", "session-3", "session-2"]);
+        assert_eq!(out[0].state, SessionState::Tasking);
+    }
+
+    #[test]
+    fn a_job_from_a_disallowed_entrypoint_is_not_a_task() {
+        // `sdk-cli` is plugin machinery, dropped before any other layer sees
+        // it. Taking jobs from the unfiltered registry is deliberate about
+        // `show_background_jobs` only.
+        let mut parent = file(1, "cli");
+        parent.status = Some("idle".into());
+        parent.status_updated_at = Some(NOW - 60_000);
+
+        let mut job = file(2, "sdk-cli");
+        job.cwd = parent.cwd.clone();
+        job.kind = Some("bg".into());
+        job.job_id = Some("job_01hq8w2n4k".into());
+
+        let out = snapshot(
+            &[parent, job],
+            &FakeLiveness::new()
+                .with_alive_any_start(1)
+                .with_alive_any_start(2),
+            &NoActivity,
+            &NoBlocked,
+            &NoWork,
+            &NoTasks,
+            &NoTitle,
+            NOW,
+            PAUSED_THRESHOLD_MS,
+            true,
+            &HashMap::new(),
+        )
+        .sessions;
+
+        assert_eq!(out.len(), 1, "the job is not a row either");
+        assert_eq!(out[0].state, SessionState::Idle);
+        assert!(out[0].tasks.is_empty());
     }
 
     #[test]
