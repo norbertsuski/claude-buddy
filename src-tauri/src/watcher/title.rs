@@ -19,10 +19,9 @@ pub trait TitleProbe {
 
 /// Largest transcript worth scanning end to end for a title.
 ///
-/// Only reached once per session, and only when the tail had nothing, but a
-/// transcript is an append-only log with no upper bound — one left running for
-/// a week should not be read into memory whole on the strength of a maybe.
-pub const FULL_SCAN_MAX_BYTES: u64 = 32 * 1024 * 1024;
+/// Only reached once per session, and only when the tail had nothing. The
+/// figure itself lives in `bridge::transcript`, shared with the task probe.
+pub const FULL_SCAN_MAX_BYTES: u64 = crate::bridge::transcript::FULL_SCAN_MAX_BYTES;
 
 /// One session's cached answer.
 struct Cached {
