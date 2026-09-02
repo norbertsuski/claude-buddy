@@ -123,7 +123,7 @@ export function SessionPopover({
         {running.length > 0 && (
           <>
             <dt>tasks</dt>
-            <dd data-testid="popover-tasks">
+            <dd className="popover-tasks-field" data-testid="popover-tasks">
               <ul className="popover-tasks">
                 {running.map((task: Task) => (
                   <li key={task.id}>

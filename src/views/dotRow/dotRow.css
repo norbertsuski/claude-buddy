@@ -617,7 +617,18 @@ body {
 }
 
 /* The task list is a `ul` inside a `dd` so each task gets its own line without
-   the field labels repeating down the left. */
+   the field labels repeating down the left. A grid item's automatic minimum
+   size is its content's min-content width, which for a nowrap line is the
+   full unbroken text — so without min-width: 0 here the dd (not the li)
+   grows past the 1fr track to fit a long label, and .popover's outer
+   overflow: hidden then clips it raggedly instead of the li ever getting
+   narrow enough to ellipsize. Put the reset on the grid item, same as
+   .popover-activity above. */
+.popover-tasks-field {
+  overflow: hidden;
+  min-width: 0;
+}
+
 .popover-tasks {
   margin: 0;
   padding: 0;
