@@ -2,19 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-/// Whether a session has a tool call still running.
-///
-/// Claude Desktop writes no `status`, so `state::snapshot` falls back to
-/// transcript mtime — and a transcript is silent for as long as a single tool
-/// call takes. A build, a test run or a subagent can hold a session quiet for
-/// minutes while it is plainly working, which mtime alone reads as `idle`.
-///
-/// Injected rather than called directly, matching `PidLiveness`,
-/// `ActivityProbe`, `BlockedProbe` and `QuestionProbe`, so the state machine
-/// stays testable without a transcript on disk.
-pub trait WorkProbe {
-    fn in_flight(&self, cwd: &str, session_id: &str) -> bool;
-}
+use crate::watcher::probes::WorkProbe;
 
 /// Reads the pending tool call from the session transcript.
 ///
