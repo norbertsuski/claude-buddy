@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { CONFIG_EVENT, type AppConfig } from './types'
+import { CONFIG_EVENT, type AppConfig } from '@buddy/ui'
 
 /**
  * Settings, for the parts of the widget that draw themselves differently

@@ -7,7 +7,7 @@ import {
   type SessionSnapshot,
   type Update,
   type Usage,
-} from './types'
+} from '@buddy/ui'
 
 /**
  * Subscribe to watcher updates.

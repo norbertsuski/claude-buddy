@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::watcher::probes::ActivityProbe;
+use buddy_core::watcher::probes::ActivityProbe;
 
 /// Reads transcript modification times from disk.
 pub struct TranscriptActivity {

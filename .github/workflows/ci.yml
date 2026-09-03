@@ -222,6 +222,12 @@ jobs:
       # not superstition and it is not negotiable — a shared CI runner is a
       # busier machine than a laptop, so if anything the constraint bites harder
       # here.
+      # `--locked` on purpose, and it is the gate for a specific mistake rather
+      # than general tidiness. Local work against a sibling buddy-core clone
+      # uses a `[patch]` in an untracked `.cargo/config.toml`, and a patched
+      # build drops the `source` line from Cargo.lock. CI has no such patch, so
+      # a lockfile committed in that state fails here instead of shipping a
+      # dependency nobody can resolve.
       - name: cargo test
         working-directory: src-tauri
-        run: cargo test -- --test-threads=1
+        run: cargo test --locked -- --test-threads=1

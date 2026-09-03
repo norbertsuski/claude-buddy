@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use crate::bridge::transcript::{assistant_content, clip_to, message_content};
-use crate::watcher::task::{Task, TaskKind, TaskProbe, TaskStatus};
+use buddy_core::watcher::task::{Task, TaskKind, TaskProbe, TaskStatus};
 
 /// Longest task label the popover will draw. The same width `latest_activity`
 /// clips to, because they sit one under the other in the same popover.
@@ -78,7 +78,7 @@ pub fn task_events_with(bytes: &[u8], calls: &mut ToolCalls) -> Vec<TaskEvent> {
             let at_ms = record
                 .get("timestamp")
                 .and_then(|v| v.as_str())
-                .and_then(crate::rfc3339::epoch_ms)?;
+                .and_then(buddy_core::rfc3339::epoch_ms)?;
             started_event(record, calls, at_ms).or_else(|| ended_event(record, at_ms))
         })
         .collect()
@@ -672,7 +672,7 @@ fn unescape(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::watcher::task::{FakeTasks, NoTasks};
+    use buddy_core::watcher::task::{FakeTasks, NoTasks};
 
     /// A background `Bash` call and the result that reports its task id. The
     /// two records are the real shapes, trimmed to the fields that are read.

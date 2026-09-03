@@ -8,15 +8,15 @@ use std::time::Duration;
 use notify::{RecursiveMode, Watcher};
 use serde::Serialize;
 
-use crate::clock::now_ms;
-use crate::watcher::alerts::{diff_alerts, Alert};
-use crate::watcher::liveness::PidLiveness;
-use crate::watcher::probes::{ActivityProbe, BlockedProbe, TitleProbe, WorkProbe};
 use crate::watcher::question::QuestionProbe;
 use crate::watcher::registry::read_registry_dir;
-use crate::watcher::session::RawSession;
-use crate::watcher::state::{snapshot, SessionSnapshot, SessionState};
-use crate::watcher::task::{TaskProbe, TaskStatus};
+use buddy_core::clock::now_ms;
+use buddy_core::watcher::alerts::{diff_alerts, Alert};
+use buddy_core::watcher::liveness::PidLiveness;
+use buddy_core::watcher::probes::{ActivityProbe, BlockedProbe, TitleProbe, WorkProbe};
+use buddy_core::watcher::session::RawSession;
+use buddy_core::watcher::state::{snapshot, SessionSnapshot, SessionState};
+use buddy_core::watcher::task::{TaskProbe, TaskStatus};
 
 /// Reconcile interval. Catches process death and paused-threshold crossings,
 /// neither of which changes a file and so neither of which FSEvents reports.
@@ -138,7 +138,7 @@ pub fn spawn_watcher(
         while !stop_thread.load(Ordering::Relaxed) {
             // Read settings per tick, from the cache, so changing the paused
             // threshold or the background-jobs toggle takes effect at once.
-            let settings = crate::config::cached();
+            let settings = buddy_core::config::cached();
             let now = now_ms();
             let result = snapshot(
                 &read_registry_dir(&dir)
@@ -152,7 +152,7 @@ pub fn spawn_watcher(
                 tasks.as_ref(),
                 titles.as_ref(),
                 now,
-                crate::watcher::state::PAUSED_THRESHOLD_MS,
+                buddy_core::watcher::state::PAUSED_THRESHOLD_MS,
                 settings.show_background_jobs,
                 &first_seen_dead,
             );
@@ -215,12 +215,12 @@ mod tests {
     use std::sync::mpsc;
     use std::sync::Arc;
 
-    use crate::watcher::liveness::FakeLiveness;
-    use crate::watcher::probes::{NoActivity, NoBlocked, NoTitle, NoWork};
     use crate::watcher::question::{FakeQuestion, NoQuestion};
-    use crate::watcher::state::{SessionState, PAUSED_THRESHOLD_MS};
-    use crate::watcher::store::SnapshotStore;
-    use crate::watcher::task::{NoTasks, Task, TaskKind, TaskStatus};
+    use buddy_core::watcher::liveness::FakeLiveness;
+    use buddy_core::watcher::probes::{NoActivity, NoBlocked, NoTitle, NoWork};
+    use buddy_core::watcher::state::{SessionState, PAUSED_THRESHOLD_MS};
+    use buddy_core::watcher::store::SnapshotStore;
+    use buddy_core::watcher::task::{NoTasks, Task, TaskKind, TaskStatus};
 
     /// Long enough to cover one reconcile tick plus FSEvents latency.
     const WAIT: Duration = Duration::from_secs(6);

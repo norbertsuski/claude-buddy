@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use crate::watcher::probes::TitleProbe;
+use buddy_core::watcher::probes::TitleProbe;
 
 /// Largest transcript worth scanning end to end for a title.
 ///

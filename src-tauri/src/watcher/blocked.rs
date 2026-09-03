@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use crate::watcher::probes::BlockedProbe;
+use buddy_core::watcher::probes::BlockedProbe;
 
 /// Reads the pending prompt from the session transcript.
 ///
@@ -64,7 +64,7 @@ impl BlockedProbe for TranscriptBlocked {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::watcher::probes::{FakeBlocked, NoBlocked};
+    use buddy_core::watcher::probes::{FakeBlocked, NoBlocked};
 
     const PENDING: &str = concat!(
         r#"{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","id":"toolu_ask","name":"AskUserQuestion"}]}}"#,
