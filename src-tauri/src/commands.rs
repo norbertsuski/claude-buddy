@@ -33,7 +33,7 @@ pub fn get_sessions(
 /// `get_sessions`.
 #[tauri::command]
 pub fn get_usage() -> Option<crate::usage::Usage> {
-    crate::usage_api::latest(crate::watcher::watch::now_ms())
+    crate::usage_api::latest(crate::clock::now_ms())
 }
 
 #[tauri::command]

@@ -4,9 +4,9 @@ use std::sync::Once;
 use mac_notification_sys::{Notification, NotificationResponse};
 use tauri::Emitter;
 
+use crate::clock::now_ms;
 use crate::config::{self, Config};
 use crate::watcher::alerts::{Alert, AlertKind};
-use crate::watcher::watch::now_ms;
 
 /// Emitted when a notification could not be shown, so the widget can flash
 /// instead of the alert being lost.

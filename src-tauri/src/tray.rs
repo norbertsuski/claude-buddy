@@ -21,8 +21,8 @@ use tauri::menu::{
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
+use crate::clock::now_ms;
 use crate::config::{self, Config, MuteFor};
-use crate::watcher::watch::now_ms;
 
 /// Tray icon id, so the menu can be found again and rebuilt.
 const TRAY_ID: &str = "widget-menu";
