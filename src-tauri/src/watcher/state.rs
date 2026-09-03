@@ -441,12 +441,11 @@ pub fn group_jobs_with_parents(sessions: Vec<SessionSnapshot>) -> Vec<SessionSna
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::watcher::activity::{FakeActivity, NoActivity};
-    use crate::watcher::blocked::{FakeBlocked, NoBlocked};
     use crate::watcher::liveness::FakeLiveness;
-    use crate::watcher::tasks::{FakeTasks, NoTasks};
-    use crate::watcher::title::{FakeTitle, NoTitle};
-    use crate::watcher::working::{FakeWork, NoWork};
+    use crate::watcher::probes::{
+        FakeActivity, FakeBlocked, FakeTitle, FakeWork, NoActivity, NoBlocked, NoTitle, NoWork,
+    };
+    use crate::watcher::task::{FakeTasks, NoTasks};
 
     const NOW: i64 = 1_787_662_300_000;
     const START: &str = "Tue Aug 25 05:53:49 2026";

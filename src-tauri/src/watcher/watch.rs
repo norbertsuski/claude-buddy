@@ -215,16 +215,12 @@ mod tests {
     use std::sync::mpsc;
     use std::sync::Arc;
 
-    use crate::watcher::activity::NoActivity;
-    use crate::watcher::blocked::NoBlocked;
     use crate::watcher::liveness::FakeLiveness;
+    use crate::watcher::probes::{NoActivity, NoBlocked, NoTitle, NoWork};
     use crate::watcher::question::{FakeQuestion, NoQuestion};
     use crate::watcher::state::{SessionState, PAUSED_THRESHOLD_MS};
     use crate::watcher::store::SnapshotStore;
-    use crate::watcher::task::{Task, TaskKind, TaskStatus};
-    use crate::watcher::tasks::NoTasks;
-    use crate::watcher::title::NoTitle;
-    use crate::watcher::working::NoWork;
+    use crate::watcher::task::{NoTasks, Task, TaskKind, TaskStatus};
 
     /// Long enough to cover one reconcile tick plus FSEvents latency.
     const WAIT: Duration = Duration::from_secs(6);

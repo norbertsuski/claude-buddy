@@ -429,45 +429,6 @@ impl TaskProbe for TranscriptTasks {
     }
 }
 
-/// Reports nothing, for callers that do not care.
-pub struct NoTasks;
-
-impl TaskProbe for NoTasks {
-    fn tasks(&self, _cwd: &str, _session_id: &str, _started_at_ms: i64) -> Vec<Task> {
-        Vec::new()
-    }
-}
-
-/// Test double keyed by session id.
-pub struct FakeTasks {
-    tasks: HashMap<String, Vec<Task>>,
-}
-
-impl FakeTasks {
-    pub fn new() -> Self {
-        Self {
-            tasks: HashMap::new(),
-        }
-    }
-
-    pub fn with(mut self, session_id: &str, tasks: Vec<Task>) -> Self {
-        self.tasks.insert(session_id.to_string(), tasks);
-        self
-    }
-}
-
-impl Default for FakeTasks {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TaskProbe for FakeTasks {
-    fn tasks(&self, _cwd: &str, session_id: &str, _started_at_ms: i64) -> Vec<Task> {
-        self.tasks.get(session_id).cloned().unwrap_or_default()
-    }
-}
-
 /// Record every `tool_use` this record carries, with its tool name and the
 /// `description` its input held.
 ///
@@ -711,6 +672,7 @@ fn unescape(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::watcher::task::{FakeTasks, NoTasks};
 
     /// A background `Bash` call and the result that reports its task id. The
     /// two records are the real shapes, trimmed to the fields that are read.

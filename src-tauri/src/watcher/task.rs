@@ -5,6 +5,8 @@
 //! Code transcripts for subagent records, whereas everything here is what the
 //! state machine stores and the widget renders.
 
+use std::collections::HashMap;
+
 use serde::Serialize;
 
 /// What kind of work a task is.
@@ -70,6 +72,45 @@ pub struct Task {
 /// the probe never reads the registry.
 pub trait TaskProbe {
     fn tasks(&self, cwd: &str, session_id: &str, started_at_ms: i64) -> Vec<Task>;
+}
+
+/// Reports nothing, for callers that do not care.
+pub struct NoTasks;
+
+impl TaskProbe for NoTasks {
+    fn tasks(&self, _cwd: &str, _session_id: &str, _started_at_ms: i64) -> Vec<Task> {
+        Vec::new()
+    }
+}
+
+/// Test double keyed by session id.
+pub struct FakeTasks {
+    tasks: HashMap<String, Vec<Task>>,
+}
+
+impl FakeTasks {
+    pub fn new() -> Self {
+        Self {
+            tasks: HashMap::new(),
+        }
+    }
+
+    pub fn with(mut self, session_id: &str, tasks: Vec<Task>) -> Self {
+        self.tasks.insert(session_id.to_string(), tasks);
+        self
+    }
+}
+
+impl Default for FakeTasks {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TaskProbe for FakeTasks {
+    fn tasks(&self, _cwd: &str, session_id: &str, _started_at_ms: i64) -> Vec<Task> {
+        self.tasks.get(session_id).cloned().unwrap_or_default()
+    }
 }
 
 #[cfg(test)]
