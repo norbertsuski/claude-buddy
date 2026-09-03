@@ -970,3 +970,338 @@ EOF
 - The fixture run shows the same session states it did before the branch.
 - The spec records where all four previously-undecided modules go, and that the
   probe-trait entanglement was resolved here rather than deferred.
+
+---
+
+## Phase 1, second extension: the couplings the whole-branch review found
+
+Added after Tasks 1-9 landed. The final review traced every import in the
+core-bound set and found four survivors, three of which are the same shape as
+couplings this branch already fixed. Finding 4 (a `RawSession.proc_start` doc
+comment asserting a use the codebase deliberately avoids) was fixed
+immediately in `03426c0`. These tasks close the rest.
+
+The argument for doing them here is the one that pulled the probe splits into
+phase 1: each is a compiler-checked change in one repository now, or a broken
+dependency between two repositories later.
+
+### Task 10: the `From<RegistryFile>` impl belongs in `registry.rs`
+
+**Files:**
+- Modify: `src-tauri/src/watcher/session.rs` (lose the impl, its import, and its two tests), `src-tauri/src/watcher/registry.rs` (gain them)
+
+**Interfaces:**
+- Produces: `impl From<RegistryFile> for RawSession` at its new home. `RawSession::from(file)` keeps working for every caller, so `watch.rs` needs no change.
+
+The spec says the app keeps `RegistryFile` "plus a `From<RegistryFile> for
+RawSession`". Task 1 put the impl in `session.rs` instead, which the plan
+specified and nobody caught for nine tasks. The result is that `session.rs` is
+the only core-bound module importing a staying one, so phase 2 would have to
+split the file rather than move it.
+
+Rust's orphan rule permits `impl From<LocalType> for ForeignType` here — there
+are no uncovered type parameters — so this still compiles once `RawSession`
+lives in another crate.
+
+- [ ] **Step 1: Move the impl and both tests**
+
+Move `impl From<RegistryFile> for RawSession` out of `session.rs` into
+`registry.rs`, and with it the two tests `conversion_preserves_every_field` and
+`absent_optional_fields_stay_absent` plus their `registry_file()` helper.
+`registry.rs` gains `use crate::watcher::session::RawSession;`. `session.rs`
+loses `use crate::watcher::registry::RegistryFile;` and should end with **zero**
+`crate::` imports, matching `task.rs`, `probes.rs` and `liveness.rs`.
+
+- [ ] **Step 2: `cd src-tauri && cargo build 2>&1 | grep -E "^error" -A 4 | head -30`, fix each import path it names**
+- [ ] **Step 3: Confirm the goal**
+
+Run: `grep -c 'crate::' src-tauri/src/watcher/session.rs`
+
+Expected: `0`. If not, report what remains rather than moving more on your own.
+
+- [ ] **Step 4: `cd src-tauri && cargo fmt && cargo test -- --test-threads=1` — expect 409, no new warnings**
+- [ ] **Step 5: Commit**
+
+```bash
+git status
+git add src-tauri/src/watcher/session.rs src-tauri/src/watcher/registry.rs
+git commit -m "$(cat <<'EOF'
+refactor: put the registry conversion with the registry
+
+The spec always said the app keeps RegistryFile plus its From impl, and
+this plan's own Task 1 put the impl beside RawSession instead. That made
+session.rs the one core-bound module importing a module that stays, so
+phase 2 would have had to split the file rather than move it.
+
+Mapping one provider's file format onto the neutral record is that
+provider's business. The orphan rule still allows the impl there once
+RawSession is foreign.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+### Task 11: `now_ms` into `clock.rs`
+
+**Files:**
+- Create: `src-tauri/src/clock.rs`
+- Modify: `src-tauri/src/lib.rs` (register the module), `src-tauri/src/watcher/watch.rs` (lose `now_ms`, import it), `src-tauri/src/tray.rs:25`, `src-tauri/src/notify.rs:9`, `src-tauri/src/commands.rs:36`, `src-tauri/src/usage_api.rs:95,211,223,264`
+
+**Interfaces:**
+- Produces: `crate::clock::now_ms() -> i64`.
+
+`tray.rs` and `notify.rs` are both bound for core and both read `now_ms` out of
+`watch.rs`, which stays — it imports `read_registry_dir`, `crate::usage` and
+`crate::usage_api`. This is the fourth coupling of the shape the spec inventoried
+three of.
+
+**It goes in a new `clock.rs`, not in `rfc3339.rs`.** That module's own doc
+scopes it to "RFC 3339 timestamps to epoch milliseconds — hand-rolled rather
+than pulling in a date crate: two callers, one format". Reading the system
+clock is a different job, and widening `rfc3339.rs` to hold it would falsify
+its first line.
+
+- [ ] **Step 1: Create `src-tauri/src/clock.rs`**
+
+```rust
+//! What time it is, in the units everything else here counts in.
+//!
+//! Its own module because the watcher loop is not the authority on the clock:
+//! the tray, the notifier and the usage meter all need it, and half of those
+//! are provider-agnostic while `watch.rs` is not.
+
+/// Epoch milliseconds now.
+///
+/// A clock that cannot be read is treated as the epoch rather than a panic:
+/// every caller is either rendering an age or comparing against a deadline, and
+/// a widget that draws the wrong duration is better than one that does not draw.
+pub fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+```
+
+Move the function out of `watch.rs` (currently `watch.rs:46`), carrying whatever
+doc comment it has there — if the original explains the `unwrap_or(0)`, prefer
+the original's wording over the draft above and say so in your report.
+
+Register it in `src-tauri/src/lib.rs` beside the other top-level modules,
+alphabetically.
+
+- [ ] **Step 2: Repoint every caller**
+
+`watch.rs` gains `use crate::clock::now_ms;` — it calls `now_ms()` itself.
+`tray.rs:25` and `notify.rs:9` change their `use` path. `commands.rs:36` and
+`usage_api.rs:95,211,223,264` call it fully qualified as
+`crate::watcher::watch::now_ms()`; change those to `crate::clock::now_ms()`.
+
+- [ ] **Step 3: `cd src-tauri && cargo build 2>&1 | grep -E "^error" -A 4 | head -30`, fix each site it names. Treat the compiler as the authority — the list above may be incomplete**
+- [ ] **Step 4: Confirm no caller reaches the old path**
+
+Run: `grep -rn 'watch::now_ms' src-tauri/src`
+
+Expected: no output.
+
+- [ ] **Step 5: `cd src-tauri && cargo fmt && cargo test -- --test-threads=1` — expect 409, no new warnings**
+- [ ] **Step 6: Commit**
+
+```bash
+git status
+git add src-tauri/src/clock.rs src-tauri/src/lib.rs src-tauri/src/watcher/watch.rs src-tauri/src/tray.rs src-tauri/src/notify.rs src-tauri/src/commands.rs src-tauri/src/usage_api.rs
+git commit -m "$(cat <<'EOF'
+refactor: read the clock somewhere other than the watcher loop
+
+tray.rs and notify.rs are both bound for the shared crate and both took
+now_ms out of watch.rs, which is not — it reads the Claude Code registry
+and the usage API. That is the same one-line borrow as CONFIG_EVENT and
+SnapshotStore, and the spec's inventory of those missed it.
+
+Not folded into rfc3339.rs: that module's first line scopes it to one
+timestamp format with two callers, and reading the system clock is a
+different job.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+### Task 12: the test doubles follow their traits
+
+**Files:**
+- Modify: `src-tauri/src/watcher/probes.rs` (gains eight types), `src-tauri/src/watcher/task.rs` (gains two), `src-tauri/src/watcher/activity.rs`, `blocked.rs`, `working.rs`, `title.rs`, `tasks.rs` (each loses its doubles), plus whatever `cargo build` names
+- Test: no new tests. The existing ~90 call sites in `state.rs`'s test module are the test.
+
+**Interfaces:**
+- Produces: `crate::watcher::probes::{NoActivity, FakeActivity, NoBlocked, FakeBlocked, NoWork, FakeWork, NoTitle, FakeTitle}` and `crate::watcher::task::{NoTasks, FakeTasks}`.
+
+Tasks 6-9 moved the four probe traits but left their test doubles behind, which
+is half the pattern. `liveness.rs` is the model and the reason `FakeLiveness`
+needs no move: trait, real impl and fake all in one agnostic file, so it moves
+whole. `state.rs`'s test module imports ten doubles from five modules that stay,
+at roughly ninety call sites — so `state.rs` cannot move with its own tests.
+
+The doubles are agnostic: they hold `HashMap`/`HashSet` and answer from them,
+with no `bridge::transcript` and no provider knowledge. Only the five
+`Transcript*` implementations are provider-specific.
+
+**What moves** (verbatim, with doc comments, and with their `impl` blocks,
+because unlike the `Transcript*` types these implementations are the agnostic
+part):
+
+- `activity.rs:27` `NoActivity` and `:36` `FakeActivity`, with their impls at `:29` and `:59`
+- `blocked.rs:65` `NoBlocked` and `:74` `FakeBlocked`, with their impls at `:67` and `:98`
+- `working.rs:70` `NoWork` and `:79` `FakeWork`, with their impls at `:72` and `:102`
+- `title.rs:133` `NoTitle` and `:142` `FakeTitle`, with their impls at `:135` and `:166`
+- `tasks.rs:433` `NoTasks` and `:442` `FakeTasks`, with their impls at `:435` and `:465` — these two go to `task.rs`, beside `TaskProbe`
+
+**What stays:** `TranscriptActivity`, `TranscriptBlocked`, `TranscriptWork`,
+`TranscriptTitle`, `TranscriptTasks`, `FULL_SCAN_MAX_BYTES`, and every test in
+those five files.
+
+Line numbers will drift as you go — locate by name.
+
+- [ ] **Step 1: Move the eight probe doubles into `probes.rs`**
+
+Append after the four traits. Group each double with its trait's neighbours or
+keep all eight together, whichever reads better once written — say which you
+chose and why in your report.
+
+If a moved type needs `std::collections::HashMap` or `HashSet`, add the import
+to `probes.rs`; check whether the source file still needs its own afterwards and
+remove it if not, since a stray unused import is a new warning.
+
+- [ ] **Step 2: Move `NoTasks` and `FakeTasks` into `task.rs`**
+- [ ] **Step 3: Add the imports each stripped file now needs, and repoint every consumer**
+
+Run: `cd src-tauri && cargo build 2>&1 | grep -E "^error" -A 4 | head -60`
+
+There will be many. `state.rs`'s test module, `watch.rs`'s tests and `lib.rs`
+are all expected. Change import paths only.
+
+- [ ] **Step 4: `cd src-tauri && cargo fmt && cargo test -- --test-threads=1` — expect exactly 409, no new warnings**
+
+A count other than 409 means a test was lost in the move. Investigate before
+committing.
+
+- [ ] **Step 5: Confirm `state.rs` is free, tests included**
+
+Run: `grep -n 'crate::watcher::\(activity\|blocked\|working\|title\|tasks\|registry\)' src-tauri/src/watcher/state.rs`
+
+Expected: no output — including inside `#[cfg(test)]`. The Task 9 check used
+`^use crate` anchored at column 0 and so could not see the test module's
+indented imports, which is why this coupling survived nine tasks. Put the
+actual output in your report.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git status
+git add src-tauri/src/watcher/probes.rs src-tauri/src/watcher/task.rs src-tauri/src/watcher/activity.rs src-tauri/src/watcher/blocked.rs src-tauri/src/watcher/working.rs src-tauri/src/watcher/title.rs src-tauri/src/watcher/tasks.rs src-tauri/src/watcher/state.rs src-tauri/src/watcher/watch.rs src-tauri/src/lib.rs
+git commit -m "$(cat <<'EOF'
+refactor: let the test doubles follow their traits
+
+Moving the four probe traits without their No*/Fake* implementations was
+half the job. state.rs's test module — most of its 2344 lines — imported
+ten doubles from five modules that stay behind, so state.rs could not
+have moved with its own tests.
+
+liveness.rs is the pattern and the reason FakeLiveness is not in this
+commit: trait, real impl and fake in one agnostic file, so it travels
+whole. The doubles here answer from a HashMap and know nothing about any
+agent; only the Transcript* implementations are provider-specific, and
+those stay.
+
+The check that missed this was `grep '^use crate'`, anchored at column
+zero and therefore blind to an indented import inside a test module.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+### Task 13: record what phase 2 still has to decide
+
+**Files:**
+- Modify: `docs/superpowers/specs/2026-09-03-multi-provider-repo-split-design.md`, `src-tauri/src/watcher/probes.rs` (one doc line), `src-tauri/src/watcher/state.rs` (parameter name and prose)
+
+Three documentation debts and one rename, all called out by the whole-branch
+review.
+
+- [ ] **Step 1: Add the five new modules to the spec's inventory**
+
+`session.rs`, `task.rs`, `probes.rs` and `store.rs` appear in neither the "moves
+to `buddy-core`" list nor the "stays" table, and `watch.rs` is unassigned in
+either direction. Add all five with a line each. `store.rs` matters most: this
+branch created it so a core-bound `window.rs` would not reach into `watch.rs`,
+and the document phase 2 gets planned from does not say it goes to core.
+
+- [ ] **Step 2: Record the vocabulary problem as an open phase 2 decision**
+
+`state.rs` has `ALLOWED_ENTRYPOINTS = ["cli", "claude-desktop"]` and
+`SHOWN_KINDS = ["interactive", "bg"]`, and `RawSession.kind`'s doc pins the
+spelling as "`interactive`, `bg` or `sdk`". A Cursor adapter is not blocked — it
+can emit those strings — but it has to speak Claude Code's enum spellings to be
+rendered at all, and `"claude-desktop"` means nothing to it. So `RawSession`
+drops the provider's serde spelling and its file, and keeps the provider's
+vocabulary.
+
+Record it as a decision the `Provider` trait has to make: an injected allowlist,
+or core `SessionKind`/`Entrypoint` enums each adapter maps onto. Do not decide
+it here.
+
+- [ ] **Step 3: Fix `probes.rs`'s module doc**
+
+It says the traits are "injected into `state::snapshot` … matching
+`PidLiveness` (`liveness.rs`) and `QuestionProbe` (`question.rs`)".
+`QuestionProbe` is not a `snapshot()` parameter — it goes to `spawn_watcher` and
+`question::enrich_alerts`. `TaskProbe` is one, and does live in another file.
+Swap them.
+
+- [ ] **Step 4: Rename `snapshot()`'s first parameter and sweep the prose**
+
+The parameter is `files`, its doc comment calls it "the registry", and
+`job_tasks`'s doc says "Every live registry job", "the only link the registry
+offers" and "Taken from the unfiltered registry". In `buddy-core` there is no
+registry. Rename the parameter to `sessions` and correct those references — the
+compiler checks the rename, which is why it belongs in one pass rather than
+being left for later.
+
+- [ ] **Step 5: `cd src-tauri && cargo fmt && cargo test -- --test-threads=1` — expect 409. `npm run typecheck && npm test` — expect 254**
+- [ ] **Step 6: Commit**
+
+```bash
+git status
+git add docs/superpowers/specs/2026-09-03-multi-provider-repo-split-design.md src-tauri/src/watcher/probes.rs src-tauri/src/watcher/state.rs
+git commit -m "$(cat <<'EOF'
+docs: say what phase 2 inherits, and stop calling sessions files
+
+Four modules this branch created were in neither half of the spec's
+inventory, and watch.rs was in neither either. store.rs matters most: it
+exists so a core-bound window.rs would not reach into the watcher loop,
+and the document phase 2 gets planned from did not say where it goes.
+
+Also records the one thing RawSession did not neutralize. It drops Claude
+Code's serde spelling and its file, but ALLOWED_ENTRYPOINTS still contains
+"claude-desktop" and SHOWN_KINDS still contains "bg", so an adapter has to
+speak this provider's vocabulary to be rendered. That is the Provider
+trait's problem to solve, and better written down than rediscovered while
+writing cursor-buddy.
+
+The parameter rename is mechanical but the compiler can only check it
+while the code is in one crate.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+## Done when (final)
+
+- `session.rs`, `task.rs`, `probes.rs` and `liveness.rs` have zero `crate::` imports.
+- `grep -rn 'crate::watcher::\(activity\|blocked\|working\|title\|tasks\|registry\)' state.rs` is empty, test module included.
+- No core-bound module imports anything from `watch.rs`.
+- 409 Rust and 254 frontend tests pass, `cargo fmt --check` and `tsc --noEmit` clean.
+- The spec's inventory names every module in the tree, and records the vocabulary question as phase 2's to answer.
