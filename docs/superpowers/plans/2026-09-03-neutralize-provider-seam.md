@@ -724,3 +724,249 @@ EOF
 - The spec records where all four previously-undecided modules go.
 
 Phase 2 — seeding `buddy-core` and `buddy-ui`, creating `buddy-dev`, and the claude-buddy migration PR — gets its own plan, written once this one lands.
+
+---
+
+## Phase 1 extension: the four remaining probe traits
+
+Added after Tasks 1-5 landed. Task 5's investigation showed `snapshot()` takes
+six injected traits, and four of them are declared in files whose only real
+implementation reads Claude Code transcripts — so `state.rs` still cannot move
+to `buddy-core` unchanged, which was this plan's stated goal. `PidLiveness`
+(`liveness.rs`, OS-level pid checks) and `TaskProbe` (`task.rs`, split out by
+Task 3) are unaffected.
+
+Every one of the four was checked before these tasks were written: each trait
+declares a single method taking `(&str, &str)` and returning `Option<i64>`,
+`Option<String>` or `bool`. No transcript type appears in any signature, so all
+four are clean lifts. Their doc comments already describe them as one family,
+which is why they land in a single `watcher/probes.rs` rather than four
+modules.
+
+Each task is the Task 3 pattern: move the trait declaration verbatim, leave
+every `impl` behind, repoint importers. Task 6 creates the module; 7-9 add to
+it.
+
+### Task 6: `ActivityProbe` into `watcher/probes.rs`
+
+**Files:**
+- Create: `src-tauri/src/watcher/probes.rs`
+- Modify: `src-tauri/src/watcher/activity.rs`, `src-tauri/src/watcher/mod.rs`, `src-tauri/src/watcher/state.rs:5`
+- Test: no new test. A moved trait declaration has no behaviour to assert, and the existing suite fails to compile if the move is wrong.
+
+**Interfaces:**
+- Produces: `crate::watcher::probes::ActivityProbe`. Tasks 7-9 append to the same module.
+
+- [ ] **Step 1: Create the module with the trait moved verbatim**
+
+Create `src-tauri/src/watcher/probes.rs`:
+
+```rust
+//! The traits `state::snapshot` takes as inputs.
+//!
+//! Separate from the modules that implement them because the questions are not
+//! provider-specific but every answer is: each implementation here reads a
+//! Claude Code transcript, whereas the trait is just "can you tell me whether
+//! this session is busy". A second agent answers the same questions from its
+//! own source.
+```
+
+Then move the `ActivityProbe` declaration out of `activity.rs` into it, taking
+its full doc comment verbatim — the comment explains why the probe exists at
+all (only `cli` sessions write `status`, so a `claude-desktop` session would
+otherwise age into `paused` while being worked in), and that reasoning is not
+recoverable from the code.
+
+Register it in `src-tauri/src/watcher/mod.rs`, alphabetically:
+
+```rust
+pub mod probes;
+```
+
+- [ ] **Step 2: Repoint `activity.rs` and `state.rs`**
+
+In `activity.rs`, add `use crate::watcher::probes::ActivityProbe;`. Every
+`impl ActivityProbe for ...` stays — `TranscriptActivity`, `NoActivity` and
+`FakeActivity` all remain in `activity.rs`.
+
+In `state.rs`, change line 5 from `use crate::watcher::activity::ActivityProbe;`
+to `use crate::watcher::probes::ActivityProbe;`.
+
+- [ ] **Step 3: Fix any other importers**
+
+Run: `cd src-tauri && cargo build 2>&1 | grep -E "^error" -A 4 | head -40`
+
+Expected: errors naming `lib.rs`, `watch.rs` or any other file importing
+`ActivityProbe` from `watcher::activity`. Change only the import path in each.
+Task 3 found two importers the plan had not listed, so treat this step's output
+as the authority rather than any list.
+
+- [ ] **Step 4: Run the full gate**
+
+Run: `cd src-tauri && cargo fmt && cargo test -- --test-threads=1`
+
+Expected: PASS at 409, unchanged. No new warnings.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git status
+git add src-tauri/src/watcher/probes.rs src-tauri/src/watcher/activity.rs src-tauri/src/watcher/mod.rs src-tauri/src/watcher/state.rs
+git commit -m "$(cat <<'EOF'
+refactor: move ActivityProbe to a module of its own
+
+state.rs imported the trait from activity.rs, whose only real
+implementation reads a Claude Code transcript. That made the state
+machine depend on a provider's file format to name one of its inputs.
+
+The question "when did this session last do anything" is not specific to
+any agent. The answer always is. probes.rs holds the questions; the impls
+stay where they are.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+### Task 7: `BlockedProbe` into `watcher/probes.rs`
+
+**Files:**
+- Modify: `src-tauri/src/watcher/probes.rs`, `src-tauri/src/watcher/blocked.rs`, `src-tauri/src/watcher/state.rs:6`
+- Test: none, for the reason given in Task 6.
+
+**Interfaces:**
+- Consumes: `watcher/probes.rs` as created by Task 6.
+- Produces: `crate::watcher::probes::BlockedProbe`.
+
+Same shape as Task 6. Move the `BlockedProbe` declaration from `blocked.rs:15`
+into `probes.rs` with its full doc comment — which explains that a session
+sitting on an unanswered `AskUserQuestion` is quiet and renders grey while
+being genuinely blocked. `TranscriptBlocked`, `NoBlocked` and `FakeBlocked`
+stay in `blocked.rs`, which gains
+`use crate::watcher::probes::BlockedProbe;`. `state.rs:6` moves to the new path.
+
+- [ ] **Step 1: Move the declaration, add the import in `blocked.rs`, repoint `state.rs:6`**
+- [ ] **Step 2: `cd src-tauri && cargo build 2>&1 | grep -E "^error" -A 4 | head -40`, fix each import path it names**
+- [ ] **Step 3: `cd src-tauri && cargo fmt && cargo test -- --test-threads=1` — expect 409, no new warnings**
+- [ ] **Step 4: Commit**
+
+```bash
+git status
+git add src-tauri/src/watcher/probes.rs src-tauri/src/watcher/blocked.rs src-tauri/src/watcher/state.rs
+git commit -m "$(cat <<'EOF'
+refactor: move BlockedProbe to probes.rs
+
+Same reason as ActivityProbe before it: state.rs named one of its inputs
+through blocked.rs, whose only real implementation reads a Claude Code
+transcript.
+
+Whether a session is waiting on its user is a question any agent has. The
+transcript is only this one's way of answering it.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+### Task 8: `WorkProbe` into `watcher/probes.rs`
+
+**Files:**
+- Modify: `src-tauri/src/watcher/probes.rs`, `src-tauri/src/watcher/working.rs`, `src-tauri/src/watcher/state.rs:11`
+- Test: none, for the reason given in Task 6.
+
+**Interfaces:**
+- Consumes: `watcher/probes.rs`.
+- Produces: `crate::watcher::probes::WorkProbe`.
+
+Move the `WorkProbe` declaration from `working.rs:15` into `probes.rs` with its
+full doc comment — which explains that a transcript is silent for as long as a
+single tool call takes, so a build or test run reads as `idle` on mtime alone.
+`TranscriptWork`, `NoWork` and `FakeWork` stay in `working.rs`.
+
+- [ ] **Step 1: Move the declaration, add the import in `working.rs`, repoint `state.rs:11`**
+- [ ] **Step 2: `cd src-tauri && cargo build 2>&1 | grep -E "^error" -A 4 | head -40`, fix each import path it names**
+- [ ] **Step 3: `cd src-tauri && cargo fmt && cargo test -- --test-threads=1` — expect 409, no new warnings**
+- [ ] **Step 4: Commit**
+
+```bash
+git status
+git add src-tauri/src/watcher/probes.rs src-tauri/src/watcher/working.rs src-tauri/src/watcher/state.rs
+git commit -m "$(cat <<'EOF'
+refactor: move WorkProbe to probes.rs
+
+Third of the four. state.rs named the trait through working.rs, whose
+only real implementation reads a Claude Code transcript.
+
+"Is a tool call still running" is a question with an answer for every
+agent that runs tools.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+### Task 9: `TitleProbe` into `watcher/probes.rs`
+
+**Files:**
+- Modify: `src-tauri/src/watcher/probes.rs`, `src-tauri/src/watcher/title.rs`, `src-tauri/src/watcher/state.rs:10`
+- Test: none, for the reason given in Task 6.
+
+**Interfaces:**
+- Consumes: `watcher/probes.rs`.
+- Produces: `crate::watcher::probes::TitleProbe`. After this task `state.rs`
+  imports only `probes`, `session`, `task` and `liveness` — no module that
+  reads a transcript.
+
+Move the `TitleProbe` declaration from `title.rs:16` into `probes.rs` with its
+full doc comment — which explains that the registry only carries
+`<folder>-<2 chars>` because `nameSource` is `derived` for every session, so
+the row would read as a list of repositories.
+
+**`FULL_SCAN_MAX_BYTES` at `title.rs:24` does not move.** It is
+`pub const FULL_SCAN_MAX_BYTES: u64 = crate::bridge::transcript::FULL_SCAN_MAX_BYTES;`
+— a re-export of a transcript constant, which belongs with the implementation
+that scans transcripts, not with the trait. `TranscriptTitle`, `NoTitle` and
+any fake stay in `title.rs`.
+
+- [ ] **Step 1: Move the declaration only, leaving `FULL_SCAN_MAX_BYTES` and every impl in `title.rs`; add the import there; repoint `state.rs:10`**
+- [ ] **Step 2: `cd src-tauri && cargo build 2>&1 | grep -E "^error" -A 4 | head -40`, fix each import path it names**
+- [ ] **Step 3: `cd src-tauri && cargo fmt && cargo test -- --test-threads=1` — expect 409, no new warnings**
+- [ ] **Step 4: Verify the goal is actually met**
+
+Run: `grep -n '^use crate' src-tauri/src/watcher/state.rs`
+
+Expected: imports from `probes`, `session`, `task` and `liveness` only. If any
+line still names `activity`, `blocked`, `working`, `title`, `tasks`, `registry`
+or `bridge`, the extension is incomplete — report it rather than adding a
+further module on your own initiative.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git status
+git add src-tauri/src/watcher/probes.rs src-tauri/src/watcher/title.rs src-tauri/src/watcher/state.rs
+git commit -m "$(cat <<'EOF'
+refactor: move TitleProbe to probes.rs
+
+Last of the four. state.rs now imports probes, session, task and
+liveness, and nothing that reads a transcript — which was what this plan
+set out to achieve and had not, until the four probe traits followed
+TaskProbe out of their implementation files.
+
+FULL_SCAN_MAX_BYTES stays in title.rs: it re-exports a transcript
+constant, so it belongs with the code that scans transcripts.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+## Done when (revised)
+
+- `snapshot()` takes `&[RawSession]`, and `state.rs` imports only `probes`,
+  `session`, `task` and `liveness` — nothing that reads a transcript, and
+  nothing from `registry.rs` or `tasks.rs`.
+- `cargo test -- --test-threads=1` passes at 409, with no new warnings.
+- The fixture run shows the same session states it did before the branch.
+- The spec records where all four previously-undecided modules go, and that the
+  probe-trait entanglement was resolved here rather than deferred.
