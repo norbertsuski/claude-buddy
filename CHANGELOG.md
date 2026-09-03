@@ -5,27 +5,7 @@ section out of this file, and the release workflow uses it as the body of the
 GitHub release and as the notes in the in-app update dialog — so a section that
 is missing here leaves that tag with nothing but the download boilerplate.
 
-## v0.10.0 — 2026-09-02
-
-- **A session waiting on a background task says so.** A session that started a
-  background test run, a dev server, a watch or a background subagent goes
-  quiet, and after ten minutes it read `paused` — the same as a session nobody
-  was driving. There is now a sixth state, `tasking`, drawn as a hollow ring
-  with a turning arc, and the popover lists every task the session is waiting
-  on: what kind it is, what it is, and how long it has been going. Registry
-  background jobs count as tasks on the session they belong to, so a parent
-  reads the same way whether or not the job is shown as its own row. The
-  collapsed pill counts it too, with a new chip between the working count and
-  the died count. The widget stays on screen and the display stays awake while
-  a task runs, and in crazy mode a task you launched stokes the fire the way a
-  working session does — a registry job still does not, for the same reason a
-  background job never has. A job is the one kind of task that never raises
-  the finished notification either: it stops being a task the moment its
-  process is gone, rather than ending with a status to report.
-- **A notification when a background task finishes.** It names the task and how
-  it ended, so a failure does not read like a success. On by default, and
-  switched off with the new "when a background task finishes" checkbox in
-  Settings.
+## v0.11.0 — 2026-09-03
 
 - **A background subagent counts as a task.** A session that launched agents in
   the background read `idle` and said nothing about them: the launch record
@@ -51,6 +31,28 @@ is missing here leaves that tag with nothing but the download boilerplate.
   popover draws, so it names each task and its age, and it is right whether or
   not background jobs are given rows of their own; the count it replaces was
   blind to subagents and reported zero whenever that setting was off.
+
+## v0.10.0 — 2026-09-02
+
+- **A session waiting on a background task says so.** A session that started a
+  background test run, a dev server, a watch or a background subagent goes
+  quiet, and after ten minutes it read `paused` — the same as a session nobody
+  was driving. There is now a sixth state, `tasking`, drawn as a hollow ring
+  with a turning arc, and the popover lists every task the session is waiting
+  on: what kind it is, what it is, and how long it has been going. Registry
+  background jobs count as tasks on the session they belong to, so a parent
+  reads the same way whether or not the job is shown as its own row. The
+  collapsed pill counts it too, with a new chip between the working count and
+  the died count. The widget stays on screen and the display stays awake while
+  a task runs, and in crazy mode a task you launched stokes the fire the way a
+  working session does — a registry job still does not, for the same reason a
+  background job never has. A job is the one kind of task that never raises
+  the finished notification either: it stops being a task the moment its
+  process is gone, rather than ending with a status to report.
+- **A notification when a background task finishes.** It names the task and how
+  it ended, so a failure does not read like a success. On by default, and
+  switched off with the new "when a background task finishes" checkbox in
+  Settings.
 
 ## v0.9.0 — 2026-08-28
 
