@@ -156,9 +156,15 @@ JSON
 # stamped at run time. A committed timestamp would be dropped by that
 # boundary and the session would read `paused` instead of `tasking`.
 #
-# Two tasks are left running and one is left finished, so the row shows the
-# plural detail, the popover lists two lines, and the finished one proves it
-# is filtered out of both.
+# Seven tasks are left running and two are left finished. Two of the running
+# ones are background tasks and five are foreground subagents, which is the
+# shape that broke before 0.12.0: a subagent's *result* is its completion, not
+# its launch, so one whose result has not arrived is genuinely still working
+# and one whose result has arrived must be filtered out. The finished pair —
+# one background, one subagent — prove both end paths.
+#
+# Seven is deliberate: the popover lists five and summarises the rest, so this
+# cast is what shows that cap at all.
 emit_task_transcript() {
   local session_id="$1" cwd="$2" started_ms="$3"
   local dir="$PROJECTS/$(printf '%s' "$cwd" | tr './' '--')"
@@ -177,6 +183,13 @@ emit_task_transcript() {
 {"type":"user","uuid":"cc000001-0000-4000-8000-000000000005","parentUuid":"cc000001-0000-4000-8000-000000000004","sessionId":"$session_id","version":"2.1.234","cwd":"$cwd","gitBranch":"ci/flaky-suite","timestamp":"$at","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_fixture_test"}]},"toolUseResult":{"backgroundTaskId":"bfixtest01"}}
 {"type":"assistant","uuid":"cc000001-0000-4000-8000-000000000006","parentUuid":"cc000001-0000-4000-8000-000000000005","sessionId":"$session_id","version":"2.1.234","cwd":"$cwd","gitBranch":"ci/flaky-suite","effort":"medium","message":{"role":"assistant","model":"claude-sonnet-5","content":[{"type":"tool_use","id":"toolu_fixture_ci","name":"Monitor","input":{"description":"Watch the CI run"}}]}}
 {"type":"user","uuid":"cc000001-0000-4000-8000-000000000007","parentUuid":"cc000001-0000-4000-8000-000000000006","sessionId":"$session_id","version":"2.1.234","cwd":"$cwd","gitBranch":"ci/flaky-suite","timestamp":"$at","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_fixture_ci"}]},"toolUseResult":{"taskId":"bfixci0001","timeoutMs":600000}}
+{"type":"assistant","uuid":"cc000001-0000-4000-8000-000000000011","parentUuid":"cc000001-0000-4000-8000-000000000007","sessionId":"$session_id","version":"2.1.234","cwd":"$cwd","gitBranch":"ci/flaky-suite","timestamp":"$at","effort":"medium","message":{"role":"assistant","model":"claude-sonnet-5","content":[{"type":"tool_use","id":"toolu_fixture_agent1","name":"Agent","input":{"description":"Audit the retry helper","subagent_type":"general-purpose","run_in_background":false}}]}}
+{"type":"assistant","uuid":"cc000001-0000-4000-8000-000000000012","parentUuid":"cc000001-0000-4000-8000-000000000011","sessionId":"$session_id","version":"2.1.234","cwd":"$cwd","gitBranch":"ci/flaky-suite","timestamp":"$at","effort":"medium","message":{"role":"assistant","model":"claude-sonnet-5","content":[{"type":"tool_use","id":"toolu_fixture_agent2","name":"Agent","input":{"description":"Trace the flaky assertion","subagent_type":"general-purpose","run_in_background":false}}]}}
+{"type":"assistant","uuid":"cc000001-0000-4000-8000-000000000013","parentUuid":"cc000001-0000-4000-8000-000000000012","sessionId":"$session_id","version":"2.1.234","cwd":"$cwd","gitBranch":"ci/flaky-suite","timestamp":"$at","effort":"medium","message":{"role":"assistant","model":"claude-sonnet-5","content":[{"type":"tool_use","id":"toolu_fixture_agent3","name":"Agent","input":{"description":"Check the fixture clock","subagent_type":"general-purpose","run_in_background":false}}]}}
+{"type":"assistant","uuid":"cc000001-0000-4000-8000-000000000014","parentUuid":"cc000001-0000-4000-8000-000000000013","sessionId":"$session_id","version":"2.1.234","cwd":"$cwd","gitBranch":"ci/flaky-suite","timestamp":"$at","effort":"medium","message":{"role":"assistant","model":"claude-sonnet-5","content":[{"type":"tool_use","id":"toolu_fixture_agent4","name":"Agent","input":{"description":"Read the CI config","subagent_type":"general-purpose","run_in_background":false}}]}}
+{"type":"assistant","uuid":"cc000001-0000-4000-8000-000000000015","parentUuid":"cc000001-0000-4000-8000-000000000014","sessionId":"$session_id","version":"2.1.234","cwd":"$cwd","gitBranch":"ci/flaky-suite","timestamp":"$at","effort":"medium","message":{"role":"assistant","model":"claude-sonnet-5","content":[{"type":"tool_use","id":"toolu_fixture_agent5","name":"Agent","input":{"description":"Diff the lockfile","subagent_type":"general-purpose","run_in_background":false}}]}}
+{"type":"assistant","uuid":"cc000001-0000-4000-8000-000000000020","parentUuid":"cc000001-0000-4000-8000-000000000015","sessionId":"$session_id","version":"2.1.234","cwd":"$cwd","gitBranch":"ci/flaky-suite","timestamp":"$at","effort":"medium","message":{"role":"assistant","model":"claude-sonnet-5","content":[{"type":"tool_use","id":"toolu_fixture_agentdone","name":"Agent","input":{"description":"Summarise the failures","subagent_type":"general-purpose","run_in_background":false}}]}}
+{"type":"user","uuid":"cc000001-0000-4000-8000-000000000021","parentUuid":"cc000001-0000-4000-8000-000000000020","sessionId":"$session_id","version":"2.1.234","cwd":"$cwd","gitBranch":"ci/flaky-suite","timestamp":"$at","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_fixture_agentdone"}]},"toolUseResult":{"agentId":"afixdone00000000","agentType":"general-purpose","status":"completed","totalDurationMs":42000}}
 {"type": "custom-title", "customTitle": "Flaky suite triage", "sessionId": "$session_id"}
 JSON
 }
