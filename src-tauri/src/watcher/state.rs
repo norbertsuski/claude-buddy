@@ -107,7 +107,7 @@ pub struct SessionSnapshot {
     /// A background job or subagent, not a session the user answers.
     pub background: bool,
     /// Background work this session is waiting on: background shells, watches,
-    /// subagents, and the registry jobs that share its working directory.
+    /// subagents, and the background jobs that share its working directory.
     /// Finished tasks linger for `TERMINAL_TASK_RETENTION_MS` so the alert diff
     /// can see them end.
     pub tasks: Vec<Task>,
@@ -169,19 +169,19 @@ fn job_parent<'a>(files: &'a [RawSession], cwd: &str) -> Option<&'a RawSession> 
         .min_by_key(|f| (f.started_at, f.pid))
 }
 
-/// Every live registry job, keyed by the session it counts as a task on.
+/// Every live background job, keyed by the session it counts as a task on.
 ///
-/// Jobs are separate processes and appear in no transcript, so this is the only
-/// place they can come from. A job carries its parent's `cwd`, the only link
-/// the registry offers — but a directory can hold several sessions and a job is
-/// one session's work, so it goes to exactly one of them, as
+/// Jobs are separate processes and appear in no transcript, so this is the
+/// only place they can come from. A job carries its parent's `cwd`, the only
+/// link the session list offers — but a directory can hold several sessions
+/// and a job is one session's work, so it goes to exactly one of them, as
 /// `group_jobs_with_parents` does for the row.
 ///
-/// Taken from the unfiltered registry deliberately, but only with respect to
-/// `show_background_jobs`: that setting governs whether a job gets a row of its
-/// own, not whether its parent is waiting on it. The entrypoint allowlist still
-/// applies at both ends, so an `sdk-cli` plugin's job cannot reach a `cli`
-/// session's task list.
+/// Taken from the unfiltered `sessions` deliberately, but only with respect
+/// to `show_background_jobs`: that setting governs whether a job gets a row
+/// of its own, not whether its parent is waiting on it. The entrypoint
+/// allowlist still applies at both ends, so an `sdk-cli` plugin's job cannot
+/// reach a `cli` session's task list.
 fn job_tasks(
     files: &[RawSession],
     liveness: &dyn PidLiveness,
@@ -234,12 +234,12 @@ fn task_detail(tasks: &[Task]) -> String {
 
 /// Derive every session's state. Pure: all time and all liveness are injected,
 /// so the whole state machine is testable without a filesystem or a clock.
-// Eleven parameters — the registry, six injected dependencies, the clock, two
+// Eleven parameters — the sessions, six injected dependencies, the clock, two
 // settings and the dead-since map — all of them load-bearing, is the price of
 // keeping this function pure and its whole state machine testable.
 #[allow(clippy::too_many_arguments)]
 pub fn snapshot(
-    files: &[RawSession],
+    sessions: &[RawSession],
     liveness: &dyn PidLiveness,
     activity: &dyn ActivityProbe,
     blocked: &dyn BlockedProbe,
@@ -251,9 +251,9 @@ pub fn snapshot(
     include_background: bool,
     first_seen_dead: &HashMap<String, i64>,
 ) -> SnapshotResult {
-    let jobs = job_tasks(files, liveness, now_ms);
+    let jobs = job_tasks(sessions, liveness, now_ms);
 
-    let derived: Vec<SessionSnapshot> = files
+    let derived: Vec<SessionSnapshot> = sessions
         .iter()
         .filter(|f| {
             allowed_entrypoint(f)
@@ -293,7 +293,7 @@ pub fn snapshot(
             let work_in_flight = !reported_status && work.in_flight(&f.cwd, &f.session_id);
 
             // The probe's own tasks, minus the ones that finished long enough
-            // ago to have been alerted about, plus any registry job placed
+            // ago to have been alerted about, plus any background job placed
             // under this session. A job entry gets no jobs of its own: it is
             // one.
             let mut session_tasks: Vec<Task> = tasks
@@ -409,9 +409,9 @@ pub fn snapshot(
 
 /// Reorder so each background job follows the session it belongs to.
 ///
-/// Jobs are matched by working directory, which is the only link the registry
-/// offers — a job carries its parent's `cwd`. Jobs whose parent is not listed
-/// (hidden, or already gone) trail at the end rather than vanishing.
+/// Jobs are matched by working directory, which is the only link the session
+/// list offers — a job carries its parent's `cwd`. Jobs whose parent is not
+/// listed (hidden, or already gone) trail at the end rather than vanishing.
 pub fn group_jobs_with_parents(sessions: Vec<SessionSnapshot>) -> Vec<SessionSnapshot> {
     let (own, jobs): (Vec<_>, Vec<_>) = sessions.into_iter().partition(|s| !s.background);
 
@@ -2189,8 +2189,8 @@ mod tests {
     #[test]
     fn a_job_from_a_disallowed_entrypoint_is_not_a_task() {
         // `sdk-cli` is plugin machinery, dropped before any other layer sees
-        // it. Taking jobs from the unfiltered registry is deliberate about
-        // `show_background_jobs` only.
+        // it. Taking jobs from the unfiltered session list is deliberate
+        // about `show_background_jobs` only.
         let mut parent = file(1, "cli");
         parent.status = Some("idle".into());
         parent.status_updated_at = Some(NOW - 60_000);
