@@ -15,7 +15,14 @@ pub struct RawSession {
     pub session_id: String,
     pub cwd: String,
     pub started_at: i64,
-    /// Process start time, used to tell a live pid from a recycled one.
+    /// Process start time as the registry spells it.
+    ///
+    /// Carried, but deliberately **not** used to tell a live pid from a
+    /// recycled one — `PidLiveness` checks identity against `started_at`
+    /// instead. Claude Code writes this string in a different timezone than
+    /// `ps -o lstart=` prints, so comparing the two marks every live session
+    /// dead; `liveness.rs` has the detail and `state.rs` has the regression
+    /// test. A provider filling this in should not expect it to be read.
     pub proc_start: Option<String>,
     pub entrypoint: Option<String>,
     /// `interactive`, `bg` or `sdk`.
