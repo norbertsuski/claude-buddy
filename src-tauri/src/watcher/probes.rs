@@ -46,3 +46,18 @@ pub trait BlockedProbe {
 pub trait WorkProbe {
     fn in_flight(&self, cwd: &str, session_id: &str) -> bool;
 }
+
+/// What a session calls itself.
+///
+/// The registry only ever carries `<folder>-<2 chars>`: `nameSource` is
+/// `derived` for every session Claude Code writes, so the row would read as a
+/// list of repositories even when three of them are the same repository. The
+/// title Claude Code gives a session says what the session is *doing*, and it
+/// lives in the transcript rather than the registry.
+///
+/// Injected rather than called directly, matching `PidLiveness`,
+/// `ActivityProbe`, `BlockedProbe`, `QuestionProbe` and `WorkProbe`, so the
+/// state machine stays testable without a transcript on disk.
+pub trait TitleProbe {
+    fn title(&self, cwd: &str, session_id: &str) -> Option<String>;
+}
