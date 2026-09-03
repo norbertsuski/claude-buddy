@@ -49,14 +49,16 @@ remains correct, because that repo releases only the Claude app.
 
 ## What moves and what stays
 
-Provider-specific, stays in the app repo (3,633 lines):
+Provider-specific, stays in the app repo. Line counts are measured at the
+end of phase 1 and will drift; treat them as a sense of weight, not a
+contract:
 
 | File | Lines | Why it cannot move |
 | --- | --- | --- |
-| `watcher/registry.rs` | 173 | `~/.claude/sessions/<pid>.json` schema |
+| `watcher/registry.rs` | 256 | `~/.claude/sessions/<pid>.json` schema |
 | `bridge/transcript.rs` | 847 | Claude Code's JSONL record shape |
-| `watcher/title.rs` | 403 | title events inside that transcript |
-| `watcher/tasks.rs` | 1618 | subagent tasks are a Claude Code concept |
+| `watcher/title.rs` | 350 | title events inside that transcript |
+| `watcher/tasks.rs` | 1514 | subagent tasks are a Claude Code concept |
 | `usage.rs`, `usage_api.rs` | 492 | the quota argument above |
 | `watcher/watch.rs` | 587 | orchestrates the registry and usage fetch for one provider |
 | `commands.rs` | 100 | the Tauri command surface for this app |
@@ -328,9 +330,11 @@ though. Each declares a trait (`ActivityProbe`, `BlockedProbe`, `WorkProbe`,
 `TitleProbe`) that `state.rs` takes as a parameter, and each trait's only
 real implementation — `TranscriptActivity`, `TranscriptBlocked`,
 `TranscriptWork`, `TranscriptTitle` — imports `crate::bridge::transcript` to
-read Claude Code's JSONL. `state.rs` is pure and headed for core, but it
-currently imports all four traits from files whose implementations are
-staying behind. The other two injected traits are unaffected: `PidLiveness`
+read Claude Code's JSONL. `state.rs` is pure and headed for core, and at
+this branch's starting point it imported all four traits from files whose
+implementations stay behind. Tasks 6-9 moved them; `state.rs:6` now reads
+them from `probes.rs`, so what follows records why rather than what is
+still true. The other two injected traits are unaffected: `PidLiveness`
 (`liveness.rs`) checks OS pid liveness and imports nothing under `crate::`,
 so there is no transcript dependency to strand; `TaskProbe` (`task.rs`) has
 that same clean shape only because `f0f02d5` already split it out of
