@@ -79,11 +79,20 @@ and `watcher::tasks::{Task, TaskKind, TaskProbe, TaskStatus}` directly. Two of
 its input *types* are provider-shaped, so the seam has to be neutralized
 before the file can move.
 
-`state.rs` reads all twelve `RegistryFile` fields — `pid`, `session_id`, `cwd`,
-`started_at`, `proc_start`, `entrypoint`, `kind`, `job_id`, `name`, `status`,
-`status_updated_at`, `waiting_for` — so the neutral record core needs is the
-whole struct, minus the serde rename attributes that encode Claude Code's JSON
-spelling. Core owns `RawSession` as twelve plain fields; the app keeps
+`state.rs` reads eleven of the twelve `RegistryFile` fields in production —
+`pid`, `session_id`, `cwd`, `started_at`, `entrypoint`, `kind`, `job_id`,
+`name`, `status`, `status_updated_at`, `waiting_for`. The twelfth,
+`proc_start`, is read nowhere outside the tests, and deliberately so:
+`liveness.rs` checks pid identity against `started_at` because Claude Code
+writes `procStart` in a different timezone than `ps -o lstart=` prints, and
+comparing the strings marks every live session dead. `RawSession` carries it
+anyway, so the record stays a faithful picture of a session rather than of
+one state machine's current appetite — but its doc comment says plainly that
+nothing reads it.
+
+Two earlier drafts of this paragraph got the count wrong, first at ten and
+then at twelve. Both were grep artefacts: the first counted only the
+`snapshot()` body, the second counted the test module as production. Core owns `RawSession` as twelve plain fields; the app keeps
 `RegistryFile` as the deserialization of one provider's file format, plus a
 `From<RegistryFile> for RawSession`. A Cursor hook script supplies the same
 twelve.
