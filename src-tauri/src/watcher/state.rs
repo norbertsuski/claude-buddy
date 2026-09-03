@@ -3,11 +3,10 @@ use std::collections::HashMap;
 use serde::Serialize;
 
 use crate::watcher::liveness::PidLiveness;
-use crate::watcher::probes::{ActivityProbe, BlockedProbe};
+use crate::watcher::probes::{ActivityProbe, BlockedProbe, WorkProbe};
 use crate::watcher::session::RawSession;
 use crate::watcher::task::{Task, TaskKind, TaskProbe, TaskStatus};
 use crate::watcher::title::TitleProbe;
-use crate::watcher::working::WorkProbe;
 
 /// Idle sessions older than this read as `Paused`.
 pub const PAUSED_THRESHOLD_MS: i64 = 10 * 60 * 1000;
