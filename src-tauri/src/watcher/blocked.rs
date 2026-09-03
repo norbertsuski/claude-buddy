@@ -2,19 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-/// Whether a session is blocked on the user despite never saying so.
-///
-/// Claude Desktop writes no `status`, `statusUpdatedAt` or `waitingFor` at all,
-/// so `state::snapshot` falls back to transcript mtime — which can only
-/// distinguish busy from quiet. A session sitting on an unanswered
-/// `AskUserQuestion` is quiet, and rendered grey, while it is in fact blocked.
-///
-/// Injected rather than called directly, matching `PidLiveness`,
-/// `ActivityProbe` and `QuestionProbe`, so the state machine stays testable
-/// without a transcript on disk.
-pub trait BlockedProbe {
-    fn pending_prompt(&self, cwd: &str, session_id: &str) -> Option<String>;
-}
+use crate::watcher::probes::BlockedProbe;
 
 /// Reads the pending prompt from the session transcript.
 ///

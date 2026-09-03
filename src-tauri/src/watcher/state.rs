@@ -2,9 +2,8 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 
-use crate::watcher::blocked::BlockedProbe;
 use crate::watcher::liveness::PidLiveness;
-use crate::watcher::probes::ActivityProbe;
+use crate::watcher::probes::{ActivityProbe, BlockedProbe};
 use crate::watcher::session::RawSession;
 use crate::watcher::task::{Task, TaskKind, TaskProbe, TaskStatus};
 use crate::watcher::title::TitleProbe;
