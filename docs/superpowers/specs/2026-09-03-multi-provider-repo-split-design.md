@@ -59,6 +59,7 @@ Provider-specific, stays in the app repo (3,797 lines):
 | `watcher/tasks.rs` | 1618 | subagent tasks are a Claude Code concept |
 | `usage.rs`, `usage_api.rs` | 492 | the quota argument above |
 | parts of `bridge/proc_tree.rs` | 264 | matches Claude Code process shapes |
+| `watcher/watch.rs` | 587 | orchestrates the registry and usage fetch for one provider |
 
 Provider-agnostic, moves to `buddy-core` (6,423 lines): `window.rs` (730,
 NSPanel and positioning), `notch.rs` (577, screen geometry), `cursor.rs` (597,
@@ -97,10 +98,35 @@ then at twelve. Both were grep artefacts: the first counted only the
 `From<RegistryFile> for RawSession`. A Cursor hook script supplies the same
 twelve.
 
-Three further couplings are one-liners, not redesigns: `tray.rs:265` reads a
-`crate::commands::CONFIG_EVENT` const, `window.rs:90` reads `watch.rs`'s
-`SnapshotStore`, and `notify.rs` uses `alerts::{Alert, AlertKind}` plus
-`raise_pid` — the latter already behind an `Activator` trait.
+`session.rs`, `task.rs` and `probes.rs` also move to core, and none of the
+three appear in either list above yet. `session.rs` (35 lines) is `RawSession`
+itself. `task.rs` (145) is `f0f02d5`'s split of `tasks.rs`: the
+provider-agnostic `Task`, `TaskKind`, `TaskStatus` and `TaskProbe`, with the
+transcript scanner that reads Claude Code's subagent records left behind in
+`tasks.rs`. `probes.rs` (222) is the same split done four more times, for
+`ActivityProbe`, `BlockedProbe`, `WorkProbe` and `TitleProbe`: each trait is
+agnostic, but its only real implementation reads a Claude Code transcript, so
+the trait stays with the state machine while the reading stays behind in
+`activity.rs`, `blocked.rs`, `working.rs` and `title.rs`. All three files
+import nothing under `crate::` and move to core with `state.rs`.
+
+Two more exist so other core-bound files would not have to reach into
+`watch.rs` for one thing each. `store.rs` (25) holds `SnapshotStore`, the
+latest snapshot kept between watcher ticks for the frontend to fetch on
+demand; `window.rs` reads it and imports nothing else under
+`crate::watcher`. `clock.rs` (17) holds `now_ms`; `tray.rs` and `notify.rs`
+both need a wall clock for their own comparisons and had nowhere else to get
+one. Both move to core with `state.rs`. `watch.rs` itself (587) earns its own
+row in the stays table instead: it wires `read_registry_dir`, `snapshot()`
+and `usage_api` together for this one provider, so it is the app's watcher
+loop rather than core's.
+
+Two further couplings are one-liners, not redesigns: `tray.rs:265` reads a
+`crate::commands::CONFIG_EVENT` const, and `notify.rs` uses
+`alerts::{Alert, AlertKind}` plus `raise_pid` — the latter already behind an
+`Activator` trait. A third is already gone: `window.rs` used to reach into
+`watch.rs` for `SnapshotStore`, and now reaches into `store.rs` instead, which
+is core-bound itself.
 
 ## The provider seam
 
@@ -243,6 +269,17 @@ session is mid-edit in the same checkout.
 
 - Whether Cursor exposes a readable quota at all. If not, `cursor-buddy` ships
   without a usage meter, which `Option<Usage>` already allows for.
+
+- Where the vocabulary problem goes. `RawSession` dropped Claude Code's serde
+  spelling and its file format, but not its vocabulary: `ALLOWED_ENTRYPOINTS`
+  is still `["cli", "claude-desktop"]`, `SHOWN_KINDS` is still `["interactive",
+  "bg"]`, and `RawSession.kind`'s own doc pins the spelling to `interactive`,
+  `bg` or `sdk`. A Cursor adapter is not blocked by any of this — it can emit
+  those exact strings — but it has to speak Claude Code's enum spellings to be
+  rendered at all, and `"claude-desktop"` means nothing to it. Left for the
+  `Provider` trait to settle: either the app keeps injecting its own allowlist,
+  or core defines `SessionKind`/`Entrypoint` enums that each adapter maps its
+  own vocabulary onto.
 
 **Settled during phase 1.** `alerts.rs` imports only `watcher::state` and
 `watcher::task`; it derives every alert from `SessionSnapshot` and `Task`

@@ -7,8 +7,8 @@
 //! own source.
 //!
 //! Every trait below is injected into `state::snapshot` rather than called
-//! directly, matching `PidLiveness` (`liveness.rs`) and `QuestionProbe`
-//! (`question.rs`), so the state machine stays testable without a transcript
+//! directly, matching `PidLiveness` (`liveness.rs`) and `TaskProbe`
+//! (`task.rs`), so the state machine stays testable without a transcript
 //! on disk.
 //!
 //! Each trait is followed by its two doubles — a no-op for callers that do not
