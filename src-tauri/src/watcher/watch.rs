@@ -8,6 +8,7 @@ use std::time::Duration;
 use notify::{RecursiveMode, Watcher};
 use serde::Serialize;
 
+use crate::clock::now_ms;
 use crate::watcher::alerts::{diff_alerts, Alert};
 use crate::watcher::liveness::PidLiveness;
 use crate::watcher::probes::{ActivityProbe, BlockedProbe, TitleProbe, WorkProbe};
@@ -42,13 +43,6 @@ pub struct Update {
 /// draws from it runs off an absolute timestamp rather than needing to be
 /// re-sent.
 pub const USAGE_POLL: Duration = Duration::from_secs(15);
-
-pub fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
 
 /// Identity of a snapshot for change detection: everything the UI renders
 /// except the clock-derived fields. Without this, elapsed time alone would make

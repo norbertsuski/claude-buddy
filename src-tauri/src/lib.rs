@@ -2,6 +2,7 @@ pub mod about;
 pub mod autostart;
 pub mod awake;
 pub mod bridge;
+pub mod clock;
 pub mod commands;
 pub mod config;
 pub mod cursor;
