@@ -231,6 +231,20 @@ session is mid-edit in the same checkout.
 
 - Whether Cursor exposes a readable quota at all. If not, `cursor-buddy` ships
   without a usage meter, which `Option<Usage>` already allows for.
-- Whether `watcher/alerts.rs`, `blocked.rs`, `working.rs` and `question.rs`
-  (1,281 lines together) are agnostic enough to move. They interpret provider
-  signals, so the honest answer arrives while extracting, not before.
+
+**Settled during phase 1.** `alerts.rs` imports only `watcher::state` and
+`watcher::task`; it derives every alert from `SessionSnapshot` and `Task`
+alone, so it moves to `buddy-core` with them. `blocked.rs`, `working.rs` and
+`question.rs` each import `bridge::transcript` instead: `TranscriptBlocked`
+recognizes an unanswered `AskUserQuestion` in Claude Code's JSONL,
+`TranscriptWork` recognizes an in-flight tool call there, and
+`TranscriptQuestion` reads the latest assistant message out of it. All three
+interpret that transcript directly, so all three stay.
+
+`blocked.rs` and `working.rs` are not clean stays, though. Each also declares
+the trait (`BlockedProbe`, `WorkProbe`) that `state.rs` takes as a parameter.
+`state.rs` is pure and headed for core, but it currently imports both traits
+from files that are staying behind. `task.rs`/`tasks.rs` already solved this
+once: the trait moved to `task.rs` with `state.rs`, and the transcript-reading
+implementation stayed behind in `tasks.rs`. `BlockedProbe` and `WorkProbe`
+need that same split before `state.rs` can actually leave.
