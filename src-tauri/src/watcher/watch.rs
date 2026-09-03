@@ -8,10 +8,10 @@ use std::time::Duration;
 use notify::{RecursiveMode, Watcher};
 use serde::Serialize;
 
-use crate::watcher::activity::ActivityProbe;
 use crate::watcher::alerts::{diff_alerts, Alert};
 use crate::watcher::blocked::BlockedProbe;
 use crate::watcher::liveness::PidLiveness;
+use crate::watcher::probes::ActivityProbe;
 use crate::watcher::question::QuestionProbe;
 use crate::watcher::registry::read_registry_dir;
 use crate::watcher::session::RawSession;

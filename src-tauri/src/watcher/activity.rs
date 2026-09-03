@@ -1,18 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// Last time a session showed any sign of life.
-///
-/// Needed because only `cli` sessions write `status` to the registry. A
-/// `claude-desktop` session has no `status`, no `statusUpdatedAt` and no
-/// `updatedAt` at all, so age since `startedAt` is the only thing left — and
-/// that ages a session the user is actively working in into `paused`.
-///
-/// The transcript is appended on every message and every tool result, so its
-/// modification time tracks real activity closely.
-pub trait ActivityProbe {
-    fn last_activity_ms(&self, cwd: &str, session_id: &str) -> Option<i64>;
-}
+use crate::watcher::probes::ActivityProbe;
 
 /// Reads transcript modification times from disk.
 pub struct TranscriptActivity {
