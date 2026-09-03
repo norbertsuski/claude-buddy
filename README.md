@@ -49,9 +49,12 @@ background subagent goes quiet, and used to read `paused` after ten minutes —
 indistinguishable from one nobody was driving. It now reads `tasking`, and the
 collapsed pill counts it too, with a "1 on a task" chip between the working
 chip and the died chip. The popover lists what it is waiting on: each running
-task's kind, what it is, and how long it has been going. Registry jobs count
-too, so a session waiting on one of those reads the same way whether or not
-the job has a row of its own. When a task ends, a notification says which one
+task's kind, what it is, and how long it has been going — five of them, and
+then a count of the rest, because a session that fans out to a dozen subagents
+would otherwise push every other field off the panel. Registry jobs count too,
+so a session waiting on one of those reads the same way whether or not the job
+has a row of its own. A subagent counts from the moment it is launched, not
+from the moment it comes back. When a task ends, a notification says which one
 and how it went; turn that off with `alertTaskDone`. A task you kill from
 Claude Code's task list ends the row too: that kill is written only into the
 task's own output file and never into the transcript, so the file is read as
