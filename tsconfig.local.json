@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@buddy/ui": ["../buddy-ui/src/index.ts"]
+    }
+  }
+}

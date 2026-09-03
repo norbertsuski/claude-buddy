@@ -396,44 +396,59 @@ rejected pull request is a waste of your afternoon, not just the maintainer's.
 
 Enough to know which file to open. Not exhaustive.
 
-**Rust — `src-tauri/src/`**
+Since the split, most of these files live in
+[buddy-core](https://github.com/norbertsuski/buddy-core) rather than here. Clone
+it as a sibling and run `scripts/dev-core.sh on` to work against your copy
+instead of the pinned tag; `scripts/dev-core.sh off` puts it back.
+
+**Rust — this repo, `src-tauri/src/`.** What knows about Claude Code.
 
 | Path | What lives there |
 |---|---|
-| `lib.rs` | Wiring: module list, the `invoke_handler` surface, watcher spawn, tray menu, activation policy |
-| `watcher/state.rs` | **Start here.** `snapshot()` — the pure derivation of every session's state, with the clock and all probes injected |
-| `watcher/watch.rs` | The loop: FSEvents plus a 2-second reconcile tick, change filtering, and the snapshot store the frontend can fetch from |
-| `watcher/registry.rs` | Parsing `~/.claude/sessions/<pid>.json`; only modelled fields, unknown keys ignored |
-| `watcher/liveness.rs` | `kill(pid, 0)` plus `ps -o etime=`, behind the `PidLiveness` trait with a fake beside it |
-| `watcher/activity.rs`, `blocked.rs`, `question.rs` | Transcript-derived probes — last touch, blocked-on-a-question, the question's prose — each a trait with a fake |
-| `watcher/alerts.rs` | Transition diffing: alerts fire on edges between snapshots, never on states |
+| `lib.rs` | Wiring: the `invoke_handler` surface, watcher spawn, tray menu, activation policy, and `config::set_bundle_ids` before anything reads settings |
+| `watcher/watch.rs` | The loop: FSEvents plus a 2-second reconcile tick, change filtering, and mapping `RegistryFile` into core's `RawSession` |
+| `watcher/registry.rs` | Parsing `~/.claude/sessions/<pid>.json`; only modelled fields, unknown keys ignored. Holds `From<RegistryFile> for RawSession` |
+| `watcher/activity.rs`, `blocked.rs`, `working.rs`, `title.rs`, `question.rs` | The `Transcript*` implementations of core's probe traits — last touch, blocked-on-a-question, a tool call in flight, the session's title |
+| `watcher/tasks.rs` | Scanning transcripts for subagent, shell and watch tasks |
 | `commands.rs` | The `#[tauri::command]` surface plus config validation and persistence |
-| `config.rs` | `config.json` load, save and defaults; every field optional, a corrupt file falls back |
-| `notify.rs` | macOS notifications and the `should_deliver` gate that the sound setting rides on |
-| `window.rs` | The `NSPanel`: window level, Spaces behaviour, sizing, per-display positions, the settings window |
-| `notch.rs` | One main-thread AppKit probe for the notch, and pure placement arithmetic over the result |
-| `visibility.rs` | The `hideWhen` policy. Pure — it decides, the caller moves the panel |
-| `cursor.rs` | 60ms cursor sampling, hover rects, click and drag — all mouse input, since the webview receives none |
-| `usage.rs` / `usage_api.rs` | The shape and rules of the five-hour figure / fetching it from the API and finding a token |
-| `bridge/raise.rs`, `proc_tree.rs`, `transcript.rs` | Raising a session's editor via `open -b`, walking the process tree to find it, and reading transcript tails |
-| `update.rs` | The signing-key gate; with no key the updater is never registered |
+| `usage.rs` / `usage_api.rs` | The shape and rules of the five-hour figure / fetching it from the API and finding a token. Deliberately not in core: no two providers' quotas share a type |
+| `bridge/transcript.rs` | Reading Claude Code's JSONL transcript tails |
+
+**Rust — `buddy-core/src/`.** What does not.
+
+| Path | What lives there |
+|---|---|
+| `watcher/state.rs` | **Start here.** `snapshot()` — the pure derivation of every session's state, with the clock and all probes injected |
+| `watcher/session.rs` | `RawSession`: one session in terms the state machine can reason about without knowing which agent produced it |
+| `watcher/probes.rs` | The four transcript-shaped questions as traits, with their agnostic fakes. An app supplies the answers |
+| `watcher/task.rs`, `liveness.rs`, `store.rs`, `alerts.rs` | The task model and `TaskProbe`; `kill(pid, 0)` plus `ps -o etime=`; the snapshot the frontend fetches; transition diffing, which fires on edges and never on states |
+| `config.rs` | `config.json` load, save and defaults. Takes the bundle identifier from the app, because macOS keys Application Support by it |
+| `window.rs`, `notch.rs`, `cursor.rs` | The `NSPanel`; one main-thread AppKit notch probe plus placement arithmetic; 60ms cursor sampling and hit-testing, since the webview receives no mouse input |
+| `tray.rs`, `notify.rs`, `visibility.rs`, `awake.rs`, `update.rs`, `about.rs` | Tray menu; notifications and the `should_deliver` gate; the `hideWhen` policy; the sleep assertion; the signing-key gate; the about panel |
+| `bridge/raise.rs`, `proc_tree.rs` | Raising a session's editor via `open -b`, and walking the process tree to find which `.app` hosts it |
+| `clock.rs`, `rfc3339.rs` | `now_ms`, and RFC 3339 to epoch milliseconds |
 
 **Frontend — `src/`**
 
 | Path | What lives there |
 |---|---|
 | `App.tsx` | Widget or settings, chosen by the URL fragment; both windows load this bundle |
-| `types.ts` | Mirrors the Rust serialization. Change a serialized shape and you change both, together |
 | `useSessions.ts`, `useConfig.ts` | Subscribe to watcher and config events, with a fetch on mount so a quiet start is not an empty widget |
+| `settings/SettingsPanel.tsx` | The settings window, including the sound-parent behaviour |
+
+**Frontend — `buddy-ui/src/`**, imported as `@buddy/ui`.
+
+| Path | What lives there |
+|---|---|
+| `types.ts` | Mirrors core's Rust serialization. Change a serialized shape and you change both, together |
 | `useCursor.ts`, `useNotch.ts`, `useWidgetSize.ts` | Cursor pushed from Rust and hit-tested here; notch geometry in window-local px; window sizing and morph timing |
 | `views/dotRow/DotRow.tsx` | The widget. Orchestrates the collapsed pill, the named row, the popovers and the resize dance |
 | `views/dotRow/` (rest) | `CollapsedPill`, `NamedDotRow`, `SessionPopover`, `UsageMeter`/`UsagePopover`, and `NotchFlanks`/`NotchPanel`/`RowDetail` for notch mode |
-| `settings/SettingsPanel.tsx` | The settings window, including the sound-parent behaviour |
 | `format.ts` | Elapsed times, short names, state counts |
 
 The boundary between the two is enforced on purpose: Rust computes, the frontend
 renders. If you find yourself deriving session state in TypeScript, the change
-belongs in `watcher/state.rs` instead.
+belongs in buddy-core's `watcher/state.rs` instead.
 
 ## License
 

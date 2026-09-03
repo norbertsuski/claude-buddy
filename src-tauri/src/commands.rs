@@ -2,11 +2,11 @@ use std::path::Path;
 
 use tauri::{Emitter, Manager};
 
-use crate::config::{self, Config, CONFIG_EVENT};
+use buddy_core::config::{self, Config, CONFIG_EVENT};
 
 /// Reject settings that would break the widget rather than writing them.
 pub fn validate(config: &Config) -> Result<(), String> {
-    if !crate::visibility::HIDE_MODES.contains(&config.hide_when.as_str()) {
+    if !buddy_core::visibility::HIDE_MODES.contains(&config.hide_when.as_str()) {
         return Err(format!("unknown hide mode: {}", config.hide_when));
     }
     Ok(())
@@ -20,8 +20,8 @@ pub fn persist(path: &Path, config: &Config) -> Result<(), String> {
 /// Current sessions, for the frontend to fetch on mount.
 #[tauri::command]
 pub fn get_sessions(
-    store: tauri::State<'_, crate::watcher::store::SnapshotStore>,
-) -> Vec<crate::watcher::state::SessionSnapshot> {
+    store: tauri::State<'_, buddy_core::watcher::store::SnapshotStore>,
+) -> Vec<buddy_core::watcher::state::SessionSnapshot> {
     store.get()
 }
 
@@ -33,7 +33,7 @@ pub fn get_sessions(
 /// `get_sessions`.
 #[tauri::command]
 pub fn get_usage() -> Option<crate::usage::Usage> {
-    crate::usage_api::latest(crate::clock::now_ms())
+    crate::usage_api::latest(buddy_core::clock::now_ms())
 }
 
 #[tauri::command]
@@ -54,7 +54,7 @@ pub fn set_config(app: tauri::AppHandle, config: Config) -> Result<(), String> {
 
     // Applying a display choice immediately is the whole point of the setting.
     if let Some(widget) = app.get_webview_window("widget") {
-        crate::window::restore_position(&widget);
+        buddy_core::window::restore_position(&widget);
     }
 
     let manager = app.autolaunch();
@@ -78,7 +78,7 @@ mod tests {
 
         persist(&path, &config).unwrap();
 
-        assert_eq!(crate::config::load(&path), config);
+        assert_eq!(buddy_core::config::load(&path), config);
         std::fs::remove_file(&path).unwrap();
     }
 
@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn accepts_every_hide_mode() {
-        for mode in crate::visibility::HIDE_MODES {
+        for mode in buddy_core::visibility::HIDE_MODES {
             let mut config = Config::default();
             config.hide_when = mode.into();
             assert!(validate(&config).is_ok(), "{mode} should be valid");

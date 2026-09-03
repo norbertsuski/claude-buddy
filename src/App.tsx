@@ -2,8 +2,8 @@ import { useEffect } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useConfig } from './useConfig'
 import { useSessions } from './useSessions'
-import { DotRow } from './views/dotRow/DotRow'
-import { NotchFlanks } from './views/dotRow/NotchFlanks'
+import { DotRow } from '@buddy/ui'
+import { NotchFlanks } from '@buddy/ui'
 import { SettingsPanel } from './settings/SettingsPanel'
 
 /** The settings window loads the same bundle with this fragment. */

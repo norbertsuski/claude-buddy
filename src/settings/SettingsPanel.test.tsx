@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CONFIG_EVENT, type AppConfig } from '../types'
+import { CONFIG_EVENT, type AppConfig } from '@buddy/ui'
 
 const invoke = vi.fn()
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }))

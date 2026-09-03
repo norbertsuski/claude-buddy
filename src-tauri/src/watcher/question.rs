@@ -81,11 +81,11 @@ impl QuestionProbe for FakeQuestion {
 ///
 /// The registry's `waitingFor` stands when the transcript yields nothing.
 pub fn enrich_alerts(
-    alerts: &mut [crate::watcher::alerts::Alert],
-    sessions: &[crate::watcher::state::SessionSnapshot],
+    alerts: &mut [buddy_core::watcher::alerts::Alert],
+    sessions: &[buddy_core::watcher::state::SessionSnapshot],
     probe: &dyn QuestionProbe,
 ) {
-    use crate::watcher::alerts::AlertKind;
+    use buddy_core::watcher::alerts::AlertKind;
 
     for alert in alerts.iter_mut() {
         if alert.kind != AlertKind::NeedsInput {
@@ -103,8 +103,8 @@ pub fn enrich_alerts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::watcher::alerts::{Alert, AlertKind};
-    use crate::watcher::state::{SessionSnapshot, SessionState};
+    use buddy_core::watcher::alerts::{Alert, AlertKind};
+    use buddy_core::watcher::state::{SessionSnapshot, SessionState};
 
     fn session(id: &str) -> SessionSnapshot {
         SessionSnapshot {

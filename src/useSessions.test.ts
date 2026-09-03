@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Update } from './types'
+import type { Update } from '@buddy/ui'
 
 const listeners = new Map<string, (event: { payload: unknown }) => void>()
 const unlisten = vi.fn()

@@ -222,6 +222,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "buddy-core"
+version = "0.1.0"
+source = "git+https://github.com/norbertsuski/buddy-core?tag=v0.1.0#7ed197bf72e4e947c577645200327250c1a9538d"
+dependencies = [
+ "anyhow",
+ "core-foundation 0.10.1",
+ "core-graphics 0.24.0",
+ "dirs 5.0.1",
+ "libc",
+ "mac-notification-sys",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "plist",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-nspanel",
+ "tauri-plugin-autostart",
+ "tauri-plugin-updater",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -394,16 +417,12 @@ name = "claude-buddy"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "core-foundation 0.10.1",
- "core-graphics 0.24.0",
+ "buddy-core",
  "dirs 5.0.1",
  "libc",
- "mac-notification-sys",
  "notify",
- "objc2",
  "objc2-app-kit",
  "objc2-foundation",
- "plist",
  "reqwest",
  "serde",
  "serde_json",

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::watcher::session::RawSession;
+use buddy_core::watcher::session::RawSession;
 
 /// One `~/.claude/sessions/<pid>.json` record.
 ///

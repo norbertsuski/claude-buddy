@@ -91,8 +91,8 @@ pub fn start() {
             // without a restart and showing it again resumes them. Tied to the
             // meter's own setting: a figure nobody is being shown is not worth
             // a request, and a shown figure is not worth having stale.
-            if crate::config::cached().show_usage && !fixture_mode() {
-                if let Some(usage) = fetch(crate::clock::now_ms()) {
+            if buddy_core::config::cached().show_usage && !fixture_mode() {
+                if let Some(usage) = fetch(buddy_core::clock::now_ms()) {
                     if let Ok(mut slot) = live().lock() {
                         *slot = Some(usage);
                     }
@@ -208,7 +208,7 @@ fn token_from_json(bytes: &[u8]) -> Option<String> {
     // A missing expiry is not treated as expired: it is a field of someone
     // else's file, and its absence says nothing about the token.
     if let Some(expires_at) = oauth.get("expiresAt").and_then(|v| v.as_i64()) {
-        if expires_at <= crate::clock::now_ms() {
+        if expires_at <= buddy_core::clock::now_ms() {
             return None;
         }
     }
@@ -220,7 +220,7 @@ mod tests {
     use super::*;
 
     fn future_ms() -> i64 {
-        crate::clock::now_ms() + 3_600_000
+        buddy_core::clock::now_ms() + 3_600_000
     }
 
     #[test]
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn a_response_body_parses_as_a_utilization_object() {
-        let now = crate::clock::now_ms();
+        let now = buddy_core::clock::now_ms();
         let body: serde_json::Value = serde_json::from_str(
             r#"{"five_hour":{"utilization":42.4,"resets_at":"2099-01-01T00:00:00Z"},
                 "seven_day":{"utilization":10.0,"resets_at":"2099-01-01T00:00:00Z"}}"#,

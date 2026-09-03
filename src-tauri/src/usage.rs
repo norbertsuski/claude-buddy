@@ -103,7 +103,7 @@ pub fn parse_utilization(utilization: &serde_json::Value, now_ms: i64) -> Option
     }
     let percent = percent.round().clamp(0.0, 100.0) as u8;
 
-    let resets_at_ms = crate::rfc3339::epoch_ms(five_hour.get("resets_at")?.as_str()?)?;
+    let resets_at_ms = buddy_core::rfc3339::epoch_ms(five_hour.get("resets_at")?.as_str()?)?;
     // A window that has already reset says nothing about the one now running.
     if resets_at_ms <= now_ms {
         return None;

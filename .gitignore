@@ -5,3 +5,6 @@ dist/
 src-tauri/target/
 src-tauri/gen/
 dist-dmg/
+
+# Local-development override: points buddy-core at a sibling clone.
+src-tauri/.cargo/config.toml

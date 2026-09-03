@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use crate::watcher::probes::WorkProbe;
+use buddy_core::watcher::probes::WorkProbe;
 
 /// Reads the pending tool call from the session transcript.
 ///

@@ -21,9 +21,12 @@
     "tauri": "tauri",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dmg": "./scripts/make-dmg.sh"
+    "dmg": "./scripts/make-dmg.sh",
+    "typecheck:local": "tsc -p tsconfig.local.json --noEmit",
+    "dev:local": "BUDDY_UI_LOCAL=1 npm run tauri dev"
   },
   "dependencies": {
+    "@buddy/ui": "github:norbertsuski/buddy-ui#v0.1.1",
     "@tauri-apps/api": "^2.1.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

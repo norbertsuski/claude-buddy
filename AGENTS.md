@@ -65,7 +65,16 @@ not work.
 
 ## Where to look first
 
-`src-tauri/src/watcher/state.rs` — `snapshot()` derives every session state and
+Since the split, the widget's provider-agnostic half lives in
+[buddy-core](https://github.com/norbertsuski/buddy-core) and its shared React
+surface in [buddy-ui](https://github.com/norbertsuski/buddy-ui), both consumed
+as tag-pinned git dependencies. What stays here is what knows about Claude Code
+specifically: the registry reader, the transcript parsing, the title and task
+probes, the usage meter, and the watcher loop that wires them together.
+
+So the file below is in buddy-core now, not this repo — clone it as a sibling
+and run `scripts/dev-core.sh` to work against it. `buddy-core/src/watcher/state.rs`
+— `snapshot()` derives every session state and
 transition. It is pure, with the clock, pid liveness and transcript activity
 injected as traits that each have a fake beside the real one, so almost every
 behaviour question resolves there and almost every new test belongs there.
