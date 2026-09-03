@@ -16,7 +16,7 @@ use crate::watcher::question::QuestionProbe;
 use crate::watcher::registry::read_registry_dir;
 use crate::watcher::session::RawSession;
 use crate::watcher::state::{snapshot, SessionSnapshot, SessionState};
-use crate::watcher::tasks::{TaskProbe, TaskStatus};
+use crate::watcher::task::{TaskProbe, TaskStatus};
 use crate::watcher::title::TitleProbe;
 use crate::watcher::working::WorkProbe;
 
@@ -248,7 +248,8 @@ mod tests {
     use crate::watcher::liveness::FakeLiveness;
     use crate::watcher::question::{FakeQuestion, NoQuestion};
     use crate::watcher::state::{SessionState, PAUSED_THRESHOLD_MS};
-    use crate::watcher::tasks::{NoTasks, Task, TaskKind, TaskStatus};
+    use crate::watcher::task::{Task, TaskKind, TaskStatus};
+    use crate::watcher::tasks::NoTasks;
     use crate::watcher::title::NoTitle;
     use crate::watcher::working::NoWork;
 

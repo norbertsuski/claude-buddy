@@ -6,7 +6,7 @@ use crate::watcher::activity::ActivityProbe;
 use crate::watcher::blocked::BlockedProbe;
 use crate::watcher::liveness::PidLiveness;
 use crate::watcher::session::RawSession;
-use crate::watcher::tasks::{Task, TaskKind, TaskProbe, TaskStatus};
+use crate::watcher::task::{Task, TaskKind, TaskProbe, TaskStatus};
 use crate::watcher::title::TitleProbe;
 use crate::watcher::working::WorkProbe;
 
@@ -1897,26 +1897,26 @@ mod tests {
         assert_eq!(json["elapsedMs"], 60_000);
     }
 
-    fn running_task(id: &str) -> crate::watcher::tasks::Task {
-        crate::watcher::tasks::Task {
+    fn running_task(id: &str) -> crate::watcher::task::Task {
+        crate::watcher::task::Task {
             id: id.to_string(),
-            kind: crate::watcher::tasks::TaskKind::Shell,
+            kind: crate::watcher::task::TaskKind::Shell,
             label: Some(format!("run {id}")),
             started_at_ms: NOW - 30_000,
             ended_at_ms: None,
-            status: crate::watcher::tasks::TaskStatus::Running,
+            status: crate::watcher::task::TaskStatus::Running,
             output: None,
         }
     }
 
-    fn finished_task(id: &str, ended_at_ms: i64) -> crate::watcher::tasks::Task {
-        crate::watcher::tasks::Task {
+    fn finished_task(id: &str, ended_at_ms: i64) -> crate::watcher::task::Task {
+        crate::watcher::task::Task {
             id: id.to_string(),
-            kind: crate::watcher::tasks::TaskKind::Shell,
+            kind: crate::watcher::task::TaskKind::Shell,
             label: Some(format!("{id} done")),
             started_at_ms: NOW - 60_000,
             ended_at_ms: Some(ended_at_ms),
-            status: crate::watcher::tasks::TaskStatus::Completed,
+            status: crate::watcher::task::TaskStatus::Completed,
             output: None,
         }
     }
@@ -2124,7 +2124,7 @@ mod tests {
         let session = out.iter().find(|s| !s.background).expect("parent shown");
         assert_eq!(session.state, SessionState::Tasking);
         assert_eq!(session.tasks.len(), 1);
-        assert_eq!(session.tasks[0].kind, crate::watcher::tasks::TaskKind::Job);
+        assert_eq!(session.tasks[0].kind, crate::watcher::task::TaskKind::Job);
         assert_eq!(session.tasks[0].label.as_deref(), Some("migrate-schemas"));
     }
 
@@ -2171,7 +2171,7 @@ mod tests {
             .map(|s| {
                 s.tasks
                     .iter()
-                    .filter(|t| t.kind == crate::watcher::tasks::TaskKind::Job)
+                    .filter(|t| t.kind == crate::watcher::task::TaskKind::Job)
                     .count()
             })
             .sum();
