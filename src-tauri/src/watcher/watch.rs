@@ -14,6 +14,7 @@ use crate::watcher::blocked::BlockedProbe;
 use crate::watcher::liveness::PidLiveness;
 use crate::watcher::question::QuestionProbe;
 use crate::watcher::registry::read_registry_dir;
+use crate::watcher::session::RawSession;
 use crate::watcher::state::{snapshot, SessionSnapshot, SessionState};
 use crate::watcher::tasks::{TaskProbe, TaskStatus};
 use crate::watcher::title::TitleProbe;
@@ -168,7 +169,10 @@ pub fn spawn_watcher(
             let settings = crate::config::cached();
             let now = now_ms();
             let result = snapshot(
-                &read_registry_dir(&dir),
+                &read_registry_dir(&dir)
+                    .into_iter()
+                    .map(RawSession::from)
+                    .collect::<Vec<_>>(),
                 liveness.as_ref(),
                 activity.as_ref(),
                 blocked.as_ref(),

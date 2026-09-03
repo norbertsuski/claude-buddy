@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::watcher::activity::ActivityProbe;
 use crate::watcher::blocked::BlockedProbe;
 use crate::watcher::liveness::PidLiveness;
-use crate::watcher::registry::RegistryFile;
+use crate::watcher::session::RawSession;
 use crate::watcher::tasks::{Task, TaskKind, TaskProbe, TaskStatus};
 use crate::watcher::title::TitleProbe;
 use crate::watcher::working::WorkProbe;
@@ -122,7 +122,7 @@ fn age(now_ms: i64, then_ms: i64) -> i64 {
     (now_ms - then_ms).max(0)
 }
 
-fn display_name(file: &RegistryFile) -> String {
+fn display_name(file: &RawSession) -> String {
     if let Some(name) = file.name.as_deref().filter(|n| !n.is_empty()) {
         return name.to_string();
     }
@@ -146,7 +146,7 @@ pub struct SnapshotResult {
 }
 
 /// Whether the user could reach this entry at all.
-fn allowed_entrypoint(file: &RegistryFile) -> bool {
+fn allowed_entrypoint(file: &RawSession) -> bool {
     file.entrypoint
         .as_deref()
         .is_some_and(|e| ALLOWED_ENTRYPOINTS.contains(&e))
@@ -155,7 +155,7 @@ fn allowed_entrypoint(file: &RegistryFile) -> bool {
 /// Whether this entry is a session in its own right: reachable, a shown kind,
 /// and not a background job. The `snapshot` filter is this plus
 /// `show_background_jobs`, which governs job rows only.
-fn is_own_session(file: &RegistryFile) -> bool {
+fn is_own_session(file: &RawSession) -> bool {
     allowed_entrypoint(file) && is_shown(file.kind.as_deref(), file.job_id.as_deref(), false)
 }
 
@@ -165,7 +165,7 @@ fn is_own_session(file: &RegistryFile) -> bool {
 /// `group_jobs_with_parents` puts the job's *row* under: folding the job on
 /// makes this one `Tasking`, which outranks the `Idle` or `Paused` the others
 /// in the directory keep, so it sorts ahead of them.
-fn job_parent<'a>(files: &'a [RegistryFile], cwd: &str) -> Option<&'a RegistryFile> {
+fn job_parent<'a>(files: &'a [RawSession], cwd: &str) -> Option<&'a RawSession> {
     files
         .iter()
         .filter(|f| is_own_session(f) && f.cwd == cwd)
@@ -186,7 +186,7 @@ fn job_parent<'a>(files: &'a [RegistryFile], cwd: &str) -> Option<&'a RegistryFi
 /// applies at both ends, so an `sdk-cli` plugin's job cannot reach a `cli`
 /// session's task list.
 fn job_tasks(
-    files: &[RegistryFile],
+    files: &[RawSession],
     liveness: &dyn PidLiveness,
     now_ms: i64,
 ) -> HashMap<String, Vec<Task>> {
@@ -242,7 +242,7 @@ fn task_detail(tasks: &[Task]) -> String {
 // keeping this function pure and its whole state machine testable.
 #[allow(clippy::too_many_arguments)]
 pub fn snapshot(
-    files: &[RegistryFile],
+    files: &[RawSession],
     liveness: &dyn PidLiveness,
     activity: &dyn ActivityProbe,
     blocked: &dyn BlockedProbe,
@@ -447,7 +447,6 @@ mod tests {
     use crate::watcher::activity::{FakeActivity, NoActivity};
     use crate::watcher::blocked::{FakeBlocked, NoBlocked};
     use crate::watcher::liveness::FakeLiveness;
-    use crate::watcher::registry::RegistryFile;
     use crate::watcher::tasks::{FakeTasks, NoTasks};
     use crate::watcher::title::{FakeTitle, NoTitle};
     use crate::watcher::working::{FakeWork, NoWork};
@@ -455,8 +454,8 @@ mod tests {
     const NOW: i64 = 1_787_662_300_000;
     const START: &str = "Tue Aug 25 05:53:49 2026";
 
-    fn file(pid: i32, entrypoint: &str) -> RegistryFile {
-        RegistryFile {
+    fn file(pid: i32, entrypoint: &str) -> RawSession {
+        RawSession {
             pid,
             session_id: format!("session-{pid}"),
             cwd: format!("/Users/n/Code/project-{pid}"),
@@ -876,7 +875,7 @@ mod tests {
         assert_eq!(out.iter().map(|s| s.pid).collect::<Vec<_>>(), vec![1, 3]);
     }
 
-    fn job(pid: i32) -> RegistryFile {
+    fn job(pid: i32) -> RawSession {
         let mut f = file(pid, "cli");
         f.kind = Some("bg".into());
         f.job_id = Some(format!("job-{pid}"));
