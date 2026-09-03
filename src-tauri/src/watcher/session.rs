@@ -1,12 +1,15 @@
 /// One session, in terms the state machine can reason about without knowing
 /// which agent produced it.
 ///
-/// This is deliberately the same twelve fields `RegistryFile` carries, because
-/// `snapshot()` reads all twelve. The difference is that nothing here is tied
-/// to one provider's file format: `RegistryFile` owns the serde spelling of
-/// Claude Code's `~/.claude/sessions/<pid>.json`, and a second provider maps
-/// its own source onto `RawSession` instead of being forced through that
-/// schema.
+/// This is deliberately the same twelve fields `RegistryFile` carries, even
+/// though `snapshot()` reads only eleven of them in production. The twelfth,
+/// `proc_start`, is carried anyway so the record stays a faithful picture of
+/// a session rather than of one state machine's current appetite — the same
+/// reasoning the field's own doc comment gives. The difference from
+/// `RegistryFile` is that nothing here is tied to one provider's file format:
+/// `RegistryFile` owns the serde spelling of Claude Code's
+/// `~/.claude/sessions/<pid>.json`, and a second provider maps its own source
+/// onto `RawSession` instead of being forced through that schema.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RawSession {
     pub pid: i32,

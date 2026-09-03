@@ -119,11 +119,11 @@ fn age(now_ms: i64, then_ms: i64) -> i64 {
     (now_ms - then_ms).max(0)
 }
 
-fn display_name(file: &RawSession) -> String {
-    if let Some(name) = file.name.as_deref().filter(|n| !n.is_empty()) {
+fn display_name(session: &RawSession) -> String {
+    if let Some(name) = session.name.as_deref().filter(|n| !n.is_empty()) {
         return name.to_string();
     }
-    std::path::Path::new(&file.cwd)
+    std::path::Path::new(&session.cwd)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown")
@@ -143,8 +143,9 @@ pub struct SnapshotResult {
 }
 
 /// Whether the user could reach this entry at all.
-fn allowed_entrypoint(file: &RawSession) -> bool {
-    file.entrypoint
+fn allowed_entrypoint(session: &RawSession) -> bool {
+    session
+        .entrypoint
         .as_deref()
         .is_some_and(|e| ALLOWED_ENTRYPOINTS.contains(&e))
 }
@@ -152,8 +153,9 @@ fn allowed_entrypoint(file: &RawSession) -> bool {
 /// Whether this entry is a session in its own right: reachable, a shown kind,
 /// and not a background job. The `snapshot` filter is this plus
 /// `show_background_jobs`, which governs job rows only.
-fn is_own_session(file: &RawSession) -> bool {
-    allowed_entrypoint(file) && is_shown(file.kind.as_deref(), file.job_id.as_deref(), false)
+fn is_own_session(session: &RawSession) -> bool {
+    allowed_entrypoint(session)
+        && is_shown(session.kind.as_deref(), session.job_id.as_deref(), false)
 }
 
 /// Which session in a directory a job belongs to.
@@ -162,8 +164,8 @@ fn is_own_session(file: &RawSession) -> bool {
 /// `group_jobs_with_parents` puts the job's *row* under: folding the job on
 /// makes this one `Tasking`, which outranks the `Idle` or `Paused` the others
 /// in the directory keep, so it sorts ahead of them.
-fn job_parent<'a>(files: &'a [RawSession], cwd: &str) -> Option<&'a RawSession> {
-    files
+fn job_parent<'a>(sessions: &'a [RawSession], cwd: &str) -> Option<&'a RawSession> {
+    sessions
         .iter()
         .filter(|f| is_own_session(f) && f.cwd == cwd)
         .min_by_key(|f| (f.started_at, f.pid))
@@ -183,26 +185,26 @@ fn job_parent<'a>(files: &'a [RawSession], cwd: &str) -> Option<&'a RawSession> 
 /// allowlist still applies at both ends, so an `sdk-cli` plugin's job cannot
 /// reach a `cli` session's task list.
 fn job_tasks(
-    files: &[RawSession],
+    sessions: &[RawSession],
     liveness: &dyn PidLiveness,
     now_ms: i64,
 ) -> HashMap<String, Vec<Task>> {
     let mut out: HashMap<String, Vec<Task>> = HashMap::new();
-    for file in files.iter().filter(|f| {
+    for session in sessions.iter().filter(|f| {
         allowed_entrypoint(f)
             && is_background_job(f.kind.as_deref(), f.job_id.as_deref())
             && liveness.is_alive(f.pid, Some(f.started_at), now_ms)
     }) {
-        let Some(parent) = job_parent(files, &file.cwd) else {
+        let Some(parent) = job_parent(sessions, &session.cwd) else {
             continue;
         };
         out.entry(parent.session_id.clone())
             .or_default()
             .push(Task {
-                id: file.job_id.clone().unwrap_or_default(),
+                id: session.job_id.clone().unwrap_or_default(),
                 kind: TaskKind::Job,
-                label: Some(display_name(file)),
-                started_at_ms: file.started_at,
+                label: Some(display_name(session)),
+                started_at_ms: session.started_at,
                 ended_at_ms: None,
                 status: TaskStatus::Running,
                 // A job is a process, not a shell the session launched: it
@@ -450,7 +452,7 @@ mod tests {
     const NOW: i64 = 1_787_662_300_000;
     const START: &str = "Tue Aug 25 05:53:49 2026";
 
-    fn file(pid: i32, entrypoint: &str) -> RawSession {
+    fn session(pid: i32, entrypoint: &str) -> RawSession {
         RawSession {
             pid,
             session_id: format!("session-{pid}"),
@@ -473,7 +475,7 @@ mod tests {
 
     #[test]
     fn waiting_status_yields_waiting_with_detail() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status = Some("waiting".into());
         f.waiting_for = Some("input needed".into());
         f.status_updated_at = Some(NOW - 6 * 60_000);
@@ -501,7 +503,7 @@ mod tests {
 
     #[test]
     fn busy_status_yields_busy_with_no_detail() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status = Some("busy".into());
         f.status_updated_at = Some(NOW - 3 * 60_000);
 
@@ -526,7 +528,7 @@ mod tests {
 
     #[test]
     fn absent_status_within_threshold_yields_idle() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status_updated_at = Some(NOW - 60_000);
         assert_eq!(
             snapshot(
@@ -550,7 +552,7 @@ mod tests {
 
     #[test]
     fn idle_status_word_is_treated_as_idle() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status = Some("idle".into());
         f.status_updated_at = Some(NOW - 60_000);
         assert_eq!(
@@ -575,7 +577,7 @@ mod tests {
 
     #[test]
     fn running_status_word_is_treated_as_idle() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status = Some("running".into());
         f.status_updated_at = Some(NOW - 60_000);
         assert_eq!(
@@ -600,7 +602,7 @@ mod tests {
 
     #[test]
     fn idle_past_threshold_yields_paused() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status_updated_at = Some(NOW - 11 * 60_000);
         assert_eq!(
             snapshot(
@@ -624,7 +626,7 @@ mod tests {
 
     #[test]
     fn paused_boundary_is_inclusive() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status_updated_at = Some(NOW - PAUSED_THRESHOLD_MS);
         assert_eq!(
             snapshot(
@@ -648,7 +650,7 @@ mod tests {
 
     #[test]
     fn busy_never_becomes_paused_however_stale() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status = Some("busy".into());
         f.status_updated_at = Some(NOW - 60 * 60_000);
         assert_eq!(
@@ -673,7 +675,7 @@ mod tests {
 
     #[test]
     fn waiting_never_becomes_paused_however_stale() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status = Some("waiting".into());
         f.waiting_for = Some("input needed".into());
         f.status_updated_at = Some(NOW - 60 * 60_000);
@@ -699,7 +701,7 @@ mod tests {
 
     #[test]
     fn dead_process_yields_dead_regardless_of_status() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status = Some("busy".into());
         let out = snapshot(
             &[f],
@@ -722,7 +724,7 @@ mod tests {
     fn a_statusless_session_running_a_tool_is_busy_past_the_busy_window() {
         // The mtime blind spot: a long tool call appends nothing until it
         // finishes, so the transcript looks as quiet as an abandoned session.
-        let f = file(1, "claude-desktop");
+        let f = session(1, "claude-desktop");
         let activity = FakeActivity::new().with("session-1", NOW - 4 * 60_000);
 
         let out = snapshot(
@@ -745,7 +747,7 @@ mod tests {
 
     #[test]
     fn a_quiet_statusless_session_running_nothing_is_still_idle() {
-        let f = file(1, "claude-desktop");
+        let f = session(1, "claude-desktop");
         let activity = FakeActivity::new().with("session-1", NOW - 4 * 60_000);
 
         let out = snapshot(
@@ -770,7 +772,7 @@ mod tests {
     fn a_tool_call_left_unanswered_past_the_paused_threshold_still_pauses() {
         // An interrupted turn leaves its call unanswered for good. Without the
         // ceiling that session would read busy until it exits.
-        let f = file(1, "claude-desktop");
+        let f = session(1, "claude-desktop");
         let activity = FakeActivity::new().with("session-1", NOW - 30 * 60_000);
 
         let out = snapshot(
@@ -793,7 +795,7 @@ mod tests {
 
     #[test]
     fn a_pending_question_outranks_a_tool_call_in_flight() {
-        let f = file(1, "claude-desktop");
+        let f = session(1, "claude-desktop");
         let activity = FakeActivity::new().with("session-1", NOW - 4 * 60_000);
 
         let out = snapshot(
@@ -819,7 +821,7 @@ mod tests {
     fn a_reported_status_is_not_overridden_by_a_tool_call_in_flight() {
         // Sessions that report status are believed: what they say beats what
         // the transcript implies.
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status = Some("waiting".into());
         f.status_updated_at = Some(NOW - 4 * 60_000);
 
@@ -844,9 +846,9 @@ mod tests {
     #[test]
     fn sdk_cli_sessions_are_filtered_out() {
         let files = vec![
-            file(1, "cli"),
-            file(2, "sdk-cli"),
-            file(3, "claude-desktop"),
+            session(1, "cli"),
+            session(2, "sdk-cli"),
+            session(3, "claude-desktop"),
         ];
         let live = FakeLiveness::new()
             .with_alive_any_start(1)
@@ -872,7 +874,7 @@ mod tests {
     }
 
     fn job(pid: i32) -> RawSession {
-        let mut f = file(pid, "cli");
+        let mut f = session(pid, "cli");
         f.kind = Some("bg".into());
         f.job_id = Some(format!("job-{pid}"));
         f
@@ -882,9 +884,9 @@ mod tests {
     fn a_job_follows_the_session_it_belongs_to() {
         // Two sessions, and a job whose cwd matches the second one. State
         // ordering alone would not put it there.
-        let mut first = file(1, "cli");
+        let mut first = session(1, "cli");
         first.status = Some("waiting".into());
-        let mut second = file(2, "cli");
+        let mut second = session(2, "cli");
         second.status = Some("busy".into());
         let mut owned = job(3);
         owned.cwd = second.cwd.clone();
@@ -921,7 +923,7 @@ mod tests {
             .with_alive_any_start(1)
             .with_alive_any_start(9);
         let out = snapshot(
-            &[orphan, file(1, "cli")],
+            &[orphan, session(1, "cli")],
             &live,
             &NoActivity,
             &NoBlocked,
@@ -942,7 +944,7 @@ mod tests {
     fn several_jobs_under_one_session_stay_together() {
         let mut a = job(3);
         let mut b = job(4);
-        let parent = file(1, "cli");
+        let parent = session(1, "cli");
         a.cwd = parent.cwd.clone();
         b.cwd = parent.cwd.clone();
 
@@ -975,7 +977,7 @@ mod tests {
             .with_alive_any_start(2);
 
         let out = snapshot(
-            &[job(1), file(2, "cli")],
+            &[job(1), session(2, "cli")],
             &live,
             &NoActivity,
             &NoBlocked,
@@ -995,7 +997,7 @@ mod tests {
     #[test]
     fn a_session_is_never_marked_background() {
         let out = snapshot(
-            &[file(1, "cli")],
+            &[session(1, "cli")],
             &alive(1),
             &NoActivity,
             &NoBlocked,
@@ -1013,7 +1015,7 @@ mod tests {
 
     #[test]
     fn a_background_entry_without_a_job_id_is_kept() {
-        let mut bg = file(1, "cli");
+        let mut bg = session(1, "cli");
         bg.kind = Some("bg".into());
         assert_eq!(
             snapshot(
@@ -1037,7 +1039,7 @@ mod tests {
 
     #[test]
     fn sdk_kind_entries_are_filtered_out() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.kind = Some("sdk".into());
         assert!(snapshot(
             &[f],
@@ -1058,7 +1060,7 @@ mod tests {
 
     #[test]
     fn sessions_with_no_kind_are_filtered_out() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.kind = None;
         assert!(snapshot(
             &[f],
@@ -1079,7 +1081,7 @@ mod tests {
 
     #[test]
     fn sessions_with_no_entrypoint_are_filtered_out() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.entrypoint = None;
         assert!(snapshot(
             &[f],
@@ -1100,7 +1102,7 @@ mod tests {
 
     #[test]
     fn elapsed_falls_back_to_started_at_when_status_time_is_absent() {
-        let f = file(1, "cli");
+        let f = session(1, "cli");
         let out = snapshot(
             &[f],
             &alive(1),
@@ -1122,7 +1124,7 @@ mod tests {
     #[test]
     fn future_timestamps_clamp_elapsed_to_zero() {
         // Clock skew must not render as a negative age.
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status_updated_at = Some(NOW + 3 * 60_000);
         let out = snapshot(
             &[f],
@@ -1144,7 +1146,7 @@ mod tests {
 
     #[test]
     fn missing_name_falls_back_to_the_cwd_basename() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.name = None;
         assert_eq!(
             snapshot(
@@ -1168,7 +1170,7 @@ mod tests {
 
     #[test]
     fn a_titled_session_carries_its_title() {
-        let f = file(1, "cli");
+        let f = session(1, "cli");
         let session_id = f.session_id.clone();
         let out = snapshot(
             &[f],
@@ -1194,7 +1196,7 @@ mod tests {
     #[test]
     fn an_untitled_session_has_no_title() {
         let out = snapshot(
-            &[file(1, "cli")],
+            &[session(1, "cli")],
             &alive(1),
             &NoActivity,
             &NoBlocked,
@@ -1213,14 +1215,14 @@ mod tests {
 
     #[test]
     fn ordering_is_waiting_then_busy_then_idle_then_paused_then_dead() {
-        let mut waiting = file(10, "cli");
+        let mut waiting = session(10, "cli");
         waiting.status = Some("waiting".into());
-        let mut busy = file(20, "cli");
+        let mut busy = session(20, "cli");
         busy.status = Some("busy".into());
-        let idle = file(30, "cli");
-        let mut paused = file(40, "cli");
+        let idle = session(30, "cli");
+        let mut paused = session(40, "cli");
         paused.status_updated_at = Some(NOW - 30 * 60_000);
-        let dead = file(50, "cli");
+        let dead = session(50, "cli");
 
         let live = FakeLiveness::new()
             .with_alive_any_start(10)
@@ -1252,10 +1254,10 @@ mod tests {
     #[test]
     fn same_state_sessions_order_by_start_time_oldest_first() {
         // Pin status time so both stay Idle; only session age differs.
-        let mut older = file(10, "cli");
+        let mut older = session(10, "cli");
         older.started_at = NOW - 600_000;
         older.status_updated_at = Some(NOW - 30_000);
-        let mut newer = file(20, "cli");
+        let mut newer = session(20, "cli");
         newer.started_at = NOW - 60_000;
         newer.status_updated_at = Some(NOW - 30_000);
 
@@ -1286,7 +1288,7 @@ mod tests {
         // `ps -o lstart=` prints. Comparing those strings marked every live
         // session dead, and dead-retention then dropped them all, so the widget
         // rendered "no sessions" with three sessions running.
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.proc_start = Some("Tue Aug 25 03:53:49 2026".into());
         f.status = Some("busy".into());
 
@@ -1313,7 +1315,7 @@ mod tests {
     fn a_statusless_session_with_fresh_transcript_writes_is_busy() {
         // Regression: only cli sessions report status, so a claude-desktop
         // session the user was actively working in aged into `paused`.
-        let f = file(1, "claude-desktop");
+        let f = session(1, "claude-desktop");
         let probe = FakeActivity::new().with("session-1", NOW - 2_000);
 
         let out = snapshot(
@@ -1337,7 +1339,7 @@ mod tests {
 
     #[test]
     fn a_statusless_session_quiet_for_a_while_is_idle() {
-        let f = file(1, "claude-desktop");
+        let f = session(1, "claude-desktop");
         let probe = FakeActivity::new().with("session-1", NOW - 5 * 60_000);
 
         let out = snapshot(
@@ -1360,7 +1362,7 @@ mod tests {
 
     #[test]
     fn a_statusless_session_quiet_past_the_threshold_is_paused() {
-        let f = file(1, "claude-desktop");
+        let f = session(1, "claude-desktop");
         let probe = FakeActivity::new().with("session-1", NOW - 20 * 60_000);
 
         assert_eq!(
@@ -1385,7 +1387,7 @@ mod tests {
 
     #[test]
     fn a_statusless_session_with_no_transcript_falls_back_to_session_age() {
-        let f = file(1, "claude-desktop");
+        let f = session(1, "claude-desktop");
 
         let out = snapshot(
             &[f],
@@ -1410,7 +1412,7 @@ mod tests {
     fn a_reported_status_beats_transcript_activity() {
         // A cli session that says it is waiting stays waiting even though its
         // transcript was just written.
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status = Some("waiting".into());
         f.waiting_for = Some("input needed".into());
         f.status_updated_at = Some(NOW - 4 * 60_000);
@@ -1440,7 +1442,7 @@ mod tests {
         // Regression: Claude Desktop writes no status, statusUpdatedAt or
         // waitingFor at all, so a session blocked on AskUserQuestion read as
         // idle — grey — while it was in fact waiting on the user.
-        let f = file(1, "claude-desktop");
+        let f = session(1, "claude-desktop");
         let activity = FakeActivity::new().with("session-1", NOW - 3 * 60_000);
         let blocked = FakeBlocked::new().with("session-1", "question pending");
 
@@ -1466,7 +1468,7 @@ mod tests {
     #[test]
     fn a_pending_prompt_beats_a_fresh_transcript() {
         // A transcript touched seconds ago would otherwise read as busy.
-        let f = file(1, "claude-desktop");
+        let f = session(1, "claude-desktop");
         let activity = FakeActivity::new().with("session-1", NOW - 2_000);
         let blocked = FakeBlocked::new().with("session-1", "plan approval");
 
@@ -1491,7 +1493,7 @@ mod tests {
 
     #[test]
     fn a_pending_prompt_beats_a_stale_transcript() {
-        let f = file(1, "claude-desktop");
+        let f = session(1, "claude-desktop");
         let activity = FakeActivity::new().with("session-1", NOW - 30 * 60_000);
         let blocked = FakeBlocked::new().with("session-1", "question pending");
 
@@ -1522,7 +1524,7 @@ mod tests {
         let busy = FakeActivity::new().with("session-1", NOW - 2_000);
         assert_eq!(
             snapshot(
-                &[file(1, "claude-desktop")],
+                &[session(1, "claude-desktop")],
                 &alive(1),
                 &busy,
                 &quiet,
@@ -1542,7 +1544,7 @@ mod tests {
         let idle = FakeActivity::new().with("session-1", NOW - 5 * 60_000);
         assert_eq!(
             snapshot(
-                &[file(1, "claude-desktop")],
+                &[session(1, "claude-desktop")],
                 &alive(1),
                 &idle,
                 &quiet,
@@ -1562,7 +1564,7 @@ mod tests {
         let paused = FakeActivity::new().with("session-1", NOW - 20 * 60_000);
         assert_eq!(
             snapshot(
-                &[file(1, "claude-desktop")],
+                &[session(1, "claude-desktop")],
                 &alive(1),
                 &paused,
                 &quiet,
@@ -1584,7 +1586,7 @@ mod tests {
     fn a_session_that_reports_status_ignores_the_blocked_probe() {
         // A cli session says what it is doing. A stale AskUserQuestion left in
         // its transcript must not override a reported busy.
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status = Some("busy".into());
         f.status_updated_at = Some(NOW - 60_000);
         let blocked = FakeBlocked::new().with("session-1", "question pending");
@@ -1611,7 +1613,7 @@ mod tests {
     #[test]
     fn a_dead_statusless_session_with_a_pending_prompt_is_still_dead() {
         // Nobody is left to answer the question.
-        let f = file(1, "claude-desktop");
+        let f = session(1, "claude-desktop");
         let blocked = FakeBlocked::new().with("session-1", "question pending");
 
         let out = snapshot(
@@ -1635,10 +1637,10 @@ mod tests {
 
     #[test]
     fn a_waiting_session_sorts_ahead_even_when_its_waiting_was_inferred() {
-        let mut reported_busy = file(2, "cli");
+        let mut reported_busy = session(2, "cli");
         reported_busy.status = Some("busy".into());
         reported_busy.status_updated_at = Some(NOW - 60_000);
-        let inferred = file(1, "claude-desktop");
+        let inferred = session(1, "claude-desktop");
         let blocked = FakeBlocked::new().with("session-1", "question pending");
 
         let live = FakeLiveness::new()
@@ -1668,7 +1670,7 @@ mod tests {
         // quiet for longer than the retention window was filtered out on the
         // very tick it was first seen dead — no red dot, and no died alert,
         // because diff_alerts only sees what survives this filter.
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status_updated_at = Some(NOW - 12 * 60_000);
 
         let out = snapshot(
@@ -1692,7 +1694,7 @@ mod tests {
 
     #[test]
     fn a_session_dead_longer_than_the_retention_window_drops_off() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status_updated_at = Some(NOW - 60_000);
         let seen = HashMap::from([("session-1".to_string(), NOW - DEAD_RETENTION_MS - 1)]);
 
@@ -1719,7 +1721,7 @@ mod tests {
         // retention filter removed. Reporting only the survivors would drop the
         // map entry, making the same session look newly dead on the next tick
         // and resurrecting it forever.
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status_updated_at = Some(NOW - 60_000);
         let seen = HashMap::from([("session-1".to_string(), NOW - DEAD_RETENTION_MS - 1)]);
 
@@ -1743,7 +1745,7 @@ mod tests {
     #[test]
     fn a_live_session_is_not_reported_dead() {
         let out = snapshot(
-            &[file(1, "cli")],
+            &[session(1, "cli")],
             &alive(1),
             &NoActivity,
             &NoBlocked,
@@ -1760,7 +1762,7 @@ mod tests {
 
     #[test]
     fn a_recently_dead_session_is_retained() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status_updated_at = Some(NOW - 60_000);
         let seen = HashMap::from([("session-1".to_string(), NOW - 60_000)]);
         let out = snapshot(
@@ -1783,7 +1785,7 @@ mod tests {
     fn a_long_dead_session_drops_off_the_list() {
         // Claude Code prunes stale registry files itself; claude-buddy never
         // unlinks them, so it stops showing them instead.
-        let f = file(1, "cli");
+        let f = session(1, "cli");
         let seen = HashMap::from([("session-1".to_string(), NOW - DEAD_RETENTION_MS - 1)]);
         assert!(snapshot(
             &[f],
@@ -1804,7 +1806,7 @@ mod tests {
 
     #[test]
     fn snapshot_carries_absolute_timestamps_alongside_derived_ages() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status_updated_at = Some(NOW - 6 * 60_000);
 
         let out = snapshot(
@@ -1829,7 +1831,7 @@ mod tests {
 
     #[test]
     fn status_time_falls_back_to_started_at_when_absent() {
-        let f = file(1, "cli");
+        let f = session(1, "cli");
         let out = snapshot(
             &[f],
             &alive(1),
@@ -1869,7 +1871,7 @@ mod tests {
 
     #[test]
     fn snapshot_serializes_camel_case_with_lowercase_state() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status = Some("waiting".into());
         f.waiting_for = Some("input needed".into());
         let out = snapshot(
@@ -1919,7 +1921,7 @@ mod tests {
 
     #[test]
     fn a_paused_session_with_a_running_task_is_tasking() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status = Some("idle".into());
         f.status_updated_at = Some(NOW - PAUSED_THRESHOLD_MS - 1);
 
@@ -1944,7 +1946,7 @@ mod tests {
 
     #[test]
     fn an_idle_session_with_a_running_task_is_tasking() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status = Some("idle".into());
         f.status_updated_at = Some(NOW - 60_000);
 
@@ -1968,7 +1970,7 @@ mod tests {
 
     #[test]
     fn more_than_one_running_task_is_counted_in_the_detail() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status = Some("idle".into());
         f.status_updated_at = Some(NOW - 60_000);
 
@@ -2003,7 +2005,7 @@ mod tests {
             ("busy", true, SessionState::Busy),
             ("busy", false, SessionState::Dead),
         ] {
-            let mut f = file(1, "cli");
+            let mut f = session(1, "cli");
             f.status = Some(status.into());
             f.waiting_for = Some("input needed".into());
             f.status_updated_at = Some(NOW - 60_000);
@@ -2035,7 +2037,7 @@ mod tests {
 
     #[test]
     fn a_session_whose_tasks_have_all_finished_is_not_tasking() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status = Some("idle".into());
         f.status_updated_at = Some(NOW - 60_000);
 
@@ -2061,7 +2063,7 @@ mod tests {
 
     #[test]
     fn a_task_that_finished_long_ago_is_dropped_from_the_snapshot() {
-        let mut f = file(1, "cli");
+        let mut f = session(1, "cli");
         f.status = Some("idle".into());
         f.status_updated_at = Some(NOW - 60_000);
 
@@ -2088,11 +2090,11 @@ mod tests {
 
     #[test]
     fn a_live_registry_job_is_a_task_on_the_session_sharing_its_cwd() {
-        let mut parent = file(1, "cli");
+        let mut parent = session(1, "cli");
         parent.status = Some("idle".into());
         parent.status_updated_at = Some(NOW - 60_000);
 
-        let mut job = file(2, "cli");
+        let mut job = session(2, "cli");
         job.cwd = parent.cwd.clone();
         job.kind = Some("bg".into());
         job.job_id = Some("job_01hq8w2n4k".into());
@@ -2130,16 +2132,16 @@ mod tests {
         // jobs by cwd for every session made a single `bg` job read as a task
         // on both: both rows said tasking, the collapsed pill said "2 on
         // tasks", and both popovers listed the same job.
-        let mut first = file(1, "cli");
+        let mut first = session(1, "cli");
         first.status = Some("idle".into());
         first.status_updated_at = Some(NOW - 60_000);
 
-        let mut second = file(2, "cli");
+        let mut second = session(2, "cli");
         second.cwd = first.cwd.clone();
         second.status = Some("idle".into());
         second.status_updated_at = Some(NOW - 60_000);
 
-        let mut job = file(3, "cli");
+        let mut job = session(3, "cli");
         job.cwd = first.cwd.clone();
         job.kind = Some("bg".into());
         job.job_id = Some("job_01hq8w2n4k".into());
@@ -2191,11 +2193,11 @@ mod tests {
         // `sdk-cli` is plugin machinery, dropped before any other layer sees
         // it. Taking jobs from the unfiltered session list is deliberate
         // about `show_background_jobs` only.
-        let mut parent = file(1, "cli");
+        let mut parent = session(1, "cli");
         parent.status = Some("idle".into());
         parent.status_updated_at = Some(NOW - 60_000);
 
-        let mut job = file(2, "sdk-cli");
+        let mut job = session(2, "sdk-cli");
         job.cwd = parent.cwd.clone();
         job.kind = Some("bg".into());
         job.job_id = Some("job_01hq8w2n4k".into());
@@ -2226,11 +2228,11 @@ mod tests {
     fn a_hidden_registry_job_is_still_a_task_on_its_parent() {
         // `showBackgroundJobs` governs whether a job gets a row of its own, not
         // whether its parent is waiting on it.
-        let mut parent = file(1, "cli");
+        let mut parent = session(1, "cli");
         parent.status = Some("idle".into());
         parent.status_updated_at = Some(NOW - 60_000);
 
-        let mut job = file(2, "cli");
+        let mut job = session(2, "cli");
         job.cwd = parent.cwd.clone();
         job.kind = Some("bg".into());
         job.job_id = Some("job_01hq8w2n4k".into());
@@ -2258,11 +2260,11 @@ mod tests {
 
     #[test]
     fn a_dead_registry_job_is_not_a_task() {
-        let mut parent = file(1, "cli");
+        let mut parent = session(1, "cli");
         parent.status = Some("idle".into());
         parent.status_updated_at = Some(NOW - 60_000);
 
-        let mut job = file(2, "cli");
+        let mut job = session(2, "cli");
         job.cwd = parent.cwd.clone();
         job.kind = Some("bg".into());
         job.job_id = Some("job_01hq8w2n4k".into());
@@ -2288,15 +2290,15 @@ mod tests {
 
     #[test]
     fn tasking_sorts_between_busy_and_idle() {
-        let mut busy = file(1, "cli");
+        let mut busy = session(1, "cli");
         busy.status = Some("busy".into());
         busy.status_updated_at = Some(NOW - 1_000);
 
-        let mut tasking = file(2, "cli");
+        let mut tasking = session(2, "cli");
         tasking.status = Some("idle".into());
         tasking.status_updated_at = Some(NOW - 60_000);
 
-        let mut idle = file(3, "cli");
+        let mut idle = session(3, "cli");
         idle.status = Some("idle".into());
         idle.status_updated_at = Some(NOW - 60_000);
 
