@@ -79,7 +79,10 @@ pub fn task_events_with(bytes: &[u8], calls: &mut ToolCalls) -> Vec<TaskEvent> {
                 .get("timestamp")
                 .and_then(|v| v.as_str())
                 .and_then(buddy_core::rfc3339::epoch_ms)?;
-            started_event(record, calls, at_ms).or_else(|| ended_event(record, at_ms))
+            started_event(record, calls, at_ms)
+                .or_else(|| foreground_agent_start(record, at_ms))
+                .or_else(|| agent_result_end(record, at_ms))
+                .or_else(|| ended_event(record, at_ms))
         })
         .collect()
 }
@@ -488,7 +491,25 @@ fn started_event(record: &serde_json::Value, calls: &ToolCalls, at_ms: i64) -> O
         ("taskId", TaskKind::Watch),
     ]
     .into_iter()
-    .find_map(|(field, kind)| Some((result.get(field)?.as_str()?, kind)))?;
+    .find_map(|(field, kind)| {
+        let id = result.get(field)?.as_str()?;
+        // Every agent call's result carries `agentId`, a foreground finish
+        // exactly like a background launch — the field alone cannot tell
+        // them apart. `status` can: Claude Code writes `"async_launched"`
+        // only for a real `run_in_background: true` launch, and something
+        // else terminal (observed: `"completed"`) for a foreground call
+        // whose result just came back. Reading the latter as a launch here
+        // is the reported bug — a task that starts with this event never
+        // gets the `<task-id>` notification that would retire it, because
+        // only a background agent gets one, so it sits `Running` forever.
+        // That result is instead read as an ending, by `agent_result_end`.
+        if field == "agentId"
+            && result.get("status").and_then(|s| s.as_str()) != Some("async_launched")
+        {
+            return None;
+        }
+        Some((id, kind))
+    })?;
 
     let call = result_for(record).and_then(|id| calls.get(id));
     let (kind, label) = match call {
@@ -596,6 +617,86 @@ fn status_from_output(bytes: &[u8]) -> Option<TaskStatus> {
             })
         }
     }
+}
+
+/// A foreground agent's own `tool_use` record, read as the task's start.
+///
+/// A background launch's start is read from its *result* in `started_event`,
+/// because that result is the first record to carry `agentId` — the id its
+/// eventual `<task-id>` notification will name. A foreground agent gets no
+/// such notification; its result just arrives, quietly, whenever the agent
+/// finishes. So its start has to come from the call itself, keyed by the
+/// call's own `tool_use` id — which is also the `tool_use_id` its result's
+/// `tool_result` block will carry, and so the id `agent_result_end` uses to
+/// meet this same task again.
+fn foreground_agent_start(record: &serde_json::Value, at_ms: i64) -> Option<TaskEvent> {
+    let content = assistant_content(record)?;
+    let block = content.iter().find(|b| {
+        b.get("type").and_then(|t| t.as_str()) == Some("tool_use")
+            && matches!(
+                b.get("name").and_then(|n| n.as_str()),
+                Some("Agent") | Some("Task")
+            )
+    })?;
+    let input = block.get("input");
+
+    // A launch has already been read from the result, by `started_event`'s
+    // `agentId` branch, once it arrives — reading a second start here from the
+    // call itself would double it.
+    let backgrounded = input
+        .and_then(|i| i.get("run_in_background"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if backgrounded {
+        return None;
+    }
+
+    let id = block.get("id").and_then(|v| v.as_str())?;
+    let label = input
+        .and_then(|i| i.get("description"))
+        .and_then(|v| v.as_str())
+        .map(|d| clip_to(d, LABEL_MAX_CHARS));
+
+    Some(TaskEvent::Started {
+        id: id.to_string(),
+        kind: TaskKind::Subagent,
+        label,
+        output: None,
+        at_ms,
+    })
+}
+
+/// A foreground agent's own result, read as the task's end.
+///
+/// Every agent result carries `agentId` and a `status`, launched or not, but
+/// only a background launch's `status` is `"async_launched"` — `started_event`
+/// reads that one as a start, before this ever runs. Any other `status` is a
+/// foreground agent's result arriving at completion, and this is the only
+/// record that ever says so: no notification follows it, so without this the
+/// task `foreground_agent_start` created would stay `Running` forever, which
+/// is the bug this pair of functions exists to close.
+///
+/// `"completed"` is the only non-launch status observed in real transcripts.
+/// Anything else is mapped to `Failed` rather than dropped, so an unrecognised
+/// word still retires the task — visibly wrong beats stuck `Running`.
+fn agent_result_end(record: &serde_json::Value, at_ms: i64) -> Option<TaskEvent> {
+    let result = record.get("toolUseResult")?;
+    let status = result.get("status").and_then(|s| s.as_str())?;
+    if status == "async_launched" {
+        return None;
+    }
+    let id = result_for(record)?;
+
+    Some(TaskEvent::Ended {
+        id: id.to_string(),
+        status: if status == "completed" {
+            TaskStatus::Completed
+        } else {
+            TaskStatus::Failed
+        },
+        label: None,
+        at_ms,
+    })
 }
 
 fn ended_event(record: &serde_json::Value, at_ms: i64) -> Option<TaskEvent> {
@@ -765,8 +866,13 @@ mod tests {
         // background agent out of the list, so a session running four of them
         // read `idle`, and the notification that ended one found no running
         // task to retire.
+        //
+        // `run_in_background: true` on the call is what a real background
+        // launch always carries — it is also what keeps `foreground_agent_start`
+        // from reading this same call as an immediate (and wrong) foreground
+        // start of its own.
         let body = concat!(
-            r#"{"type":"assistant","timestamp":"2026-09-02T19:36:50.000Z","message":{"content":[{"type":"tool_use","id":"toolu_4","name":"Agent","input":{"description":"Check the guard"}}]}}"#,
+            r#"{"type":"assistant","timestamp":"2026-09-02T19:36:50.000Z","message":{"content":[{"type":"tool_use","id":"toolu_4","name":"Agent","input":{"description":"Check the guard","run_in_background":true}}]}}"#,
             "\n",
             r#"{"type":"user","timestamp":"2026-09-02T19:36:51.564Z","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_4"}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"a745d48aa8c8c4839","description":"Check the guard"}}"#,
             "\n",
@@ -820,6 +926,166 @@ mod tests {
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].status, TaskStatus::Completed);
         assert_eq!(tasks[0].kind, TaskKind::Subagent);
+    }
+
+    #[test]
+    fn a_foreground_agent_tool_use_starts_a_task() {
+        // Unlike a background launch, a foreground agent's `tool_use` is the
+        // only record with a claim to a start time before its result arrives
+        // — its result carries no `status: "async_launched"` to read a start
+        // from, and gets gated out of `started_event` below.
+        let body = concat!(
+            r#"{"type":"assistant","timestamp":"2026-08-28T10:00:00.000Z","message":{"content":[{"type":"tool_use","id":"toolu_10","name":"Agent","input":{"description":"Investigate the flaky test","model":"sonnet","run_in_background":false,"subagent_type":"general-purpose"},"caller":"main"}]}}"#,
+            "\n",
+        );
+        match &events(body)[0] {
+            TaskEvent::Started {
+                id,
+                kind,
+                label,
+                output,
+                at_ms,
+            } => {
+                assert_eq!(id, "toolu_10");
+                assert_eq!(*kind, TaskKind::Subagent);
+                assert_eq!(label.as_deref(), Some("Investigate the flaky test"));
+                assert_eq!(*output, None);
+                assert_eq!(*at_ms, 1787911200000);
+            }
+            other => panic!("expected a start, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_foreground_task_tool_use_with_no_run_in_background_field_still_starts() {
+        // "falsy or absent": most calls in the wild never write the field at
+        // all when it is false, so absence must read the same as `false`.
+        let body = concat!(
+            r#"{"type":"assistant","timestamp":"2026-08-28T10:00:00.000Z","message":{"content":[{"type":"tool_use","id":"toolu_10b","name":"Task","input":{"description":"Look for the leak"}}]}}"#,
+            "\n",
+        );
+        match &events(body)[0] {
+            TaskEvent::Started { id, kind, .. } => {
+                assert_eq!(id, "toolu_10b");
+                assert_eq!(*kind, TaskKind::Subagent);
+            }
+            other => panic!("expected a start, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_foreground_agents_result_is_read_as_its_end() {
+        // The result of a foreground call reports `agentId` exactly like a
+        // background launch does, but its `status` is `"completed"` rather
+        // than `"async_launched"` — that is the only signal that this is a
+        // finish, not a start, and it is why the end is keyed by the
+        // `tool_result`'s own `tool_use_id` rather than by `agentId`: the two
+        // id spaces never overlap, so `agentId` could not meet the start this
+        // produced above.
+        let body = concat!(
+            r#"{"type":"user","timestamp":"2026-08-28T10:02:55.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_10","content":[{"type":"text","text":"Found it."}]}]},"toolUseResult":{"agentId":"agent-fg-1","agentType":"general-purpose","status":"completed","totalDurationMs":175000,"totalTokens":4200}}"#,
+            "\n",
+        );
+        match &events(body)[0] {
+            TaskEvent::Ended {
+                id,
+                status,
+                label,
+                at_ms,
+            } => {
+                assert_eq!(id, "toolu_10");
+                assert_eq!(*status, TaskStatus::Completed);
+                assert_eq!(*label, None);
+                assert_eq!(*at_ms, 1787911375000);
+            }
+            other => panic!("expected an end, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_foreground_agents_full_lifecycle_ends_it_as_completed() {
+        let body = concat!(
+            r#"{"type":"assistant","timestamp":"2026-08-28T10:00:00.000Z","message":{"content":[{"type":"tool_use","id":"toolu_10","name":"Agent","input":{"description":"Investigate the flaky test","run_in_background":false}}]}}"#,
+            "\n",
+            r#"{"type":"user","timestamp":"2026-08-28T10:02:55.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_10","content":[{"type":"text","text":"Found it."}]}]},"toolUseResult":{"agentId":"agent-fg-1","agentType":"general-purpose","status":"completed","totalDurationMs":175000,"totalTokens":4200}}"#,
+            "\n",
+        );
+        let tasks = tasks_from_events(&events(body), 0);
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, "toolu_10");
+        assert_eq!(tasks[0].kind, TaskKind::Subagent);
+        assert_eq!(tasks[0].status, TaskStatus::Completed);
+        assert_eq!(
+            tasks[0].label.as_deref(),
+            Some("Investigate the flaky test"),
+            "the end carries no label of its own, so the call's description survives"
+        );
+    }
+
+    #[test]
+    fn a_foreground_agent_without_its_result_yet_stays_running() {
+        let body = concat!(
+            r#"{"type":"assistant","timestamp":"2026-08-28T10:00:00.000Z","message":{"content":[{"type":"tool_use","id":"toolu_12","name":"Agent","input":{"description":"Still going","run_in_background":false}}]}}"#,
+            "\n",
+        );
+        let tasks = tasks_from_events(&events(body), 0);
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, "toolu_12");
+        assert_eq!(tasks[0].status, TaskStatus::Running);
+    }
+
+    #[test]
+    fn a_background_agents_full_lifecycle_is_unaffected_by_foreground_handling() {
+        // The new foreground start/end paths must stay out of a background
+        // agent's way: its `tool_use` is backgrounded, so
+        // `foreground_agent_start` skips it, and its result's `status` is
+        // `"async_launched"`, so the new ended-result reading skips it too —
+        // leaving the existing agentId-start / notification-end pair as the
+        // only route, exactly as before this change.
+        let body = concat!(
+            r#"{"type":"assistant","timestamp":"2026-08-28T09:00:00.000Z","message":{"content":[{"type":"tool_use","id":"toolu_11","name":"Agent","input":{"description":"Check the guard","run_in_background":true}}]}}"#,
+            "\n",
+            r#"{"type":"user","timestamp":"2026-08-28T09:00:05.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_11"}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"agent-bg-1","description":"Check the guard"}}"#,
+            "\n",
+            r#"{"type":"queue-operation","timestamp":"2026-08-28T09:05:00.000Z","content":"<task-notification>\n<task-id>agent-bg-1</task-id>\n<status>completed</status>\n<summary>Agent \"Check the guard\" finished</summary>\n</task-notification>"}"#,
+            "\n",
+        );
+        let tasks = tasks_from_events(&events(body), 0);
+        assert_eq!(tasks.len(), 1, "expected exactly one task, got {tasks:?}");
+        assert_eq!(tasks[0].id, "agent-bg-1");
+        assert_eq!(tasks[0].kind, TaskKind::Subagent);
+        assert_eq!(tasks[0].status, TaskStatus::Completed);
+    }
+
+    #[test]
+    fn a_foreground_agents_completed_result_does_not_leave_the_task_running() {
+        // Regression for the reported bug: a real session listed 28 subagent
+        // tasks all `Running`, aged hours, that had in fact all finished. All
+        // 28 were foreground agents — before this change, `started_event`'s
+        // ungated `agentId` branch read a *completed* result as a new launch
+        // (keyed by `agentId`), and nothing ever ends it, because only a
+        // background agent gets a `<task-id>` notification. This is that
+        // exact shape: a `tool_use` call and its completed result, nothing
+        // else in the file. The old code produced one task — `Running`,
+        // keyed by `agentId` — forever.
+        let body = concat!(
+            r#"{"type":"assistant","timestamp":"2026-08-28T10:00:00.000Z","message":{"content":[{"type":"tool_use","id":"toolu_13","name":"Agent","input":{"description":"Audit the payment flow","run_in_background":false}}]}}"#,
+            "\n",
+            r#"{"type":"user","timestamp":"2026-08-28T10:02:55.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_13","content":[{"type":"text","text":"Done."}]}]},"toolUseResult":{"agentId":"agent-fg-9","agentType":"general-purpose","status":"completed","totalDurationMs":175000,"totalTokens":4200}}"#,
+            "\n",
+        );
+        let tasks = tasks_from_events(&events(body), 0);
+        assert!(
+            tasks.iter().all(|t| t.status != TaskStatus::Running),
+            "a foreground agent's result must retire its task, not leave one running forever: {tasks:?}"
+        );
+        assert_eq!(
+            tasks.len(),
+            1,
+            "must not also create a second, orphaned task from the ungated agentId branch: {tasks:?}"
+        );
+        assert_eq!(tasks[0].id, "toolu_13");
+        assert_eq!(tasks[0].status, TaskStatus::Completed);
     }
 
     #[test]
@@ -1192,8 +1458,13 @@ mod tests {
         // records are seven seconds apart against a two-second tick. The
         // window carrying the result then holds no call to look the kind and
         // the description up in, and the task landed as a nameless `Watch`.
+        //
+        // `run_in_background: true` keeps this call out of
+        // `foreground_agent_start`: this test is about the *result's* id
+        // reaching back into an earlier window's call, not about a foreground
+        // agent's own call starting a task on the spot.
         let call = concat!(
-            r#"{"type":"assistant","timestamp":"2026-08-28T09:00:00.000Z","message":{"content":[{"type":"tool_use","id":"toolu_5","name":"Agent","input":{"description":"Audit the payment flow"}}]}}"#,
+            r#"{"type":"assistant","timestamp":"2026-08-28T09:00:00.000Z","message":{"content":[{"type":"tool_use","id":"toolu_5","name":"Agent","input":{"description":"Audit the payment flow","run_in_background":true}}]}}"#,
             "\n",
         );
         let result = concat!(
