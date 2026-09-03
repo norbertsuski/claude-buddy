@@ -2,64 +2,12 @@ use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use serde::Serialize;
-
 use crate::bridge::transcript::{assistant_content, clip_to, message_content};
+use crate::watcher::task::{Task, TaskKind, TaskProbe, TaskStatus};
 
 /// Longest task label the popover will draw. The same width `latest_activity`
 /// clips to, because they sit one under the other in the same popover.
 pub const LABEL_MAX_CHARS: usize = crate::bridge::transcript::ACTIVITY_MAX_CHARS;
-
-/// What kind of work a task is.
-///
-/// `Shell`, `Watch` and `Subagent` all come out of the transcript. `Job` does
-/// not: it is a `bg` registry entry, a separate process, folded onto its parent
-/// by `state::snapshot`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TaskKind {
-    Shell,
-    Watch,
-    Subagent,
-    Job,
-}
-
-/// The four terminal statuses Claude Code writes, plus the one it does not
-/// write because it is the absence of the others.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TaskStatus {
-    Running,
-    Completed,
-    Failed,
-    Killed,
-    Stopped,
-}
-
-impl TaskStatus {
-    /// Whether this task is over.
-    pub fn terminal(self) -> bool {
-        self != TaskStatus::Running
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Task {
-    pub id: String,
-    pub kind: TaskKind,
-    /// The notification's summary, else the originating tool's description.
-    /// Absent for a task whose transcript records carried neither.
-    pub label: Option<String>,
-    pub started_at_ms: i64,
-    pub ended_at_ms: Option<i64>,
-    pub status: TaskStatus,
-    /// The file this task's output is being written to, when its start named
-    /// one. Not sent to the frontend — it is a temp path nothing draws — but
-    /// it is the only place a killed task's ending is ever recorded.
-    #[serde(skip)]
-    pub output: Option<String>,
-}
 
 /// One half of a task's life, as recorded in a transcript.
 #[derive(Debug, Clone, PartialEq)]
@@ -285,20 +233,6 @@ pub fn tasks_from_events(events: &[TaskEvent], since_ms: i64) -> Vec<Task> {
     let mut tasks = Vec::new();
     apply_events(&mut tasks, events, since_ms);
     tasks
-}
-
-/// A session's background tasks.
-///
-/// Injected rather than called directly, matching `PidLiveness`,
-/// `ActivityProbe`, `BlockedProbe`, `WorkProbe` and `TitleProbe`, so the state
-/// machine stays testable without a transcript on disk.
-///
-/// `started_at_ms` is the session's registry `startedAt`, and is the phantom
-/// boundary: nothing before it can still be running. It is a parameter rather
-/// than something the probe looks up because only the registry knows it, and
-/// the probe never reads the registry.
-pub trait TaskProbe {
-    fn tasks(&self, cwd: &str, session_id: &str, started_at_ms: i64) -> Vec<Task>;
 }
 
 /// One session's cached answer.

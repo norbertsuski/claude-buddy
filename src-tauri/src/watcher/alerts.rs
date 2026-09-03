@@ -47,8 +47,8 @@ fn alert_kind(was: Option<SessionState>, now: SessionState) -> Option<AlertKind>
 }
 
 /// How a finished task reads in a notification.
-fn task_outcome(task: &crate::watcher::tasks::Task) -> String {
-    use crate::watcher::tasks::TaskStatus;
+fn task_outcome(task: &crate::watcher::task::Task) -> String {
+    use crate::watcher::task::TaskStatus;
 
     let verb = match task.status {
         TaskStatus::Completed => "completed",
@@ -384,7 +384,7 @@ mod tests {
         assert_eq!(json["kind"], "needsInput");
     }
 
-    use crate::watcher::tasks::{Task, TaskKind, TaskStatus};
+    use crate::watcher::task::{Task, TaskKind, TaskStatus};
 
     fn task(id: &str, status: TaskStatus, label: Option<&str>) -> Task {
         Task {
