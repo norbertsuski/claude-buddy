@@ -10,13 +10,12 @@ use serde::Serialize;
 
 use crate::watcher::alerts::{diff_alerts, Alert};
 use crate::watcher::liveness::PidLiveness;
-use crate::watcher::probes::{ActivityProbe, BlockedProbe, WorkProbe};
+use crate::watcher::probes::{ActivityProbe, BlockedProbe, TitleProbe, WorkProbe};
 use crate::watcher::question::QuestionProbe;
 use crate::watcher::registry::read_registry_dir;
 use crate::watcher::session::RawSession;
 use crate::watcher::state::{snapshot, SessionSnapshot, SessionState};
 use crate::watcher::task::{TaskProbe, TaskStatus};
-use crate::watcher::title::TitleProbe;
 
 /// Reconcile interval. Catches process death and paused-threshold crossings,
 /// neither of which changes a file and so neither of which FSEvents reports.
