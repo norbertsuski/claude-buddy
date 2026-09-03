@@ -5,6 +5,23 @@ section out of this file, and the release workflow uses it as the body of the
 GitHub release and as the notes in the in-app update dialog — so a section that
 is missing here leaves that tag with nothing but the download boilerplate.
 
+## v0.12.0 — 2026-09-03
+
+- **Finished subagents no longer sit in the task list forever.** A session that
+  had run subagents listed every one of them as still running, for as long as
+  the session lived — one real session showed fifty, the oldest four hours old,
+  and all fifty had finished. The widget read a subagent's *result* as its
+  launch and then waited for a completion notification that Claude Code only
+  writes for background tasks, so a foreground subagent could never retire. It
+  is now started by its call and ended by its result, which also means a
+  subagent that is genuinely working shows while it works and holds its session
+  in `tasking` — where before the state was arriving hours late and never
+  leaving.
+
+- **The task list stops at five, and counts the rest.** A session that fanned
+  out to a dozen subagents filled the whole panel with task rows and pushed
+  every other field off it. Five rows now, then `N more…`.
+
 ## v0.11.0 — 2026-09-03
 
 - **A background subagent counts as a task.** A session that launched agents in

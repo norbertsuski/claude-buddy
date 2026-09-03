@@ -1,7 +1,7 @@
 {
   "name": "claude-buddy",
   "private": true,
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "A floating always-on-top macOS widget that shows what every local Claude Code session is doing, and tells you when one is waiting on you.",
   "license": "MIT",
   "author": "Norbert Suski",
@@ -26,7 +26,7 @@
     "dev:local": "BUDDY_UI_LOCAL=1 npm run tauri dev"
   },
   "dependencies": {
-    "@buddy/ui": "github:norbertsuski/buddy-ui#v0.1.1",
+    "@buddy/ui": "github:norbertsuski/buddy-ui#v0.2.0",
     "@tauri-apps/api": "^2.1.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
