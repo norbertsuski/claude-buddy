@@ -76,10 +76,14 @@ imports `watcher::registry::RegistryFile` and `watcher::tasks::{Task, TaskKind,
 TaskProbe, TaskStatus}` directly. Two of its input *types* are provider-shaped,
 so the seam has to be neutralized before the file can move.
 
-`snapshot()` reads exactly ten fields off `RegistryFile` — `pid`, `session_id`,
-`cwd`, `started_at`, `entrypoint`, `kind`, `job_id`, `status`,
-`status_updated_at`, `waiting_for` — which is the whole definition of the
-neutral record core needs. A Cursor hook script can supply all ten.
+`state.rs` reads all twelve `RegistryFile` fields — `pid`, `session_id`, `cwd`,
+`started_at`, `proc_start`, `entrypoint`, `kind`, `job_id`, `name`, `status`,
+`status_updated_at`, `waiting_for` — so the neutral record core needs is the
+whole struct, minus the serde rename attributes that encode Claude Code's JSON
+spelling. Core owns `RawSession` as twelve plain fields; the app keeps
+`RegistryFile` as the deserialization of one provider's file format, plus a
+`From<RegistryFile> for RawSession`. A Cursor hook script supplies the same
+twelve.
 
 Three further couplings are one-liners, not redesigns: `tray.rs:265` reads a
 `crate::commands::CONFIG_EVENT` const, `window.rs:90` reads `watch.rs`'s
