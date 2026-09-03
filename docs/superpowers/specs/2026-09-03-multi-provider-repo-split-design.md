@@ -69,9 +69,22 @@ CGEvent hover polling), `tray.rs`, `visibility.rs`, `awake.rs`, `autostart.rs`,
 Moves to `buddy-ui`: the whole `views/dotRow/*` tree, `useNotch`, `useCursor`,
 `useWidgetSize`, `format.ts`, `heat.ts` — 2,283 lines of source, tests aside.
 
-`watcher/state.rs` (2344) moves to core **as-is**. It is already pure, with
-clock, pid liveness and transcript activity injected as traits — it is already
-abstracted over exactly the axis that varies between providers.
+`watcher/state.rs` (2344) moves to core, but **not as-is** — an earlier draft
+of this document claimed otherwise and was wrong. It is pure, and its clock,
+liveness and activity inputs are already injected as traits, but `state.rs:8-9`
+imports `watcher::registry::RegistryFile` and `watcher::tasks::{Task, TaskKind,
+TaskProbe, TaskStatus}` directly. Two of its input *types* are provider-shaped,
+so the seam has to be neutralized before the file can move.
+
+`snapshot()` reads exactly ten fields off `RegistryFile` — `pid`, `session_id`,
+`cwd`, `started_at`, `entrypoint`, `kind`, `job_id`, `status`,
+`status_updated_at`, `waiting_for` — which is the whole definition of the
+neutral record core needs. A Cursor hook script can supply all ten.
+
+Three further couplings are one-liners, not redesigns: `tray.rs:265` reads a
+`crate::commands::CONFIG_EVENT` const, `window.rs:90` reads `watch.rs`'s
+`SnapshotStore`, and `notify.rs` uses `alerts::{Alert, AlertKind}` plus
+`raise_pid` — the latter already behind an `Activator` trait.
 
 ## The provider seam
 
@@ -175,7 +188,16 @@ build against it, locally included.
 
 ## Migration sequence
 
-1. Seed `buddy-core` with the agnostic Rust modules; push; tag `v0.1.0`.
+**Phase 1 — neutralize the seam in place, inside claude-buddy.** Introduce a
+provider-neutral `RawSession`, retarget `snapshot()` at it, split the `Task`
+data types away from the transcript scanner that produces them, and undo the
+three one-line couplings. No new repo is touched and no file leaves the tree.
+The suite stays green at every commit, and the result is a genuine improvement
+even if the split never happens.
+
+**Phase 2 — move the files out.**
+
+1. Seed `buddy-core` with the now-agnostic Rust modules; push; tag `v0.1.0`.
 2. Seed `buddy-ui` with the agnostic React tree plus its `prepare` build;
    push; tag `v0.1.0`.
 3. Create `buddy-dev` with `repos.txt`, `bootstrap.sh` and the `justfile`.
@@ -184,10 +206,14 @@ build against it, locally included.
 5. Verify against fixtures with `scripts/dev-fixtures.sh`, then release.
 6. Only then start `cursor-buddy`.
 
-Steps 1–4 cannot be atomic across repos, so claude-buddy's `main` has a window
-where the dependency exists but the deletion has not landed. Do step 4 as a
-single PR, and do not start it while another agent session is mid-edit in the
-same checkout.
+Phase 1 must complete before phase 2 begins. Moving files first and fixing
+imports afterwards would leave `main` uncompilable across a window spanning
+three repos.
+
+Within phase 2, steps 1–4 cannot be atomic across repos, so claude-buddy's
+`main` has a window where the dependency exists but the deletion has not
+landed. Do step 4 as a single PR, and do not start it while another agent
+session is mid-edit in the same checkout.
 
 ## Not in scope
 
