@@ -49,7 +49,7 @@ remains correct, because that repo releases only the Claude app.
 
 ## What moves and what stays
 
-Provider-specific, stays in the app repo (3,797 lines):
+Provider-specific, stays in the app repo (3,633 lines):
 
 | File | Lines | Why it cannot move |
 | --- | --- | --- |
@@ -58,8 +58,8 @@ Provider-specific, stays in the app repo (3,797 lines):
 | `watcher/title.rs` | 403 | title events inside that transcript |
 | `watcher/tasks.rs` | 1618 | subagent tasks are a Claude Code concept |
 | `usage.rs`, `usage_api.rs` | 492 | the quota argument above |
-| parts of `bridge/proc_tree.rs` | 264 | matches Claude Code process shapes |
 | `watcher/watch.rs` | 587 | orchestrates the registry and usage fetch for one provider |
+| `commands.rs` | 100 | the Tauri command surface for this app |
 
 Provider-agnostic, moves to `buddy-core` (6,423 lines): `window.rs` (730,
 NSPanel and positioning), `notch.rs` (577, screen geometry), `cursor.rs` (597,
@@ -71,14 +71,17 @@ Moves to `buddy-ui`: the whole `views/dotRow/*` tree, `useNotch`, `useCursor`,
 `useWidgetSize`, `format.ts`, `heat.ts` — 2,283 lines of source, tests aside.
 
 `watcher/state.rs` (2344) moves to core, but **not as-is** — an earlier draft
-of this document claimed otherwise and was wrong. It is pure, and its clock
-and liveness inputs are already injected as traits. Its activity input is
-injected as a trait too, but the trait is declared in a file whose only real
-implementation reads Claude Code transcripts, so injection alone does not
-make it movable — and `state.rs:8-9` imports `watcher::registry::RegistryFile`
-and `watcher::tasks::{Task, TaskKind, TaskProbe, TaskStatus}` directly. Two of
-its input *types* are provider-shaped, so the seam has to be neutralized
-before the file can move.
+of this document claimed otherwise and was wrong. What follows describes the
+branch's starting point, not the file as phase 1 leaves it: `state.rs` was
+pure, and its clock and liveness inputs were already injected as traits. Its
+activity input was injected as a trait too, but the trait was declared in a
+file whose only real implementation read Claude Code transcripts, so
+injection alone did not make it movable — and `state.rs:8-9` imported
+`watcher::registry::RegistryFile` and `watcher::tasks::{Task, TaskKind,
+TaskProbe, TaskStatus}` directly. Two of its input *types* were
+provider-shaped, so the seam had to be neutralized before the file could
+move, which the rest of this section and the "Settled during phase 1" note
+below record as done.
 
 `state.rs` reads eleven of the twelve `RegistryFile` fields in production —
 `pid`, `session_id`, `cwd`, `started_at`, `entrypoint`, `kind`, `job_id`,
@@ -93,8 +96,9 @@ nothing reads it.
 
 Two earlier drafts of this paragraph got the count wrong, first at ten and
 then at twelve. Both were grep artefacts: the first counted only the
-`snapshot()` body, the second counted the test module as production. Core owns `RawSession` as twelve plain fields; the app keeps
-`RegistryFile` as the deserialization of one provider's file format, plus a
+`snapshot()` body, the second counted the test module as production. Core
+owns `RawSession` as twelve plain fields; the app keeps `RegistryFile` as
+the deserialization of one provider's file format, plus a
 `From<RegistryFile> for RawSession`. A Cursor hook script supplies the same
 twelve.
 
@@ -110,6 +114,16 @@ the trait stays with the state machine while the reading stays behind in
 `activity.rs`, `blocked.rs`, `working.rs` and `title.rs`. All three files
 import nothing under `crate::` and move to core with `state.rs`.
 
+`liveness.rs` (270) belongs on that list too, and it is the one omission a
+second whole-branch review actually caught: `state.rs:5` imports
+`PidLiveness` from it, `liveness.rs` has zero `crate::` imports, and neither
+list above named it — seeding `buddy-core` from the lists as they stood
+would not have compiled. Its check is provider-neutral in the same way the
+other three traits are: `PidLiveness` confirms pid identity against a
+`started_at` timestamp, and nothing about that comparison depends on which
+agent wrote the timestamp. It moves to core with `state.rs`, `session.rs`,
+`task.rs` and `probes.rs`.
+
 Two more exist so other core-bound files would not have to reach into
 `watch.rs` for one thing each. `store.rs` (25) holds `SnapshotStore`, the
 latest snapshot kept between watcher ticks for the frontend to fetch on
@@ -121,12 +135,31 @@ row in the stays table instead: it wires `read_registry_dir`, `snapshot()`
 and `usage_api` together for this one provider, so it is the app's watcher
 loop rather than core's.
 
-Two further couplings are one-liners, not redesigns: `tray.rs:265` reads a
-`crate::commands::CONFIG_EVENT` const, and `notify.rs` uses
-`alerts::{Alert, AlertKind}` plus `raise_pid` — the latter already behind an
-`Activator` trait. A third is already gone: `window.rs` used to reach into
-`watch.rs` for `SnapshotStore`, and now reaches into `store.rs` instead, which
-is core-bound itself.
+Four further couplings looked unresolved the last time this paragraph was
+written. Three are settled by relocation. `tray.rs:265` used to read
+`crate::commands::CONFIG_EVENT`; `cc0646e` moved that const to `config.rs`,
+which is core-bound itself, so the read now names a file that travels with
+`tray.rs`. `notify.rs` imports `alerts::{Alert, AlertKind}`; `alerts.rs` is
+one of the files the "Settled during phase 1" note below sends to core, so
+both ends of that import land in the same crate. And `window.rs` used to
+reach into `watch.rs` for `SnapshotStore`; it reaches into `store.rs`
+instead now, which is core-bound too.
+
+The fourth took a decision, not a relocation. `notify.rs:145` calls
+`crate::bridge::raise::raise_pid` concretely, not through the `Activator`
+trait — the trait is used *inside* `raise()`, while `raise_pid` is the
+wrapper that hardcodes `PsProcTree::snapshot()` and `OpenActivator`, so
+nothing on `notify.rs`'s side of that call was ever behind it.
+`bridge/raise.rs` (196) and `bridge/proc_tree.rs` (264) both move to core
+instead of staying: `raise.rs` depends only on `proc_tree`, and
+`proc_tree.rs`'s production code is a generic walk from a pid to its
+hosting `.app` bundle. "Claude" appears in exactly one `proc_tree.rs` doc
+comment, as the example of a nested `.app` — Claude Desktop ships
+`claude.app` inside its Application Support directory — and in test
+fixtures; nothing in its behaviour is provider-specific, so an adapter for
+another provider inherits nothing it must satisfy. Sending callee and
+caller to core together resolves the coupling with no injection and no
+code change.
 
 ## The provider seam
 

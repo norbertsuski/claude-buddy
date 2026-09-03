@@ -1,7 +1,7 @@
 //! The traits `state::snapshot` takes as inputs.
 //!
 //! Separate from the modules that implement them because the questions are not
-//! provider-specific but every answer is: each implementation here reads a
+//! provider-specific but every answer is: each implementation of them reads a
 //! Claude Code transcript, whereas the trait is just "can you tell me whether
 //! this session is busy". A second agent answers the same questions from its
 //! own source.
