@@ -5,6 +5,11 @@
 //! Claude Code transcript, whereas the trait is just "can you tell me whether
 //! this session is busy". A second agent answers the same questions from its
 //! own source.
+//!
+//! Every trait below is injected into `state::snapshot` rather than called
+//! directly, matching `PidLiveness` (`liveness.rs`) and `QuestionProbe`
+//! (`question.rs`), so the state machine stays testable without a transcript
+//! on disk.
 
 /// Last time a session showed any sign of life.
 ///
@@ -25,10 +30,6 @@ pub trait ActivityProbe {
 /// so `state::snapshot` falls back to transcript mtime — which can only
 /// distinguish busy from quiet. A session sitting on an unanswered
 /// `AskUserQuestion` is quiet, and rendered grey, while it is in fact blocked.
-///
-/// Injected rather than called directly, matching `PidLiveness`,
-/// `ActivityProbe` and `QuestionProbe`, so the state machine stays testable
-/// without a transcript on disk.
 pub trait BlockedProbe {
     fn pending_prompt(&self, cwd: &str, session_id: &str) -> Option<String>;
 }
@@ -39,10 +40,6 @@ pub trait BlockedProbe {
 /// transcript mtime — and a transcript is silent for as long as a single tool
 /// call takes. A build, a test run or a subagent can hold a session quiet for
 /// minutes while it is plainly working, which mtime alone reads as `idle`.
-///
-/// Injected rather than called directly, matching `PidLiveness`,
-/// `ActivityProbe`, `BlockedProbe` and `QuestionProbe`, so the state machine
-/// stays testable without a transcript on disk.
 pub trait WorkProbe {
     fn in_flight(&self, cwd: &str, session_id: &str) -> bool;
 }
@@ -54,10 +51,6 @@ pub trait WorkProbe {
 /// list of repositories even when three of them are the same repository. The
 /// title Claude Code gives a session says what the session is *doing*, and it
 /// lives in the transcript rather than the registry.
-///
-/// Injected rather than called directly, matching `PidLiveness`,
-/// `ActivityProbe`, `BlockedProbe`, `QuestionProbe` and `WorkProbe`, so the
-/// state machine stays testable without a transcript on disk.
 pub trait TitleProbe {
     fn title(&self, cwd: &str, session_id: &str) -> Option<String>;
 }
