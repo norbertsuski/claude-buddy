@@ -89,25 +89,6 @@ fn fingerprint(sessions: &[SessionSnapshot]) -> Vec<Fingerprint> {
         .collect()
 }
 
-/// The most recent snapshot, readable by the frontend on demand.
-///
-/// The watcher emits its first snapshot within milliseconds of startup, long
-/// before the webview has loaded and subscribed, and the change filter then
-/// suppresses every later emission while state stays the same. Without a
-/// fetchable copy the UI would sit empty indefinitely.
-#[derive(Default)]
-pub struct SnapshotStore(std::sync::Mutex<Vec<SessionSnapshot>>);
-
-impl SnapshotStore {
-    pub fn set(&self, sessions: Vec<SessionSnapshot>) {
-        *self.0.lock().expect("snapshot store poisoned") = sessions;
-    }
-
-    pub fn get(&self) -> Vec<SessionSnapshot> {
-        self.0.lock().expect("snapshot store poisoned").clone()
-    }
-}
-
 pub struct WatcherHandle {
     stop: Arc<AtomicBool>,
     join: Option<std::thread::JoinHandle<()>>,
@@ -248,6 +229,7 @@ mod tests {
     use crate::watcher::liveness::FakeLiveness;
     use crate::watcher::question::{FakeQuestion, NoQuestion};
     use crate::watcher::state::{SessionState, PAUSED_THRESHOLD_MS};
+    use crate::watcher::store::SnapshotStore;
     use crate::watcher::task::{Task, TaskKind, TaskStatus};
     use crate::watcher::tasks::NoTasks;
     use crate::watcher::title::NoTitle;

@@ -100,7 +100,7 @@ pub fn run() {
             // thread: reading the token can block on a Keychain dialog.
             crate::usage_api::start();
 
-            app.manage(crate::watcher::watch::SnapshotStore::default());
+            app.manage(crate::watcher::store::SnapshotStore::default());
             let handle = app.handle().clone();
 
             let watcher = spawn_watcher(
@@ -126,7 +126,7 @@ pub fn run() {
                 )),
                 move |update| {
                     handle
-                        .state::<crate::watcher::watch::SnapshotStore>()
+                        .state::<crate::watcher::store::SnapshotStore>()
                         .set(update.sessions.clone());
                     crate::notify::deliver(&handle, &update.alerts);
 

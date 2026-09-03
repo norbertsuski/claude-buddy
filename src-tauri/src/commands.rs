@@ -2,11 +2,7 @@ use std::path::Path;
 
 use tauri::{Emitter, Manager};
 
-use crate::config::{self, Config};
-
-/// Broadcast whenever settings change, so the widget can apply the ones that
-/// are purely about how it draws itself without waiting for a restart.
-pub const CONFIG_EVENT: &str = "config://update";
+use crate::config::{self, Config, CONFIG_EVENT};
 
 /// Reject settings that would break the widget rather than writing them.
 pub fn validate(config: &Config) -> Result<(), String> {
@@ -24,7 +20,7 @@ pub fn persist(path: &Path, config: &Config) -> Result<(), String> {
 /// Current sessions, for the frontend to fetch on mount.
 #[tauri::command]
 pub fn get_sessions(
-    store: tauri::State<'_, crate::watcher::watch::SnapshotStore>,
+    store: tauri::State<'_, crate::watcher::store::SnapshotStore>,
 ) -> Vec<crate::watcher::state::SessionSnapshot> {
     store.get()
 }

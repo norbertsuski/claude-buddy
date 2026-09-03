@@ -3,6 +3,12 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+/// The event name the frontend listens on for settings changes.
+///
+/// It lives beside the config it announces rather than in `commands.rs`, so
+/// that emitting it does not require the command layer.
+pub const CONFIG_EVENT: &str = "config://update";
+
 /// User settings. Hand-editable JSON: every field has a default so a
 /// half-written file still loads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -231,7 +231,7 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
 /// anyway.
 fn apply_keep_awake(app: &AppHandle) -> bool {
     let sessions = app
-        .try_state::<crate::watcher::watch::SnapshotStore>()
+        .try_state::<crate::watcher::store::SnapshotStore>()
         .map(|store| store.get())
         .unwrap_or_default();
     crate::awake::apply(crate::awake::should_stay_awake(
@@ -262,7 +262,7 @@ fn edit(app: &AppHandle, change: impl FnOnce(&mut Config)) {
     }
     // The same event the settings window's own writes raise, so a menu toggle
     // and a form toggle are indistinguishable to the widget.
-    let _ = app.emit(crate::commands::CONFIG_EVENT, config);
+    let _ = app.emit(crate::config::CONFIG_EVENT, config);
     refresh(app);
 }
 
