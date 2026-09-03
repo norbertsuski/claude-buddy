@@ -70,11 +70,14 @@ Moves to `buddy-ui`: the whole `views/dotRow/*` tree, `useNotch`, `useCursor`,
 `useWidgetSize`, `format.ts`, `heat.ts` — 2,283 lines of source, tests aside.
 
 `watcher/state.rs` (2344) moves to core, but **not as-is** — an earlier draft
-of this document claimed otherwise and was wrong. It is pure, and its clock,
-liveness and activity inputs are already injected as traits, but `state.rs:8-9`
-imports `watcher::registry::RegistryFile` and `watcher::tasks::{Task, TaskKind,
-TaskProbe, TaskStatus}` directly. Two of its input *types* are provider-shaped,
-so the seam has to be neutralized before the file can move.
+of this document claimed otherwise and was wrong. It is pure, and its clock
+and liveness inputs are already injected as traits. Its activity input is
+injected as a trait too, but the trait is declared in a file whose only real
+implementation reads Claude Code transcripts, so injection alone does not
+make it movable — and `state.rs:8-9` imports `watcher::registry::RegistryFile`
+and `watcher::tasks::{Task, TaskKind, TaskProbe, TaskStatus}` directly. Two of
+its input *types* are provider-shaped, so the seam has to be neutralized
+before the file can move.
 
 `state.rs` reads all twelve `RegistryFile` fields — `pid`, `session_id`, `cwd`,
 `started_at`, `proc_start`, `entrypoint`, `kind`, `job_id`, `name`, `status`,
@@ -241,10 +244,22 @@ recognizes an unanswered `AskUserQuestion` in Claude Code's JSONL,
 `TranscriptQuestion` reads the latest assistant message out of it. All three
 interpret that transcript directly, so all three stay.
 
-`blocked.rs` and `working.rs` are not clean stays, though. Each also declares
-the trait (`BlockedProbe`, `WorkProbe`) that `state.rs` takes as a parameter.
-`state.rs` is pure and headed for core, but it currently imports both traits
-from files that are staying behind. `task.rs`/`tasks.rs` already solved this
-once: the trait moved to `task.rs` with `state.rs`, and the transcript-reading
-implementation stayed behind in `tasks.rs`. `BlockedProbe` and `WorkProbe`
-need that same split before `state.rs` can actually leave.
+`activity.rs`, `blocked.rs`, `working.rs` and `title.rs` are not clean stays,
+though. Each declares a trait (`ActivityProbe`, `BlockedProbe`, `WorkProbe`,
+`TitleProbe`) that `state.rs` takes as a parameter, and each trait's only
+real implementation — `TranscriptActivity`, `TranscriptBlocked`,
+`TranscriptWork`, `TranscriptTitle` — imports `crate::bridge::transcript` to
+read Claude Code's JSONL. `state.rs` is pure and headed for core, but it
+currently imports all four traits from files whose implementations are
+staying behind. The other two injected traits are unaffected: `PidLiveness`
+(`liveness.rs`) checks OS pid liveness and imports nothing under `crate::`,
+so there is no transcript dependency to strand; `TaskProbe` (`task.rs`) has
+that same clean shape only because `f0f02d5` already split it out of
+`tasks.rs`, for this exact reason. That commit is the precedent and the
+shape of the fix here too: the trait moved to `task.rs` with `state.rs`, and
+the transcript-reading implementation stayed behind in `tasks.rs`.
+`ActivityProbe`, `BlockedProbe`, `WorkProbe` and `TitleProbe` each need that
+same split before `state.rs` can actually leave. Phase 1 has been extended
+to perform all four splits on that pattern now, rather than deferring them
+to phase 2, so a mistake here surfaces as a local compile error instead of a
+broken cross-repo dependency.
