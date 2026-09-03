@@ -1305,3 +1305,121 @@ EOF
 - No core-bound module imports anything from `watch.rs`.
 - 409 Rust and 254 frontend tests pass, `cargo fmt --check` and `tsc --noEmit` clean.
 - The spec's inventory names every module in the tree, and records the vocabulary question as phase 2's to answer.
+
+---
+
+### Task 14: close the map phase 2 reads
+
+The second whole-branch review withheld merge for one reason: the spec is the
+artifact phase 2 gets planned from, and it does not name every module. Seed
+`buddy-core` from its lists as they stand and the crate does not compile.
+
+Decided by the author, so this task records rather than asks: **`bridge/raise.rs`
+and `bridge/proc_tree.rs` both move to core.** Verified — `raise.rs` depends only
+on `proc_tree`, and `proc_tree.rs`'s production code is a generic walk from a pid
+to its hosting `.app` bundle. "Claude" appears in one `proc_tree.rs` doc comment,
+as the example of a nested `.app`, and in test fixtures. So `notify.rs:145`'s
+concrete call to `raise_pid` needs no injection: callee and caller travel
+together.
+
+**Files:** `docs/superpowers/specs/2026-09-03-multi-provider-repo-split-design.md`,
+`src-tauri/src/watcher/session.rs`, `src-tauri/src/watcher/state.rs`,
+`src-tauri/src/watcher/probes.rs`
+
+- [ ] **Step 1: Place the four unassigned modules in the spec inventory**
+
+`liveness.rs` → core. It has zero `crate::` imports and `state.rs:5` takes
+`PidLiveness` from it, so a core without it cannot build. This is the one that
+withheld merge.
+
+`bridge/raise.rs` → core, and `bridge/proc_tree.rs` → core, per the decision
+above. Note in the spec that the Claude references in `proc_tree.rs` are a doc
+example and test fixtures, not behaviour, so an adapter inherits nothing it must
+satisfy.
+
+`commands.rs` → stays. It is the Tauri command surface for this app.
+
+- [ ] **Step 2: Rewrite the stale "further couplings" paragraph**
+
+It is wrong in both directions. It still lists `tray.rs:265` reading
+`crate::commands::CONFIG_EVENT`, which `cc0646e` moved to `config.rs`. And it
+says `raise_pid` is "already behind an `Activator` trait" — it is not, from
+`notify.rs`'s side: the trait is used *inside* `raise()`, while `raise_pid` is
+the wrapper that hardcodes `PsProcTree::snapshot()` and `OpenActivator`, and
+`notify.rs:145` calls that wrapper. Replace the paragraph with what is now true:
+all of these are resolved, three by relocation and the fourth by sending callee
+and caller to core together.
+
+- [ ] **Step 3: Correct the last two stale spec passages**
+
+The paragraph beginning "`watcher/state.rs` (2344) moves to core, but **not
+as-is**" still cites `state.rs:8-9` for imports that are no longer there. It
+reads as the rationale for phase 1, which is fine, but mark it as describing the
+branch point rather than the present. And one line where `03426c0` spliced in a
+correction runs to about 200 characters — rewrap it to the document's ~78.
+
+- [ ] **Step 4: Fix the `RawSession` doc comment that still contradicts itself**
+
+`session.rs:4-5` says the record is "the same twelve fields `RegistryFile`
+carries, because `snapshot()` reads all twelve". That is the claim `03426c0`
+corrected fifteen lines below, on the same type. Eleven are read in production.
+Say that, and say the twelfth is carried so the record stays a faithful picture
+of a session rather than of one state machine's current appetite — which is the
+reasoning already written on the field itself.
+
+- [ ] **Step 5: Finish the rename inside `state.rs`**
+
+`f63c2f6` renamed the public parameter; the private helpers kept the old
+vocabulary. `display_name` (`:122`), `allowed_entrypoint` (`:146`) and
+`is_own_session` (`:155`) each take `file: &RawSession`; `job_parent` (`:165`)
+takes `files`; `job_tasks` (`:185`) takes `files`; and the test factory
+`fn file(…) -> RawSession` (`:453`) has roughly 87 call sites. In core there is
+no file — a `RawSession` came from wherever its provider keeps sessions, and
+core's own tests would otherwise read `file(1, "claude-desktop")`.
+
+Rename them to `session`/`sessions`, and the factory to `session`. The compiler
+checks all of it, which is the whole reason to do it before the file changes
+crates. `job_tasks`'s doc currently says "Taken from the unfiltered `sessions`"
+— a name that does not exist in that function until this step lands, so it
+becomes correct rather than needing a further edit.
+
+As in Task 13: leave every "registry" reference that genuinely describes Claude
+Code's on-disk registry or the `job_id`/`kind` semantics it defines.
+
+- [ ] **Step 6: One wording fix in `probes.rs`**
+
+`probes.rs:3-4` says "each implementation **here** reads a Claude Code
+transcript" in the same sentence that explains the implementations live in other
+modules. "each implementation of them" removes the stumble.
+
+- [ ] **Step 7: Full gate**
+
+`npm run typecheck && npm test`, then `cd src-tauri && cargo fmt && cargo test -- --test-threads=1`. Expect exactly 409 and 254 — a rename and doc edits change neither.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git status
+git add docs/superpowers/specs/2026-09-03-multi-provider-repo-split-design.md src-tauri/src/watcher/session.rs src-tauri/src/watcher/state.rs src-tauri/src/watcher/probes.rs
+git commit -m "$(cat <<'EOF'
+docs: finish the map, and stop calling a session a file
+
+Seeding buddy-core from the spec's lists would not have compiled:
+liveness.rs is a snapshot() input that no list assigned. raise.rs and
+proc_tree.rs are now placed too, both in core — proc_tree's production
+code walks a pid to its hosting .app and mentions Claude only in a doc
+example and its fixtures, so notify.rs's concrete call to raise_pid needs
+no injection when callee and caller travel together.
+
+The paragraph naming what was left coupled had gone wrong in both
+directions, stale on CONFIG_EVENT, which cc0646e moved, and reassuring
+about raise_pid, which was never behind the trait from notify.rs's side.
+
+Also finishes the rename f63c2f6 started at the public boundary only. The
+private helpers and the test factory still said file, so core's own state
+tests would have read file(1, "claude-desktop").
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
