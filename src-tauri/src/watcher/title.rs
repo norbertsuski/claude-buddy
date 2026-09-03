@@ -129,46 +129,6 @@ impl TitleProbe for TranscriptTitle {
     }
 }
 
-/// Reports nothing, for callers that do not care.
-pub struct NoTitle;
-
-impl TitleProbe for NoTitle {
-    fn title(&self, _cwd: &str, _session_id: &str) -> Option<String> {
-        None
-    }
-}
-
-/// Test double keyed by session id.
-pub struct FakeTitle {
-    titles: HashMap<String, String>,
-}
-
-impl FakeTitle {
-    pub fn new() -> Self {
-        Self {
-            titles: HashMap::new(),
-        }
-    }
-
-    pub fn with(mut self, session_id: &str, title: &str) -> Self {
-        self.titles
-            .insert(session_id.to_string(), title.to_string());
-        self
-    }
-}
-
-impl Default for FakeTitle {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TitleProbe for FakeTitle {
-    fn title(&self, _cwd: &str, session_id: &str) -> Option<String> {
-        self.titles.get(session_id).cloned()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -10,6 +10,14 @@
 //! directly, matching `PidLiveness` (`liveness.rs`) and `QuestionProbe`
 //! (`question.rs`), so the state machine stays testable without a transcript
 //! on disk.
+//!
+//! Each trait is followed by its two doubles — a no-op for callers that do not
+//! care, and a `HashMap`/`HashSet`-backed fake for tests — rather than all four
+//! traits first and all eight doubles after. These are four unrelated probes,
+//! not a hierarchy, so keeping a probe's trait and its doubles together lets a
+//! reader take in one probe fully before moving to the next.
+
+use std::collections::{HashMap, HashSet};
 
 /// Last time a session showed any sign of life.
 ///
@@ -24,6 +32,45 @@ pub trait ActivityProbe {
     fn last_activity_ms(&self, cwd: &str, session_id: &str) -> Option<i64>;
 }
 
+/// Reports nothing, for callers that do not care about activity.
+pub struct NoActivity;
+
+impl ActivityProbe for NoActivity {
+    fn last_activity_ms(&self, _cwd: &str, _session_id: &str) -> Option<i64> {
+        None
+    }
+}
+
+/// Test double keyed by session id.
+pub struct FakeActivity {
+    times: HashMap<String, i64>,
+}
+
+impl FakeActivity {
+    pub fn new() -> Self {
+        Self {
+            times: HashMap::new(),
+        }
+    }
+
+    pub fn with(mut self, session_id: &str, at_ms: i64) -> Self {
+        self.times.insert(session_id.to_string(), at_ms);
+        self
+    }
+}
+
+impl Default for FakeActivity {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ActivityProbe for FakeActivity {
+    fn last_activity_ms(&self, _cwd: &str, session_id: &str) -> Option<i64> {
+        self.times.get(session_id).copied()
+    }
+}
+
 /// Whether a session is blocked on the user despite never saying so.
 ///
 /// Claude Desktop writes no `status`, `statusUpdatedAt` or `waitingFor` at all,
@@ -32,6 +79,46 @@ pub trait ActivityProbe {
 /// `AskUserQuestion` is quiet, and rendered grey, while it is in fact blocked.
 pub trait BlockedProbe {
     fn pending_prompt(&self, cwd: &str, session_id: &str) -> Option<String>;
+}
+
+/// Reports nothing, for callers that do not care.
+pub struct NoBlocked;
+
+impl BlockedProbe for NoBlocked {
+    fn pending_prompt(&self, _cwd: &str, _session_id: &str) -> Option<String> {
+        None
+    }
+}
+
+/// Test double keyed by session id.
+pub struct FakeBlocked {
+    prompts: HashMap<String, String>,
+}
+
+impl FakeBlocked {
+    pub fn new() -> Self {
+        Self {
+            prompts: HashMap::new(),
+        }
+    }
+
+    pub fn with(mut self, session_id: &str, label: &str) -> Self {
+        self.prompts
+            .insert(session_id.to_string(), label.to_string());
+        self
+    }
+}
+
+impl Default for FakeBlocked {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl BlockedProbe for FakeBlocked {
+    fn pending_prompt(&self, _cwd: &str, session_id: &str) -> Option<String> {
+        self.prompts.get(session_id).cloned()
+    }
 }
 
 /// Whether a session has a tool call still running.
@@ -44,6 +131,45 @@ pub trait WorkProbe {
     fn in_flight(&self, cwd: &str, session_id: &str) -> bool;
 }
 
+/// Reports nothing, for callers that do not care.
+pub struct NoWork;
+
+impl WorkProbe for NoWork {
+    fn in_flight(&self, _cwd: &str, _session_id: &str) -> bool {
+        false
+    }
+}
+
+/// Test double keyed by session id.
+pub struct FakeWork {
+    working: HashSet<String>,
+}
+
+impl FakeWork {
+    pub fn new() -> Self {
+        Self {
+            working: HashSet::new(),
+        }
+    }
+
+    pub fn with(mut self, session_id: &str) -> Self {
+        self.working.insert(session_id.to_string());
+        self
+    }
+}
+
+impl Default for FakeWork {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WorkProbe for FakeWork {
+    fn in_flight(&self, _cwd: &str, session_id: &str) -> bool {
+        self.working.contains(session_id)
+    }
+}
+
 /// What a session calls itself.
 ///
 /// The registry only ever carries `<folder>-<2 chars>`: `nameSource` is
@@ -53,4 +179,44 @@ pub trait WorkProbe {
 /// lives in the transcript rather than the registry.
 pub trait TitleProbe {
     fn title(&self, cwd: &str, session_id: &str) -> Option<String>;
+}
+
+/// Reports nothing, for callers that do not care.
+pub struct NoTitle;
+
+impl TitleProbe for NoTitle {
+    fn title(&self, _cwd: &str, _session_id: &str) -> Option<String> {
+        None
+    }
+}
+
+/// Test double keyed by session id.
+pub struct FakeTitle {
+    titles: HashMap<String, String>,
+}
+
+impl FakeTitle {
+    pub fn new() -> Self {
+        Self {
+            titles: HashMap::new(),
+        }
+    }
+
+    pub fn with(mut self, session_id: &str, title: &str) -> Self {
+        self.titles
+            .insert(session_id.to_string(), title.to_string());
+        self
+    }
+}
+
+impl Default for FakeTitle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TitleProbe for FakeTitle {
+    fn title(&self, _cwd: &str, session_id: &str) -> Option<String> {
+        self.titles.get(session_id).cloned()
+    }
 }

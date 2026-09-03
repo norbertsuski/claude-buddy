@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -63,45 +63,6 @@ impl TranscriptWork {
 impl WorkProbe for TranscriptWork {
     fn in_flight(&self, cwd: &str, session_id: &str) -> bool {
         self.read(cwd, session_id).unwrap_or(false)
-    }
-}
-
-/// Reports nothing, for callers that do not care.
-pub struct NoWork;
-
-impl WorkProbe for NoWork {
-    fn in_flight(&self, _cwd: &str, _session_id: &str) -> bool {
-        false
-    }
-}
-
-/// Test double keyed by session id.
-pub struct FakeWork {
-    working: HashSet<String>,
-}
-
-impl FakeWork {
-    pub fn new() -> Self {
-        Self {
-            working: HashSet::new(),
-        }
-    }
-
-    pub fn with(mut self, session_id: &str) -> Self {
-        self.working.insert(session_id.to_string());
-        self
-    }
-}
-
-impl Default for FakeWork {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl WorkProbe for FakeWork {
-    fn in_flight(&self, _cwd: &str, session_id: &str) -> bool {
-        self.working.contains(session_id)
     }
 }
 

@@ -61,49 +61,10 @@ impl BlockedProbe for TranscriptBlocked {
     }
 }
 
-/// Reports nothing, for callers that do not care.
-pub struct NoBlocked;
-
-impl BlockedProbe for NoBlocked {
-    fn pending_prompt(&self, _cwd: &str, _session_id: &str) -> Option<String> {
-        None
-    }
-}
-
-/// Test double keyed by session id.
-pub struct FakeBlocked {
-    prompts: HashMap<String, String>,
-}
-
-impl FakeBlocked {
-    pub fn new() -> Self {
-        Self {
-            prompts: HashMap::new(),
-        }
-    }
-
-    pub fn with(mut self, session_id: &str, label: &str) -> Self {
-        self.prompts
-            .insert(session_id.to_string(), label.to_string());
-        self
-    }
-}
-
-impl Default for FakeBlocked {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl BlockedProbe for FakeBlocked {
-    fn pending_prompt(&self, _cwd: &str, session_id: &str) -> Option<String> {
-        self.prompts.get(session_id).cloned()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::watcher::probes::{FakeBlocked, NoBlocked};
 
     const PENDING: &str = concat!(
         r#"{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","id":"toolu_ask","name":"AskUserQuestion"}]}}"#,
