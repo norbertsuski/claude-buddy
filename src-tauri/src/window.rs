@@ -87,7 +87,7 @@ pub fn set_widget_visible(app: &AppHandle, visible: bool) {
 /// Main thread only: panel calls are AppKit calls.
 pub fn apply_visibility(app: &AppHandle) {
     let config = crate::config::cached();
-    let sessions = app.state::<crate::watcher::watch::SnapshotStore>().get();
+    let sessions = app.state::<crate::watcher::store::SnapshotStore>().get();
     let hide = crate::visibility::should_hide(&sessions, &config.hide_when, config.hidden);
     set_widget_visible(app, !hide);
 }

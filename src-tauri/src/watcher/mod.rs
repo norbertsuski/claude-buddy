@@ -6,6 +6,7 @@ pub mod question;
 pub mod registry;
 pub mod session;
 pub mod state;
+pub mod store;
 pub mod task;
 pub mod tasks;
 pub mod title;
